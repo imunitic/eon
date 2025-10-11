@@ -2,4 +2,9 @@
  (name eon_ecs)
  (public_name eon-ecs)
  (libraries)
- (flags (:standard -w -32))) ; suppress unused-var warnings for early dev
+ (flags (:standard -w +m-i-s-s-i-n-g-i-n-t-e-r-f-a-c-e -warn-error +A))
+ (private_modules
+   entity_manager
+   component_registry
+   resource_store
+   sparse_set)) ; suppress unused-var warnings for early dev

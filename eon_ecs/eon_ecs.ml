@@ -1,2 +1,3 @@
 module Entity_id = Entity_id
-module Entity_manager = Entity_manager
+module Component = Component
+module World = World

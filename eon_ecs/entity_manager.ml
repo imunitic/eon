@@ -39,11 +39,12 @@ let create_entity mgr : Entity_id.t =
     if mgr.count >= capacity mgr then grow mgr;
     let idx = mgr.count in
     let gen = mgr.generations.(idx) in
+    mgr.count <- mgr.count +1;
     Entity_id.make idx gen
   )
 
 let destroy_entity mgr (e: Entity_id.t) =
-  let idx = e.index in
+  let idx = Entity_id.index e in
   if idx < capacity mgr then (
     mgr.generations.(idx) <- mgr.generations.(idx) + 1;
     if mgr.free_top >= capacity mgr then grow mgr;
@@ -53,6 +54,6 @@ let destroy_entity mgr (e: Entity_id.t) =
   )
 
 let is_alive mgr (e: Entity_id.t) =
-  let idx = e.index in
+  let idx = Entity_id.index e in
   idx < capacity mgr &&
-  mgr.generations.(idx) = e.generation
+  mgr.generations.(idx) = Entity_id.generation e
