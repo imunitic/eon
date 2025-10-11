@@ -1,0 +1,4 @@
+(library
+ (name eon_engine)
+ (public_name eon-engine)
+ (libraries eon-ecs))

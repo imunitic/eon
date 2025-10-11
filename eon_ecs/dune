@@ -1,0 +1,5 @@
+(library
+ (name eon_ecs)
+ (public_name eon-ecs)
+ (libraries)
+ (flags (:standard -w -32))) ; suppress unused-var warnings for early dev
