@@ -42,14 +42,10 @@ let test_multiple_entities () =
   List.iter (fun e -> check_alive world e false) es
 
 (* ------- Test runner ------- *)
-let () =
-  Alcotest.run "[Eon :: ECS] - Entity manager"
-    [
-      ( "basic",
-        [
-          test_case "create entity" `Quick test_create_entity;
-          test_case "destroy entity" `Quick test_destroy_entity;
-          test_case "reuse index" `Quick test_reuse_index;
-          test_case "multiple entities" `Quick test_multiple_entities;
-      ]);
-    ]
+let tests =
+  [
+    test_case "create entity" `Quick test_create_entity;
+    test_case "destroy entity" `Quick test_destroy_entity;
+    test_case "reuse index" `Quick test_reuse_index;
+    test_case "multiple entities" `Quick test_multiple_entities;
+  ]

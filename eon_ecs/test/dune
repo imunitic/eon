@@ -1,3 +1,0 @@
-(test
- (name test_entity_manager)
- (libraries eon-ecs alcotest))
