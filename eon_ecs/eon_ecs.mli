@@ -20,3 +20,8 @@ module World : sig
   (** Central ECS world — manages entities, components, and resources. *)
   include module type of World
 end
+
+module Entity_manager : sig
+  include module type of Entity_manager
+end
+

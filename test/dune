@@ -1,7 +1,6 @@
 (test
  (name test_main)
- (modules test_main
-           test_entity_manager)
+ (modules test_main test_entity_manager)
  (libraries
   alcotest
   eon_ecs
