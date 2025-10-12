@@ -1,5 +1,7 @@
 open Eon_ecs
 
+module Entity_manager = Eon_ecs__Entity_manager
+
 let test_create_and_destroy () =
   let mgr = Entity_manager.create 4 in
   let e1 = Entity_manager.create_entity mgr in
@@ -59,3 +61,4 @@ let tests =
     Alcotest.test_case "invalid destroy" `Quick test_invalid_destroy;
     Alcotest.test_case "growth preserves alive" `Quick test_growth_preserves_alive;
   ]
+

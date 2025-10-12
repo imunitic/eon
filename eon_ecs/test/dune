@@ -1,0 +1,6 @@
+(test
+ (name test_main)
+ (modules :standard)
+ (libraries eon_ecs alcotest)
+ (enabled_if (<> %{profile} "release")))
+
