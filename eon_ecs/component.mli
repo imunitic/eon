@@ -1,6 +1,10 @@
 (** Typed component definitions and runtime packing. *)
 
-type 'a component
+type 'a component = {
+  id   : int;
+  name : string;
+  mutable data : 'a Sparse_set.t;
+}
 (** A component storing values of type ['a]. *)
 
 type any_component =
@@ -15,3 +19,6 @@ val name : any_component -> string
 
 val id : any_component -> int
 (** Get the ID of a component. *)
+
+val with_data : any_component -> ('a Sparse_set.t -> unit) -> unit
+val with_data_result : any_component -> ('a Sparse_set.t -> 'b) -> 'b

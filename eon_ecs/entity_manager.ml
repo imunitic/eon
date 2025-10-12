@@ -50,6 +50,7 @@ let destroy_entity mgr (e: Entity_id.t) =
     if mgr.free_top >= capacity mgr then grow mgr;
     mgr.free_list.(mgr.free_top) <- idx;
     mgr.free_top <- mgr.free_top + 1;
+
     mgr.count <- mgr.count - 1;
   )
 
@@ -57,3 +58,18 @@ let is_alive mgr (e: Entity_id.t) =
   let idx = Entity_id.index e in
   idx < capacity mgr &&
   mgr.generations.(idx) = Entity_id.generation e
+
+let add_component (_mgr: t) (entity: Entity_id.t)
+      (comp : Component.any_component) (value : 'a) =
+  Component.with_data comp (fun data ->
+      Sparse_set.add data entity (Obj.magic value))
+
+let get_component (_mgr: t) (entity: Entity_id.t)
+      (comp : Component.any_component) =
+  Component.with_data_result comp (fun data ->
+      Sparse_set.get data entity)
+
+let remove_component (_mgr: t) (entity: Entity_id.t)
+      (comp: Component.any_component) =
+  Component.with_data comp (fun data ->
+      Sparse_set.remove data entity)

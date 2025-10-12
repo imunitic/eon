@@ -10,3 +10,5 @@ let make id name =
 
 let name (Component c) = c.name
 let id (Component c) = c.id
+let with_data (Component c) f = f (Obj.magic c.data)
+let with_data_result (Component c) f = f (Obj.magic c.data)

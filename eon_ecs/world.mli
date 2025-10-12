@@ -15,3 +15,7 @@ val find_component : t -> name:string -> 'a Component.component option
 val add_resource : t -> string -> 'a -> unit
 val get_resource : t -> string -> 'a option
 
+
+val add_component : t -> Entity_id.t -> name:string -> 'a -> unit
+val get_component : t -> Entity_id.t -> name:string -> 'a option
+val remove_component : t -> Entity_id.t -> name:string -> unit
