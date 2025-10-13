@@ -12,9 +12,15 @@ val is_alive : t -> Entity_id.t -> bool
 val register_component : t -> name:string -> id:int -> 'a Component.component
 val find_component : t -> name:string -> 'a Component.component option
 
-val add_resource : t -> string -> 'a -> unit
-val get_resource : t -> string -> 'a option
+(* data-plane store *)
+val add_data : t -> string -> 'a -> unit
+val get_data : t -> string -> 'a option
+val count_data : t -> int
 
+(* service-plane *)
+val add_service : t -> string -> 'a -> unit
+val get_service : t -> string -> 'a option
+val list_services : t -> Resource_store.Type_id.t list
 
 val add_component : t -> Entity_id.t -> name:string -> 'a -> unit
 val get_component : t -> Entity_id.t -> name:string -> 'a option

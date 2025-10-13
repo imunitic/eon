@@ -5,26 +5,52 @@ end
 
 type packed = Pack : 'a * (unit -> string) -> packed
 
-type t = (Type_id.t, packed) Hashtbl.t
+type t = {
+  services : (Type_id.t, packed) Hashtbl.t;
+  data : packed Sparse_set.t;
+}
 
-let create () : t =
-  Hashtbl.create 32
+let create () = {
+  services = Hashtbl.create 16;
+  data = Sparse_set.create ();
+}
 
-let add store key v = 
-  Hashtbl.replace store key (Pack (v, fun () -> key))
+(* --- Services ------------------------------------------------------------- *)
 
-let get store key = 
-  match Hashtbl.find_opt store key with
+let add_service store key value =
+  Hashtbl.replace store.services key (Pack (value, fun () -> key))
+
+let get_service store key =
+  match Hashtbl.find_opt store.services key with
   | Some (Pack (v, _)) -> Some (Obj.magic v)
   | None -> None
 
-let remove store key =
-  Hashtbl.remove store key
+let remove_service store key =
+  Hashtbl.remove store.services key
 
-let clear store =
-  Hashtbl.clear store
+let list_services store =
+  Hashtbl.to_seq_keys store.services |> List.of_seq
 
-let list_keys store =
-  Hashtbl.to_seq_keys store |> List.of_seq
+(* --- Data ----------------------------------------------------------------- *)
+
+let add_data store id value =
+  let entity = Entity_id.make id 0 in
+  Sparse_set.add store.data entity (Pack (value, fun () -> "data"))
+
+let get_data store id =
+  let entity = Entity_id.make id 0 in
+  match Sparse_set.get store.data entity with
+  | Some (Pack (v, _)) -> Some (Obj.magic v)
+  | None -> None
+
+let remove_data store id =
+  let entity = Entity_id.make id 0 in
+  Sparse_set.remove store.data entity
+
+let iter_data f store =
+  Sparse_set.iter (fun id (Pack (v, _)) -> f id (Obj.magic v)) store.data
+
+let count_data store =
+  Sparse_set.size store.data
 
 let of_typename = Type_id.of_typename

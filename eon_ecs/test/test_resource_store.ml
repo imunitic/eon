@@ -5,54 +5,65 @@ module Resource_store = Eon_ecs__Resource_store
 (* 1. Create and empty store *)
 let test_create_empty () =
   let store = Resource_store.create () in
-  check int "initial size" 0 (List.length (Resource_store.list_keys store))
+  check int "initial services size" 0 (List.length (Resource_store.list_services store));
+  check int "inital data size" 0 (Resource_store.count_data store)
 
-(* 2. Add and get value *)
-let test_add_get () =
+(* data-plane tests *)
+(* 2. Add and get value fro the data-plane *)
+let test_data_add_get () =
   let store = Resource_store.create () in
-  Resource_store.add store (Resource_store.of_typename "position") (42 : int);
-  match Resource_store.get store (Resource_store.of_typename "position") with
+  Resource_store.add_data store 0 (42 : int);
+  match Resource_store.get_data store 0 with
   | Some v -> check int "value retrieved" 42 v
   | None -> fail "value not found"
 
 (* 3. Get non-existent key *)
-let test_missing_key () =
+let test_data_missing_key () =
   let store = Resource_store.create () in
-  match Resource_store.get store (Resource_store.of_typename "ghost") with
+  match Resource_store.get_data store 0  with
   | None -> ()  (* OK *)
   | Some _ -> fail "expected None for missing key"
 
 (* 4. Remove key *)
-let test_remove_key () =
+let test_data_remove_key () =
   let store = Resource_store.create () in
-  Resource_store.add store (Resource_store.of_typename "health") (99 : int);
-  Resource_store.remove store (Resource_store.of_typename "health");
-  match Resource_store.get store (Resource_store.of_typename "health") with
+  Resource_store.add_data store 0  (99 : int);
+  Resource_store.remove_data store 0;
+  match Resource_store.get_data store 0 with
   | None -> ()
   | Some _ -> fail "key was not removed"
 
-(* 5. Clear store *)
-let test_clear_store () =
+(* service-plane tests *)
+(* 5. Add and get value from the service-plane *)
+let test_service_add_get () =
   let store = Resource_store.create () in
-  Resource_store.add store (Resource_store.of_typename "a") true;
-  Resource_store.add store (Resource_store.of_typename "b") false;
-  Resource_store.clear store;
-  check int "cleared size" 0 (List.length (Resource_store.list_keys store))
+  Resource_store.add_service store (Resource_store.of_typename "health") true;
+  match Resource_store.get_service store (Resource_store.of_typename "health") with
+  | Some v -> check bool "value retrieved" true v
+  | None -> fail "value not found"
 
-(* 6. List keys *)
-let test_list_keys () =
+(* 6. Get non-existent key *)
+let test_service_missing_key () =
   let store = Resource_store.create () in
-  Resource_store.add store (Resource_store.of_typename "foo") 1;
-  Resource_store.add store (Resource_store.of_typename "bar") 2;
-  let keys = Resource_store.list_keys store in
-  check bool "contains foo" true (List.mem (Resource_store.of_typename "foo") keys);
-  check bool "contains bar" true (List.mem (Resource_store.of_typename "bar") keys)
+  match Resource_store.get_service store (Resource_store.of_typename "health") with
+  | None -> ()
+  | Some _ -> fail "expected None for missing key"
+
+let test_service_remove_key () =
+  let store = Resource_store.create () in
+  Resource_store.add_service store (Resource_store.of_typename "health") true;
+  Resource_store.remove_service store (Resource_store.of_typename "health");
+  match Resource_store.get_service store (Resource_store.of_typename "health") with
+  | None -> ()
+  | Some _ -> fail "key was not removed"
 
 let tests = [
   test_case "create empty" `Quick test_create_empty;
-  test_case "add/get" `Quick test_add_get;
-  test_case "missing key" `Quick test_missing_key;
-  test_case "remove key" `Quick test_remove_key;
-  test_case "clear store" `Quick test_clear_store;
-  test_case "list keys" `Quick test_list_keys;
+  test_case "data-plane :: add/get" `Quick test_data_add_get;
+  test_case "data-plane :: missing key" `Quick test_data_missing_key;
+  test_case "data-plane :: remove key" `Quick test_data_remove_key;
+  test_case "service-plane :: add/get" `Quick test_service_add_get;
+  test_case "service-plane :: missing key" `Quick test_service_missing_key;
+  test_case "service-plane :: remove key" `Quick test_service_remove_key;
+
 ]
