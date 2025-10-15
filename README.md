@@ -67,6 +67,34 @@ The **Eon ECS Core** is designed to be minimal, pure, and backend-agnostic. It p
 - Controls frame pacing and timing strategies (Variable, Fixed, Hybrid).
 - Integrates with buses (Signals, Events, Commands).
 
+#### 🕰️ Frame Lifecycle (Canonical Order)
+
+The `Ecs_progress` orchestrator processes the three buses in a strict and deterministic order each frame:
+
+```ocaml
+(* --- Frame start --- *)
+events.collect ();
+signals.collect ();
+commands.collect ();
+
+(* --- Run all systems --- *)
+Pipeline.run world dt;
+
+(* --- Frame end --- *)
+signals.drain ();
+commands.drain ();
+events.drain ();
+```
+
+**Rationale:**
+- **Events** are collected first (they represent what happened last frame).
+- **Signals** and **Commands** are collected only if needed (same-frame buses).
+- **Signals** and **Commands** are drained first (to clear same-frame state).
+- **Events** are drained last (swapping buffers for next frame).
+
+This ensures deterministic simulation order and predictable message flow.
+
+
 ### 4.6 💬 Messaging System
 
 - Unified abstraction for Signals, Events, and Commands.
@@ -91,6 +119,54 @@ module type BUS = sig
   val drain : 'msg t -> unit
 end
 ```
+
+#### ⚖️ Expected Message Volume Hierarchy
+
+In a typical ARPG-style frame, the expected message volume follows this pattern:
+
+| Bus | Expected Volume | Example | Role |
+|------|----------------|----------|------|
+| **Commands** | 🔥 Highest | `Move`, `Attack`, `Apply_damage` | Immediate simulation intent |
+| **Events** | ⚙️ Moderate | `Entity_moved`, `Enemy_died`, `Item_picked` | Simulation facts (next frame) |
+| **Signals** | 🌊 Lowest | `UI_opened`, `Button_pressed`, `Sound_played` | Transient UI or audio notifications |
+
+**Summary:**  
+- `Commands > Events > Signals` in both count and frequency.  
+- `Commands` are produced by nearly every system each frame.  
+- `Events` are emitted for significant state changes.  
+- `Signals` are emitted only by UI or side-effect systems.
+
+This volume hierarchy reflects the causal order of simulation data flow:
+
+```
+Commands  →  World Mutation  →  Events  →  Signals
+(Intent)       (Effect)          (Result)   (Reaction)
+```
+
+#### 🧭 Message Flow and Causality
+
+The causal flow of information and actions through the ECS simulation frame:
+
+```mermaid
+flowchart TD
+    C[🧱 **Commands**<br/>_Intent_] -->|Mutate World| W[🌍 **World State**<br/>_Authoritative Data_]
+    W -->|Emit Facts| E[📜 **Events**<br/>_What Happened_]
+    E -->|Trigger Reactions| S[💡 **Signals**<br/>_Side-Effects & UI_]
+
+    %% Dark-theme–friendly colors
+    style C fill:#c62828,stroke:#ff8a80,stroke-width:2px,color:#fff
+    style W fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#fff
+    style E fill:#f9a825,stroke:#fff176,stroke-width:2px,color:#000
+    style S fill:#2e7d32,stroke:#81c784,stroke-width:2px,color:#fff
+
+    linkStyle default stroke:#aaa,stroke-width:1.2px
+```
+
+**Interpretation:**
+- **Commands** → Intent: the verbs of simulation (requests for action).  
+- **World** → Effect: the authoritative data layer where mutations occur.  
+- **Events** → Result: facts produced by simulation changes.  
+- **Signals** → Reaction: side-effects such as UI or audio notifications.
 
 #### ⚙️ Single_bus — same-frame processing (Queue-based, production-grade)
 
