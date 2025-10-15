@@ -8,4 +8,5 @@ let () =
       "Entity ID", Test_entity_id.tests;
       "Component Registry", Test_component_registry.tests;
       "Resource Store", Test_resource_store.tests;
+      "Buses", Test_bus.tests;
     ]
