@@ -8,15 +8,15 @@ All ECS‑related updates, architectural decisions, and implementation notes are
 ## 1️⃣ Core TODOs
 
 - Implement `Resource_store` (v2: service-plane + data-plane) ✅ *(done)*
-- Implement `Signals`, `Events`, and `Commands` (effect-based buses with `on`, `emit`, `drain`, `collect`)
-- Implement `Ecs_progress` with Variable, Fixed, and Hybrid modes
-- Implement `Pipeline` with ordered Phases (use polymorphic variants `[> ]` for extensibility)
+- Implement `Signals`, `Events`, and `Commands` (effect-based buses with `on`, `emit`, `drain`, `collect`) ✅ *(done)*
 - Implement `System.t` — record of function references:
   - `register : world -> unit`
   - `update : world -> float -> unit`
   - `on_signal : world -> Signal.t -> unit`
   - `on_event : world -> Event.t -> unit`
   - `on_command : world -> Command.t -> unit`
+- Implement `Pipeline` with ordered Phases (use polymorphic variants `[> ]` for extensibility)
+- Implement `Ecs_progress` with Variable, Fixed, and Hybrid modes
 - Implement Query interface with `query2`, `query3`, `query4`
 - Implement optional Drawable / RenderGraph integration for rendering
 - Implement multiple Pipelines per World (active/inactive switching for pause/UI separation)
