@@ -21,6 +21,13 @@ module World : sig
   include module type of World
 end
 
+module Bus : sig
+  module type S = Bus.BUS
+  module Single = Single_bus
+  module Double = Double_bus
+end
+
+
 module Signals = Single_bus
 module Events = Double_bus
 module Commands = Single_bus
