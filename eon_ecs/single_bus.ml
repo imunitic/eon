@@ -1,3 +1,4 @@
+include (struct
 type 'msg t = {
     queue: 'msg Queue.t;
     subscribers : ('msg -> unit) list ref;
@@ -19,3 +20,4 @@ let collect (bus: 'msg t) : unit =
   done
 
 let drain = collect
+end : Bus.BUS)

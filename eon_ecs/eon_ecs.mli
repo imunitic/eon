@@ -20,3 +20,10 @@ module World : sig
   (** Central ECS world — manages entities, components, and resources. *)
   include module type of World
 end
+
+module Signals = Single_bus
+module Events = Double_bus
+module Commands = Single_bus
+
+
+module System : module type of System.Make(Signals)(Events)(Commands)

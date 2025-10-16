@@ -9,4 +9,5 @@ let () =
       "Component Registry", Test_component_registry.tests;
       "Resource Store", Test_resource_store.tests;
       "Buses", Test_bus.tests;
+      "Systems", Test_system.tests;
     ]

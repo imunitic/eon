@@ -1,3 +1,4 @@
+include (struct
 type 'msg t = {
   mutable current : 'msg Queue.t;
   mutable next : 'msg Queue.t;
@@ -25,3 +26,4 @@ let drain (bus : 'msg t) : unit =
   bus.current <- bus.next;
   bus.next <- tmp;
   Queue.clear bus.next
+end : Bus.BUS)

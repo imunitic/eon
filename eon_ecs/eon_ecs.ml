@@ -5,3 +5,5 @@ module World = World
 module Signals = Single_bus
 module Events = Double_bus
 module Commands = Single_bus
+
+module System = System.Make(Signals)(Events)(Commands)
