@@ -9,7 +9,7 @@ All ECS‑related updates, architectural decisions, and implementation notes are
 
 - Implement `Resource_store` (v2: service-plane + data-plane) ✅ *(done)*
 - Implement `Signals`, `Events`, and `Commands` (effect-based buses with `on`, `emit`, `drain`, `collect`) ✅ *(done)*
-- Implement `System.t` — record of function references:
+- Implement `System.t` — record of function references: ✅ *(done)*
   - `register : world -> unit`
   - `update : world -> float -> unit`
   - `on_signal : world -> Signal.t -> unit`
