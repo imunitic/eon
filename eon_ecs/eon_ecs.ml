@@ -22,6 +22,13 @@ module Commands = Single_bus
 
 (* Export the functor itself for custom bus configurations *)
 module System = struct
+  module type S = System.S
   module Make = System.Make
   module Default = System.Make(Signals)(Events)(Commands)
+end
+
+module Pipeline = struct
+  module type S = Pipeline.S
+  module Make = Pipeline.Make
+  module Default = Pipeline.Make (System.Default)
 end

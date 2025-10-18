@@ -10,4 +10,5 @@ let () =
       "Resource Store", Test_resource_store.tests;
       "Buses", Test_bus.tests;
       "Systems", Test_system.tests;
+      "Pipeline", Test_pipeline.tests;
     ]

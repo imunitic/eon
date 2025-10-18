@@ -24,48 +24,14 @@ module Events = Double_bus
 module Commands = Single_bus
 
 module System : sig
-  (** The functor used to create a system type from custom bus modules. *)
-  module Make :
-  functor (Signal_bus  : Bus.S)
-            (Event_bus   : Bus.S)
-            (Command_bus : Bus.S)
-  -> sig
-    type core = {
-        register : World.t -> unit;
-        update   : World.t -> float -> unit;
-      }
+  module type S = System.S
 
-    type ('signal, 'event, 'command) reactive = {
-        core       : core;
-        on_signal  : World.t -> 'signal -> unit;
-        on_event   : World.t -> 'event -> unit;
-        on_command : World.t -> 'command -> unit;
-      }
+  module Make = System.Make
+  module Default : module type of Make (Signals) (Events) (Commands)
+end
 
-    val make_core :
-      ?register:(World.t -> unit) ->
-      ?update:(World.t -> float -> unit) ->
-      unit -> core
-
-    val make_reactive :
-      ?register:(World.t -> unit) ->
-      ?update:(World.t -> float -> unit) ->
-      ?on_signal:(World.t -> 's -> unit) ->
-      ?on_event:(World.t -> 'e -> unit) ->
-      ?on_command:(World.t -> 'c -> unit) ->
-      unit -> ('s, 'e, 'c) reactive
-
-    val attach_handlers :
-      ?signals:'s Signal_bus.t ->
-      ?events:'e Event_bus.t ->
-      ?commands:'c Command_bus.t ->
-      World.t ->
-      ('s, 'e, 'c) reactive ->
-      unit
-  end
-
-  module Default :
-  sig
-    include module type of System.Make(Signals)(Events)(Commands)
-  end
+module Pipeline : sig
+  module type S = Pipeline.S
+  module Make = Pipeline.Make
+  module Default : module type of Make (System.Default)
 end

@@ -88,21 +88,19 @@ let test_attach_handlers_manual () =
   let event_bus = Double_bus.create () in
   let command_bus = Single_bus.create () in
 
-  let sys =
+  let _ =
     Test_system.make_reactive
       ~register:(fun _ -> record "register")
       ~on_signal:(fun _ msg -> record ("signal:" ^ msg))
       ~on_event:(fun _ msg -> record ("event:" ^ msg))
       ~on_command:(fun _ msg -> record ("command:" ^ msg))
       ()
+    |> Test_system.attach_handlers
+         ~signals:signal_bus
+         ~events:event_bus
+         ~commands:command_bus
+         world
   in
-
-  Test_system.attach_handlers
-    ~signals:signal_bus
-    ~events:event_bus
-    ~commands:command_bus
-    world sys;
-
   (* --- Frame 1 --- *)
   Single_bus.emit signal_bus "sig1";
   Single_bus.emit command_bus "cmd1";
@@ -117,7 +115,7 @@ let test_attach_handlers_manual () =
   Double_bus.collect event_bus;
 
   check (list string) "Handlers executed in order"
-    [ "register"; "signal:sig1"; "command:cmd1"; "event:evt1" ]
+    ["signal:sig1"; "command:cmd1"; "event:evt1" ]
     (get_log ())
 
 let test_attach_handlers_world_fallback () =
@@ -134,18 +132,16 @@ let test_attach_handlers_world_fallback () =
   World.add_service world "Commands" command_bus;
 
   (* Build a system *)
-  let sys =
+  let _ =
     Test_system.make_reactive
       ~register:(fun _ -> record "register")
       ~on_signal:(fun _ msg -> record ("signal:" ^ msg))
       ~on_event:(fun _ msg -> record ("event:" ^ msg))
       ~on_command:(fun _ msg -> record ("command:" ^ msg))
       ()
+    (* Attach handlers without specifying buses explicitly *)
+    |> Test_system.attach_handlers world
   in
-
-  (* Attach handlers without specifying buses explicitly *)
-  Test_system.attach_handlers world sys;
-
   (* Emit and collect twice to trigger next-frame delivery *)
   Single_bus.emit signal_bus "sig2";
   Double_bus.emit event_bus "evt2";
@@ -161,7 +157,7 @@ let test_attach_handlers_world_fallback () =
   Double_bus.collect event_bus;
   
   check (list string) "Handlers executed in order"
-    [ "register"; "signal:sig2"; "command:cmd2"; "event:evt2" ]
+    ["signal:sig2"; "command:cmd2"; "event:evt2" ]
     (get_log ())
 
 (* -------------------------------------------------------------------------- *)
