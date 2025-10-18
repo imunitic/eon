@@ -8,6 +8,7 @@ val create_entity : t -> Entity_id.t
 val destroy_entity : t -> Entity_id.t -> unit
 val count_entities : t -> int
 val is_alive : t -> Entity_id.t -> bool
+val generation_at : t -> int -> int
 
 val register_component : t -> name:string -> id:int -> 'a Component.component
 val find_component : t -> name:string -> 'a Component.component option

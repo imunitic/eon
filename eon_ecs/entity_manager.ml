@@ -18,6 +18,8 @@ let create initial_capacity =
 let capacity mgr = Array.length mgr.generations
 let count mgr = mgr.count
 
+let generation_at mgr index = mgr.generations.(index)
+
 let grow mgr =
   let old_cap = capacity mgr in
   let new_cap = max 1 (old_cap * 2) in

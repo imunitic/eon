@@ -8,6 +8,7 @@ val grow : t -> unit
 val create_entity : t -> Entity_id.t
 val destroy_entity : t -> Entity_id.t -> unit
 val is_alive : t -> Entity_id.t -> bool
+val generation_at : t -> int -> int
 
 val add_component : t -> Entity_id.t -> Component.any_component -> 'a -> unit
 val get_component : t -> Entity_id.t -> Component.any_component -> 'a option

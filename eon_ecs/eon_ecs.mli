@@ -13,6 +13,10 @@ module World : sig
   include module type of World
 end
 
+module Query : sig
+  include module type of Query
+end
+
 module Bus : sig
   module type S = Bus.BUS
   module Single = Single_bus

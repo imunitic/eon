@@ -20,6 +20,7 @@ let create_entity world = Entity_manager.create_entity world.entities
 let destroy_entity world e = Entity_manager.destroy_entity world.entities e
 let count_entities world = Entity_manager.count world.entities
 let is_alive world e = Entity_manager.is_alive world.entities e
+let generation_at world id = Entity_manager.generation_at world.entities id
 
 (* ---- Component API ---- *)
 let register_component world ~name ~id =
