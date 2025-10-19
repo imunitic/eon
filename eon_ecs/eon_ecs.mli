@@ -29,7 +29,10 @@ module Commands = Single_bus
 
 module System : sig
   module type S = System.S
+  module type KIND = System.KIND
 
+  module Base_kind : module type of System.Base_kind
+  module Make_with_kinds : module type of System.Make_with_kinds
   module Make = System.Make
   module Default : module type of Make (Signals) (Events) (Commands)
 end
@@ -42,6 +45,7 @@ end
 
 module Progress : sig
   module type S = Progress.TIME_MODE
+  module Make_with_kind : module type of Progress.Make_with_kind
   module Make = Progress.Make
   module Default : module type of Make (Pipeline.Default)
 end

@@ -24,6 +24,9 @@ module Commands = Single_bus
 (* Export the functor itself for custom bus configurations *)
 module System = struct
   module type S = System.S
+  module type KIND = System.KIND
+  module Base_kind = System.Base_kind
+  module Make_with_kinds = System.Make_with_kinds
   module Make = System.Make
   module Default = Make(Signals)(Events)(Commands)
 end
@@ -44,6 +47,7 @@ end
 
 module Progress = struct
   module type S = Progress.TIME_MODE
+  module Make_with_kind = Progress.Make_with_kind
   module Make = Progress.Make
   module Default = Make (Pipeline.Default)
 end

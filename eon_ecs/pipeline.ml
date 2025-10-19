@@ -5,6 +5,7 @@
 module type S = sig
   type 'phase t
   type ('s, 'e, 'c) system_t
+  type kind
 
   val create : unit -> 'phase t
   val add_phase : 'phase -> 'phase t -> 'phase t
@@ -17,7 +18,7 @@ module type S = sig
 (** Run systems filtered by a predicate on their kind.
     This is used internally by the Progress module. *)
 val run_by_filter :
-  filter:([`Fixed|`Variable] -> bool) ->
+  filter:(kind -> bool) ->
   'phase t -> World.t -> float -> World.t
 
   val run : 'phase t -> World.t -> float -> World.t
@@ -30,6 +31,7 @@ end
 
 module Make (System : System.S) = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
+  type kind = System.kind
 
   type system_entry = {
       kind : System.kind;

@@ -3,10 +3,12 @@ open Alcotest
 module P = Eon_ecs__Progress
 module World = Eon_ecs__World
 module Pipeline = Eon_ecs__Pipeline
+module Kind = Eon_ecs__System.Base_kind
 
-module DummyPipeline : Pipeline.S = struct
+module DummyPipeline : Pipeline.S with type kind = Kind.kind = struct
   type 'phase t = unit
   type ('s, 'e, 'c) system_t = unit
+  type kind = Kind.kind
 
   let create () = ()
 
@@ -32,7 +34,7 @@ module DummyPipeline : Pipeline.S = struct
     world
 end
 
-module Progress = P.Make(DummyPipeline)
+module Progress = P.Make_with_kind(Kind)(DummyPipeline)
 
 let test_variable () =
   let world = World.create () in

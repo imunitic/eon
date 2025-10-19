@@ -10,51 +10,89 @@ module type TIME_MODE = sig
   (** Opaque type representing the mode’s internal accumulator/state. *)
   type t
 
+  (** Kind tag used to dispatch systems within the pipeline. *)
+  type kind
+
   (** Create a new mode instance. *)
   val create : unit -> t
 
-  (** Advance one step. 
+  (** Advance one step.
       @param world the ECS world to update
       @param dt delta time (in seconds)
-      @param run_fixed callback for fixed-step updates
-      @param run_variable callback for variable-step updates
-      @return the updated world *)
+      @param run callback used to execute pipeline systems for a given kind/tag
+      @return the updated mode state and world *)
   val advance :
     t ->
     world:World.t ->
     dt:float ->
-    run_fixed:(World.t -> float -> World.t) ->
-    run_variable:(World.t -> float -> World.t) ->
-    World.t
+    run:(world:World.t -> kind:kind -> dt:float -> World.t) ->
+    t * World.t
 end
 
 (** {1 Concrete Time Modes} *)
 
-(** Variable time-step progression. *)
-module Variable : TIME_MODE
-
-(** Fixed time-step progression with an accumulator. *)
-module Fixed : sig
-  include TIME_MODE
-  val with_step : float -> t
-  (** Create a fixed mode with the given step size (seconds). *)
+module Variable : sig
+  module type KIND = sig
+    type kind
+    val fixed : kind
+    val variable : kind
+  end
+  module Make : functor (K : KIND) -> TIME_MODE with type kind = K.kind
+  include TIME_MODE with type kind = System.kind
 end
 
-(** Hybrid progression: fixed logic + variable updates. *)
-module Hybrid : sig
-  include TIME_MODE
+module Fixed : sig
+  module type KIND = sig
+    type kind
+    val fixed : kind
+    val variable : kind
+  end
+  module Make : functor (K : KIND) -> sig
+    include TIME_MODE with type kind = K.kind
+    val with_step : float -> t
+  end
+  include TIME_MODE with type kind = System.kind
   val with_step : float -> t
-  (** Create a hybrid mode with the given fixed step size. *)
+end
+
+module Hybrid : sig
+  module type KIND = sig
+    type kind
+    val fixed : kind
+    val variable : kind
+  end
+  module Make : functor (K : KIND) -> sig
+    include TIME_MODE with type kind = K.kind
+    val with_step : float -> t
+  end
+  include TIME_MODE with type kind = System.kind
+  val with_step : float -> t
 end
 
 (** {1 Unified Progress Controller} *)
 
-module Make (Pipeline : Pipeline.S) : sig
+module Make_with_kind
+    (Kind : System.KIND)
+    (Pipeline : Pipeline.S with type kind = Kind.kind) : sig
+  (** Internal packaging of a time mode. *)
+  type custom_mode =
+    | Mode :
+        {
+          init : unit -> 'state;
+          advance :
+            'state ->
+            world:World.t ->
+            dt:float ->
+            run:(world:World.t -> kind:Pipeline.kind -> dt:float -> World.t) ->
+            'state * World.t;
+        } -> custom_mode
+
   (** Supported simulation modes. *)
   type mode =
     | Variable
     | Fixed of float
     | Hybrid of float
+    | Custom of custom_mode
 
   (** Progress controller state. *)
   type 'phase t
@@ -69,3 +107,6 @@ module Make (Pipeline : Pipeline.S) : sig
       @return updated world after all pipeline systems have run *)
   val tick : 'phase t -> world:World.t -> dt:float -> World.t
 end
+
+module Make (Pipeline : Pipeline.S with type kind = System.kind) :
+  module type of Make_with_kind(System.Base_kind)(Pipeline)

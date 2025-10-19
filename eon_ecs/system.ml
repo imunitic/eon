@@ -1,3 +1,18 @@
+module type KIND = sig
+  type kind
+  val fixed : kind
+  val variable : kind
+end
+
+module Base_kind = struct
+  type kind = [ `Fixed | `Variable ]
+  let fixed : kind = `Fixed
+  let variable : kind = `Variable
+end
+
+type base_kind = Base_kind.kind
+type kind = base_kind
+
 module type S = sig
   module type BUS = Bus.BUS
   module Signal_bus : BUS
@@ -9,7 +24,7 @@ module type S = sig
     update   : World.t -> float -> unit;
   }
 
-  type kind = [ `Fixed | `Variable ]
+  type kind
 
   type ('signal, 'event, 'command) reactive = {
     core       : core;
@@ -54,11 +69,13 @@ end
 (* Implementation *)
 (* ====================================================================== *)
 
-module Make
+module Make_with_kinds
+    (Kinds : KIND)
     (Signal_bus  : Bus.BUS)
     (Event_bus   : Bus.BUS)
     (Command_bus : Bus.BUS)
-  : S with module Signal_bus = Signal_bus
+  : S with type kind = Kinds.kind
+       and module Signal_bus = Signal_bus
        and module Event_bus = Event_bus
        and module Command_bus = Command_bus
 = struct
@@ -72,7 +89,7 @@ module Make
     update   : World.t -> float -> unit;
   }
 
-  type kind = [ `Fixed | `Variable ]
+  type kind = Kinds.kind
 
   let make_core ?(register = fun _ -> ()) ?(update = fun _ _ -> ()) () =
     { register; update }
@@ -97,7 +114,7 @@ module Make
       ?(on_signal = ignore_signal)
       ?(on_event = ignore_event)
       ?(on_command = ignore_command)
-      ?(kind = `Variable)
+      ?(kind = Kinds.variable)
       ()
     =
     {
@@ -118,7 +135,13 @@ module Make
     }
 
   let from_core (c : core) : ('s, 'e, 'c) reactive =
-    { core = c; on_signal = ignore_signal; on_event = ignore_event; on_command = ignore_command; kind = `Variable }
+    {
+      core = c;
+      on_signal = ignore_signal;
+      on_event = ignore_event;
+      on_command = ignore_command;
+      kind = Kinds.variable;
+    }
 
   let to_core (r : ('s, 'e, 'c) reactive) : core = r.core
 
@@ -158,3 +181,9 @@ module Make
     Command_bus.on commands (fun msg -> sys.on_command world msg);
     sys
 end
+
+module Make
+    (Signal_bus  : Bus.BUS)
+    (Event_bus   : Bus.BUS)
+    (Command_bus : Bus.BUS) =
+  Make_with_kinds(Base_kind)(Signal_bus)(Event_bus)(Command_bus)
