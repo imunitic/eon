@@ -101,22 +101,15 @@ let () = Pipeline.register_all pipeline world
 (* 5. Pick a time mode and run the loop. *)
 let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline
 
-let rec frame_loop world last_time =
-  (* collect → tick → drain → render *)
-  Signals.collect signals;
-  Events.collect events;
-  Commands.collect commands;
+module Loop = Eon_ecs.Loop.Default
 
-  let now = Unix.gettimeofday () in
-  let dt  = now -. last_time in
-  let world = Progress.tick progress ~world ~dt in
+let should_continue _world () = true
 
-  Signals.drain signals;
-  Commands.drain commands;
-  Events.drain events;
-
-  render world;
-  frame_loop world now
+let final_world =
+  Loop.run
+    ~progress
+    ~world
+    ~should_continue
 ```
 
 ### Message Bus Order (per README.md)
@@ -185,12 +178,12 @@ module Loop = struct
 
   module Make
       (Clock    : CLOCK)
-      (Renderer : RENDERER)
       (Progress : sig
          type 'phase t
          type world
          val tick : 'phase t -> world:world -> dt:float -> world
        end)
+      (Renderer : RENDERER with type world = Progress.world)
       (Buses    : BUSES with type world = Progress.world) = struct
     val run :
       progress:'phase Progress.t ->
@@ -199,12 +192,12 @@ module Loop = struct
       Progress.world
   end
 
-  module Default : sig
-    include module type of Make
-      (struct let now () = Unix.gettimeofday () end)
-      (struct type world = World.t type result = unit
-              let render _ ~dt:_ = () end)
+  module Default = Make
+      ( Clock.Mtime )
       (Progress.Default)
+      (struct type world = World.t
+              type result = unit
+              let render _ ~dt:_ = () end)
       (struct
          type world = World.t
          let collect world =
@@ -222,7 +215,6 @@ module Loop = struct
            Commands.drain commands;
            Events.drain events
        end)
-  end
 end
 ```
 

@@ -17,6 +17,11 @@ module Query : sig
   include module type of Query
 end
 
+module Clock : sig
+  module type S = Clock.S
+  module Mtime : S
+end
+
 module Bus : sig
   module type S = Bus.BUS
   module Single = Single_bus
@@ -48,4 +53,25 @@ module Progress : sig
   module Make_with_kind : module type of Progress.Make_with_kind
   module Make = Progress.Make
   module Default : module type of Make (Pipeline.Default)
+end
+
+module Loop : sig
+  module type CLOCK = Loop.CLOCK
+  module type RENDERER = Loop.RENDERER
+  module type BUSES = Loop.BUSES
+  module Make = Loop.Make
+  module Progress_adapter : sig
+    type 'phase t = 'phase Progress.Default.t
+    type world = World.t
+    val tick : 'phase t -> world:world -> dt:float -> world
+  end
+  module Noop_renderer : RENDERER with type world = World.t and type result = unit
+  module Default_buses : BUSES with type world = World.t
+  module Default :
+    module type of
+      Make
+        (Clock.Mtime)
+        (Progress_adapter)
+        (Noop_renderer)
+        (Default_buses)
 end

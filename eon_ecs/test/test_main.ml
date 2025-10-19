@@ -13,5 +13,6 @@ let () =
       "Pipeline", Test_pipeline.tests;
       "Query", Test_query.tests;
       "Progress", Test_progress.tests;
+      "Loop", Test_loop.tests;
       "World", Test_world.tests;
     ]
