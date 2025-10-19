@@ -123,6 +123,44 @@ let final_world =
     ~progress
     ~world
     ~should_continue
+
+```
+
+**Logging renderer example** – swap in a renderer that inspects the world after every frame (using `Logs` to keep dependencies light):
+
+```ocaml
+module Logging_renderer (Log : sig val info : (('a, Format.formatter, unit, unit) format4) end) = struct
+  type world = World.t
+  type result = unit
+
+  let render world ~dt =
+    let positions =
+      let acc = ref [] in
+      Query.iter1 world "Position" (fun entity (x, y) ->
+          acc := (Entity_id.index entity, x, y) :: !acc);
+      List.rev !acc
+    in
+    Log.info
+      "[frame dt=%.3f] positions: %a"
+      dt
+      (Fmt.list (fun fmt (id, x, y) -> Format.fprintf fmt "(%d -> %.2f, %.2f)" id x y))
+      positions
+end
+
+module Loop_with_logging = Eon_ecs.Loop.Make
+    (Clock.Mtime)
+    (Progress.Default)
+    (Logging_renderer(struct let info = Logs.info end))
+    (struct
+       type world = World.t
+       let collect = Loop.Default_buses.collect
+       let drain   = Loop.Default_buses.drain
+     end)
+
+let () =
+  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_level (Some Logs.Info);
+  ignore (Loop_with_logging.run ~progress ~world ~should_continue)
 ```
 
 ### Message Bus Order (per README.md)
