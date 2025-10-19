@@ -89,6 +89,27 @@ events.drain ();
 Render.draw world;
 ```
 
+```mermaid
+flowchart TD
+    A["Frame Start"] --> B["events.collect()"]
+    B --> C["signals.collect()"]
+    C --> D["commands.collect()"]
+    D --> E["Progress.tick"]
+    E --> F["signals.drain()"]
+    F --> G["commands.drain()"]
+    G --> H["events.drain()"]
+    H --> I["Render / read-only passes"]
+
+    classDef collect fill:#4caf50,stroke:#2e7d32,color:#fff
+    classDef drain fill:#1565c0,stroke:#0d47a1,color:#fff
+    class B collect
+    class C collect
+    class D collect
+    class F drain
+    class G drain
+    class H drain
+```
+
 **Rationale:**
 - **Events** are collected first (they represent what happened last frame).
 - **Signals** and **Commands** are collected once at frame start; `drain` later applies any same-frame emissions.
