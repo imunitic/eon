@@ -357,3 +357,8 @@ When updating this file, consider documenting:
 4. **Testing Playbook** – outline how to unit test systems by attaching them to dummy buses and worlds.
 
 Feel free to extend AGENTS.md as the engine grows—the goal is to keep automation-friendly guidance close to the code.
+
+## TODO
+
+- Benchmark with Bechamel: `Sparse_set.add/set_value/remove`, `Entity_manager.create_entity/destroy_entity`, `World.set_component/get_component`, `Query.iter{2,3,4}`, and `Loop.step` to understand frame-time hotspots.
+- Add QCheck suites: `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
