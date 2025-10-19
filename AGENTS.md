@@ -51,9 +51,11 @@ module World    = Eon_ecs.World
 module System   = Eon_ecs.System.Default
 module Pipeline = Eon_ecs.Pipeline.Default
 module Progress = Eon_ecs.Progress.Default
+module Query    = Eon_ecs.Query
 module Signals  = Eon_ecs.Signals
 module Events   = Eon_ecs.Events
 module Commands = Eon_ecs.Commands
+module Loop     = Eon_ecs.Loop.Default
 
 (* 1. Build buses and register them as services. *)
 let world =
@@ -64,25 +66,36 @@ let world =
   World.add_service world "Signals"  signals;
   World.add_service world "Events"   events;
   World.add_service world "Commands" commands;
+  ignore (World.register_component world ~name:"Position" ~id:0);
+  ignore (World.register_component world ~name:"Velocity" ~id:1);
+  let _player =
+    let entity = World.create_entity world in
+    World.add_component world entity ~name:"Position" (0.0, 0.0);
+    World.add_component world entity ~name:"Velocity" (1.0, 0.0);
+    entity
+  in
   world
 
 let signals  = World.get_service world "Signals"  |> Option.get
 let events   = World.get_service world "Events"   |> Option.get
 let commands = World.get_service world "Commands" |> Option.get
 
-(* 2. Register components as needed. *)
-ignore (World.register_component world ~name:"Position" ~id:0);
-ignore (World.register_component world ~name:"Velocity" ~id:1);
-
 (* 3. Define systems — use make_reactive and attach handlers. *)
 let movement_system =
   System.make_reactive
-    ~update:(fun world _dt ->
-      (* schedule intent via commands *)
-      Commands.emit commands (`Move_player 1.0))
+    ~update:(fun world dt ->
+      Query.iter2 world "Position" "Velocity"
+        (fun entity (x, y) (vx, vy) ->
+          let speed = (vx *. dt, vy *. dt) in
+          Commands.emit commands (`Move_player (entity, speed)) ))
     ~on_command:(fun world -> function
-        | `Set_position (x, y) ->
-            World.set_component world player ~name:"Position" (x, y)
+        | `Move_player (entity, (dx, dy)) ->
+            begin
+              match World.get_component world entity ~name:"Position" with
+              | Some (x, y) ->
+                  World.set_component world entity ~name:"Position" (x +. dx, y +. dy)
+              | None -> ()
+            end
         | _ -> ())
     ~kind:`Fixed
     ()
