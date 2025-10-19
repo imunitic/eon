@@ -161,6 +161,63 @@ let () =
   Logs.set_reporter (Logs_fmt.reporter ());
   Logs.set_level (Some Logs.Info);
   ignore (Loop_with_logging.run ~progress ~world ~should_continue)
+
+```
+
+**Render graph skeleton** – build a neutral graph from the world, ready for a renderer backend:
+
+```ocaml
+module Render_graph = struct
+  type node = {
+    entity : Entity_id.t;
+    position : float * float;
+    sprite : string option;
+  }
+
+  type t = node list
+
+  let build world : t =
+    let nodes = ref [] in
+    Query.iter1 world "Position" (fun entity (x, y) ->
+        let sprite = World.get_data world (Printf.sprintf "sprite:%d" (Entity_id.index entity)) in
+        nodes := { entity; position = (x, y); sprite } :: !nodes);
+    List.rev !nodes
+
+  let pp fmt graph =
+    Fmt.(list ~sep:(any "\n")
+           (fun fmt n ->
+             match n.sprite with
+             | Some s -> Format.fprintf fmt "entity %d -> (%.1f, %.1f) sprite=%s"
+                           (Entity_id.index n.entity) (fst n.position) (snd n.position) s
+             | None -> Format.fprintf fmt "entity %d -> (%.1f, %.1f)"
+                           (Entity_id.index n.entity) (fst n.position) (snd n.position)))
+      fmt
+      graph
+end
+
+module Render_graph_logger = struct
+  type world = World.t
+  type result = unit
+
+  let render world ~dt =
+    let graph = Render_graph.build world in
+    Logs.info (fun m -> m "[%.3f] render graph:@.%a" dt Render_graph.pp graph)
+end
+
+module Loop_with_render_graph = Eon_ecs.Loop.Make
+    (Clock.Mtime)
+    (Progress.Default)
+    (Render_graph_logger)
+    (struct
+       type world = World.t
+       let collect = Loop.Default_buses.collect
+       let drain   = Loop.Default_buses.drain
+     end)
+
+let () =
+  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_level (Some Logs.Info);
+  ignore (Loop_with_render_graph.run ~progress ~world ~should_continue)
 ```
 
 ### Message Bus Order (per README.md)
