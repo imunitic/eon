@@ -69,6 +69,15 @@ let add_component world entity ~name value =
   | None ->
      failwith ("Unknown component: " ^ name)
 
+let set_component world entity ~name value =
+  match Component_registry.find world.components ~name with
+  | Some comp ->
+      let component = Component.Component comp in
+      Entity_manager.remove_component world.entities entity component;
+      Entity_manager.add_component world.entities entity component value
+  | None ->
+      failwith ("Unknown component: " ^ name)
+
 let get_component world entity ~name =
   match Component_registry.find world.components ~name with
   | Some comp ->

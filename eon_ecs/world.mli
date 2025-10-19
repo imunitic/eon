@@ -24,6 +24,7 @@ val get_service : t -> string -> 'a option
 val list_services : t -> Resource_store.Type_id.t list
 
 val add_component : t -> Entity_id.t -> name:string -> 'a -> unit
+val set_component : t -> Entity_id.t -> name:string -> 'a -> unit
 val get_component : t -> Entity_id.t -> name:string -> 'a option
 val remove_component : t -> Entity_id.t -> name:string -> unit
 val remove_all_components : t -> Entity_id.t -> unit
