@@ -52,6 +52,17 @@ let add set entity_id value =
   set.values.(dense_idx) <- value;
   set.count <- set.count + 1
 
+let set_value set entity_id value =
+  let idx = Entity_id.index entity_id in
+  if idx >= capacity set then grow set;
+  let dense_idx =
+    if idx < capacity set then set.sparse.(idx) else -1
+  in
+  if dense_idx <> -1 then
+    set.values.(dense_idx) <- value
+  else
+    add set entity_id value
+
 let remove set entity_id =
   let idx = Entity_id.index entity_id in
   if idx < capacity set then
@@ -70,4 +81,3 @@ let iter f set =
   for i = 0 to set.count - 1 do
     f set.dense.(i) set.values.(i)
   done
-

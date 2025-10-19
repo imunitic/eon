@@ -1,6 +1,9 @@
 open Eon_ecs
 
 module Entity_manager = Eon_ecs__Entity_manager
+module Component = Eon_ecs__Component
+module Component_registry = Eon_ecs__Component_registry
+module Sparse_set = Eon_ecs__Sparse_set
 
 let test_create_and_destroy () =
   let mgr = Entity_manager.create 4 in
@@ -52,6 +55,29 @@ let test_growth_preserves_alive () =
   Alcotest.(check bool) "still alive after grow"
     true (Entity_manager.is_alive mgr e1 && Entity_manager.is_alive mgr e2)
 
+let test_set_component () =
+  let mgr = Entity_manager.create 4 in
+  let registry = Component_registry.create () in
+  let position = Component_registry.register registry ~name:"Position" ~id:0 in
+  let comp = Component.Component position in
+  (* prepare sparse-set backing via component registration *)
+  let entity = Entity_manager.create_entity mgr in
+  (* first set should behave like add *)
+  Entity_manager.set_component mgr entity comp (Obj.repr (1, 1));
+  let value =
+    Entity_manager.get_component mgr entity comp
+    |> Option.map Obj.magic
+  in
+  Alcotest.(check (option @@ pair int int)) "initial set" (Some (1, 1)) value;
+
+  (* second set overrides without changing count *)
+  Entity_manager.set_component mgr entity comp (Obj.repr (2, 3));
+  let updated =
+    Entity_manager.get_component mgr entity comp
+    |> Option.map Obj.magic
+  in
+  Alcotest.(check (option @@ pair int int)) "set overrides" (Some (2, 3)) updated
+
 let tests =
   [
     Alcotest.test_case "create and destroy" `Quick test_create_and_destroy;
@@ -60,5 +86,5 @@ let tests =
     Alcotest.test_case "deterministic allocation" `Quick test_deterministic_allocation;
     Alcotest.test_case "invalid destroy" `Quick test_invalid_destroy;
     Alcotest.test_case "growth preserves alive" `Quick test_growth_preserves_alive;
+    Alcotest.test_case "set component" `Quick test_set_component;
   ]
-

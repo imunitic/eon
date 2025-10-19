@@ -66,6 +66,11 @@ let add_component (_mgr: t) (entity: Entity_id.t)
   Component.with_data comp (fun data ->
       Sparse_set.add data entity (Obj.magic value))
 
+let set_component (_mgr: t) (entity: Entity_id.t)
+      (comp : Component.any_component) (value : 'a) =
+  Component.with_data comp (fun data ->
+      Sparse_set.set_value data entity (Obj.magic value))
+
 let get_component (_mgr: t) (entity: Entity_id.t)
       (comp : Component.any_component) =
   Component.with_data_result comp (fun data ->

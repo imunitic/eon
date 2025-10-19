@@ -68,6 +68,19 @@ let test_iter () =
   let found = List.map snd !acc |> List.sort compare in
   check (list string) "iter returns both" ["a"; "b"] found
 
+let test_set_value () =
+  let set = Sparse_set.create ~capacity:2 () in
+  let ent = e 0 in
+  (* set_value should add when missing *)
+  Sparse_set.set_value set ent 10;
+  check int "size after set insert" 1 (Sparse_set.size set);
+  check (option int) "value after insert" (Some 10) (Sparse_set.get set ent);
+
+  (* and overwrite when present without changing size *)
+  Sparse_set.set_value set ent 42;
+  check int "size unchanged" 1 (Sparse_set.size set);
+  check (option int) "overwritten value" (Some 42) (Sparse_set.get set ent)
+
 (* -------------------------------------------------------------------------- *)
 (* Register tests *)
 (* -------------------------------------------------------------------------- *)
@@ -81,4 +94,5 @@ let tests =
     test_case "swap remove correctness" `Quick test_swap_remove_correctness;
     test_case "grow" `Quick test_grow;
     test_case "iter" `Quick test_iter;
+    test_case "set_value" `Quick test_set_value;
   ]
