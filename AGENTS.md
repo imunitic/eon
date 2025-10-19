@@ -51,13 +51,16 @@ module World    = Eon_ecs.World
 module System   = Eon_ecs.System.Default
 module Pipeline = Eon_ecs.Pipeline.Default
 module Progress = Eon_ecs.Progress.Default
+module Signals  = Eon_ecs.Signals
+module Events   = Eon_ecs.Events
+module Commands = Eon_ecs.Commands
 
 (* 1. Build buses and register them as services. *)
 let world =
   let world = World.create () in
-  let signals  = System.Signal_bus.create ()
-  and events   = System.Event_bus.create ()
-  and commands = System.Command_bus.create () in
+  let signals  = Signals.create ()
+  and events   = Events.create ()
+  and commands = Commands.create () in
   World.add_service world "Signals"  signals;
   World.add_service world "Events"   events;
   World.add_service world "Commands" commands;
@@ -76,7 +79,7 @@ let movement_system =
   System.make_reactive
     ~update:(fun world _dt ->
       (* schedule intent via commands *)
-      System.Command_bus.emit commands (`Move_player 1.0))
+      Commands.emit commands (`Move_player 1.0))
     ~on_command:(fun world -> function
         | `Set_position (x, y) ->
             World.set_component world player ~name:"Position" (x, y)
@@ -100,20 +103,20 @@ let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline
 
 let rec frame_loop world last_time =
   (* collect → tick → collect → drain in canonical order *)
-  System.Signal_bus.collect signals;
-  System.Event_bus.collect events;
-  System.Command_bus.collect commands;
+  Signals.collect signals;
+  Events.collect events;
+  Commands.collect commands;
 
   let now = Unix.gettimeofday () in
   let dt  = now -. last_time in
   let world = Progress.tick progress ~world ~dt in
 
-  System.Command_bus.collect commands;
+  Commands.collect commands;
   render world;
 
-  System.Signal_bus.drain signals;
-  System.Command_bus.drain commands;
-  System.Event_bus.drain events;
+  Signals.drain signals;
+  Commands.drain commands;
+  Events.drain events;
   frame_loop world now
 ```
 
@@ -159,4 +162,3 @@ When updating this file, consider documenting:
 4. **Testing Playbook** – outline how to unit test systems by attaching them to dummy buses and worlds.
 
 Feel free to extend AGENTS.md as the engine grows—the goal is to keep automation-friendly guidance close to the code.
-
