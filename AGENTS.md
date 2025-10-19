@@ -163,6 +163,81 @@ flowchart TD
 
 ---
 
+## 5. Loop Module Design (proposed)
+
+Plan for a lightweight `Loop` module that mirrors the “functor + default alias” style used by `System`, `Pipeline`, and `Progress`:
+
+```ocaml
+module Loop = struct
+  module type CLOCK = sig val now : unit -> float end
+
+  module type RENDERER = sig
+    type world
+    type result
+    val render : world -> dt:float -> result
+  end
+
+  module type BUSES = sig
+    type world
+    val collect : world -> unit
+    val drain   : world -> unit
+  end
+
+  module Make
+      (Clock    : CLOCK)
+      (Renderer : RENDERER)
+      (Progress : sig
+         type 'phase t
+         type world
+         val tick : 'phase t -> world:world -> dt:float -> world
+       end)
+      (Buses    : BUSES with type world = Progress.world) = struct
+    val run :
+      progress:'phase Progress.t ->
+      world:Progress.world ->
+      should_continue:(Progress.world -> Renderer.result -> bool) ->
+      Progress.world
+  end
+
+  module Default : sig
+    include module type of Make
+      (struct let now () = Unix.gettimeofday () end)
+      (struct type world = World.t type result = unit
+              let render _ ~dt:_ = () end)
+      (Progress.Default)
+      (struct
+         type world = World.t
+         let collect world =
+           let signals  = World.get_service world "Signals"  |> Option.get in
+           let events   = World.get_service world "Events"   |> Option.get in
+           let commands = World.get_service world "Commands" |> Option.get in
+           Signals.collect signals;
+           Events.collect events;
+           Commands.collect commands
+         let drain world =
+           let signals  = World.get_service world "Signals"  |> Option.get in
+           let events   = World.get_service world "Events"   |> Option.get in
+           let commands = World.get_service world "Commands" |> Option.get in
+           Signals.drain signals;
+           Commands.drain commands;
+           Events.drain events
+       end)
+  end
+end
+```
+
+**Frame flow inside `run`**
+
+1. `Buses.collect world` → Signals → Events → Commands.
+2. `dt = Clock.now () -. last_time`; `world' = Progress.tick progress ~world ~dt`.
+3. `Buses.drain world'` → Signals → Commands → Events.
+4. `result = Renderer.render world' ~dt`.
+5. Loop while `should_continue world' result` is true.
+
+You can plug in a real renderer (build a render graph or call a backend), switch clocks for determinism, or swap the progress controller without touching the loop core. The default alias uses `Unix.gettimeofday`, the stock buses, and a no-op renderer, so it works out of the box.
+
+---
+
 ## 5. Philosophy Reminders (for future contributors)
 
 - **Commands mutate, Events describe, Signals announce.** Stick to the naming tense guidelines.
