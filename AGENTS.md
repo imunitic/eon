@@ -102,7 +102,7 @@ let () = Pipeline.register_all pipeline world
 let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline
 
 let rec frame_loop world last_time =
-  (* collect → tick → collect → drain in canonical order *)
+  (* collect → tick → drain → render *)
   Signals.collect signals;
   Events.collect events;
   Commands.collect commands;
@@ -111,20 +111,19 @@ let rec frame_loop world last_time =
   let dt  = now -. last_time in
   let world = Progress.tick progress ~world ~dt in
 
-  Commands.collect commands;
-  render world;
-
   Signals.drain signals;
   Commands.drain commands;
   Events.drain events;
+
+  render world;
   frame_loop world now
 ```
 
 ### Message Bus Order (per README.md)
 1. `collect` **Signals → Events → Commands** at the start of the frame.
 2. Call `Progress.tick`.
-3. `collect` Commands again (commands emitted during systems).
-4. End of frame: `drain` **Signals → Commands → Events** exactly once.
+3. End of frame: `drain` **Signals → Commands → Events** exactly once (drains on the single buses also apply any same-frame emissions).
+4. Render (or any read-only pass) **after** the drains so the world is fully up to date.
 
 This sequencing keeps commands same-frame, events next-frame, and signals transient.
 

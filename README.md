@@ -84,13 +84,17 @@ Pipeline.run world dt;
 signals.drain ();
 commands.drain ();
 events.drain ();
+
+(* --- Render / side effects --- *)
+Render.draw world;
 ```
 
 **Rationale:**
 - **Events** are collected first (they represent what happened last frame).
-- **Signals** and **Commands** are collected only if needed (same-frame buses).
-- **Signals** and **Commands** are drained first (to clear same-frame state).
-- **Events** are drained last (swapping buffers for next frame).
+- **Signals** and **Commands** are collected once at frame start; `drain` later applies any same-frame emissions.
+- **Signals** and **Commands** are drained first to apply same-frame mutations before rendering.
+- **Events** are drained last (swapping buffers for the next frame).
+- Rendering or other read-only passes happen **after** all drains so the world reflects every mutation.
 
 This ensures deterministic simulation order and predictable message flow.
 
@@ -348,4 +352,3 @@ Message names in Eon ECS follow a linguistic convention where **tense indicates 
 > - Commands *cause* things.  
 > - Events *describe* what happened.  
 > - Signals *announce* what is happening.
-
