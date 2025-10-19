@@ -16,7 +16,7 @@ All ECS‑related updates, architectural decisions, and implementation notes are
   - `on_event : world -> Event.t -> unit`
   - `on_command : world -> Command.t -> unit`
 - Implement `Pipeline` with ordered Phases (use polymorphic variants `[> ]` for extensibility) ✅ *(done)*
-- Implement `Ecs_progress` with Variable, Fixed, and Hybrid modes
+- Implement `Ecs_progress` with Variable, Fixed, and Hybrid modes ✅ *(done)*
 - Implement Query interface with `query2`, `query3`, `query4` ✅ *(done)*
 - Implement optional Drawable / RenderGraph integration for rendering
 - Implement multiple Pipelines per World (active/inactive switching for pause/UI separation)
