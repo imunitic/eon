@@ -10,9 +10,15 @@ module type S = sig
   val add_phase : 'phase -> 'phase t -> 'phase t
   val before : earlier:'phase -> later:'phase -> 'phase t -> 'phase t
   val after  : later:'phase -> earlier:'phase -> 'phase t -> 'phase t
+
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
+
   val register_all : 'phase t -> World.t -> unit
   val run : 'phase t -> World.t -> float -> World.t
+  val run_filtered :
+    kind:[ `Fixed | `Variable ] ->
+    'phase t -> World.t -> float -> World.t
+
   val phases : 'phase t -> 'phase list
 end
 
@@ -23,15 +29,23 @@ end
 module Make (System : System.S) = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
 
+  (* --- System record with kind annotation --- *)
+  type kind = [ `Fixed | `Variable ]
+
+  type system_entry = {
+      kind : kind;
+      core : System.core;
+    }
+
   (* ================================================================ *)
   (* 🔹 Types *)
   (* ================================================================ *)
 
   type 'phase t = {
-    mutable phases  : ('phase, unit) Hashtbl.t;
-    mutable edges   : ('phase * 'phase) list;  (* before → after relationships *)
-    mutable systems : ('phase, System.core list) Hashtbl.t;
-  }
+      mutable phases  : ('phase, unit) Hashtbl.t;
+      mutable edges   : ('phase * 'phase) list;
+      mutable systems : ('phase, system_entry list) Hashtbl.t;
+    }
 
   (* ================================================================ *)
   (* 🔹 Construction *)
@@ -60,15 +74,16 @@ module Make (System : System.S) = struct
   (* 🔹 System registration *)
   (* ================================================================ *)
 
-  let add_system phase (sys : ('s, 'e, 'c) System.t) t =
+  let add_system phase (sys : ('s, 'e, 'c) system_t) t =
     if not (Hashtbl.mem t.phases phase) then
       invalid_arg "Pipeline.add_system: phase not registered";
     let lst = Hashtbl.find_opt t.systems phase |> Option.value ~default:[] in
-    Hashtbl.replace t.systems phase (sys.System.core :: lst);
+    let entry = { kind = sys.kind; core = sys.core } in
+    Hashtbl.replace t.systems phase (entry :: lst);
     t
 
   (* ================================================================ *)
-  (* 🔹 Phase sorting and execution *)
+  (* 🔹 Phase sorting *)
   (* ================================================================ *)
 
   let topo_sort (edges : ('phase * 'phase) list) (phases : ('phase, unit) Hashtbl.t) =
@@ -76,13 +91,13 @@ module Make (System : System.S) = struct
     and outgoing = Hashtbl.create (Hashtbl.length phases) in
 
     Hashtbl.iter (fun p _ ->
-      Hashtbl.replace incoming p 0;
-      Hashtbl.replace outgoing p []) phases;
+        Hashtbl.replace incoming p 0;
+        Hashtbl.replace outgoing p []) phases;
 
     List.iter
       (fun (a, b) ->
-        Hashtbl.replace outgoing a (b :: (Hashtbl.find outgoing a));
-        Hashtbl.replace incoming b ((Hashtbl.find incoming b) + 1))
+        Hashtbl.replace outgoing a (b :: Hashtbl.find outgoing a);
+        Hashtbl.replace incoming b (Hashtbl.find incoming b + 1))
       edges;
 
     let queue =
@@ -92,16 +107,16 @@ module Make (System : System.S) = struct
     let rec visit acc = function
       | [] -> List.rev acc
       | p :: rest ->
-        let next =
-          List.fold_left
-            (fun acc n ->
-              let deg = Hashtbl.find incoming n - 1 in
-              Hashtbl.replace incoming n deg;
-              if deg = 0 then n :: acc else acc)
-            rest
-            (Hashtbl.find outgoing p)
-        in
-        visit (p :: acc) next
+         let next =
+           List.fold_left
+             (fun acc n ->
+               let deg = Hashtbl.find incoming n - 1 in
+               Hashtbl.replace incoming n deg;
+               if deg = 0 then n :: acc else acc)
+             rest
+             (Hashtbl.find outgoing p)
+         in
+         visit (p :: acc) next
     in
     let order = visit [] queue in
     if List.length order < Hashtbl.length phases then
@@ -119,24 +134,31 @@ module Make (System : System.S) = struct
         match Hashtbl.find_opt t.systems phase with
         | None -> ()
         | Some systems ->
-          List.iter (fun (s : System.core) -> s.register world) (List.rev systems))
+           List.iter (fun s -> s.core.register world) (List.rev systems))
       order
 
-  let run t world dt =
+  let run_filtered ~kind t world dt =
     let order = topo_sort t.edges t.phases in
     List.fold_left
       (fun world phase ->
         match Hashtbl.find_opt t.systems phase with
         | None -> world
         | Some systems ->
-          List.fold_left
-            (fun w (sys : System.core) ->
-              sys.update w dt;
-              w)
-            world
-            (List.rev systems))
+           List.fold_left
+             (fun w (s : system_entry) ->
+               if s.kind = kind then (
+                 s.core.update w dt;
+                 w
+               ) else w)
+             world
+             (List.rev systems))
       world
       order
 
+  let run t world dt =
+    (* Run all systems, regardless of kind *)
+    let world = run_filtered ~kind:`Fixed t world dt in
+    run_filtered ~kind:`Variable t world dt
+  
   let phases t = topo_sort t.edges t.phases
 end

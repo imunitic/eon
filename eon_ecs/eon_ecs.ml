@@ -25,11 +25,25 @@ module Commands = Single_bus
 module System = struct
   module type S = System.S
   module Make = System.Make
-  module Default = System.Make(Signals)(Events)(Commands)
+  module Default = Make(Signals)(Events)(Commands)
 end
+
+(* -------------------------------------------------------------------------- *)
+(* 🧩 Pipelines *)
+(* -------------------------------------------------------------------------- *)
 
 module Pipeline = struct
   module type S = Pipeline.S
   module Make = Pipeline.Make
-  module Default = Pipeline.Make (System.Default)
+  module Default = Make (System.Default)
+end
+
+(* -------------------------------------------------------------------------- *)
+(* 🧩 Progress & Loop *)
+(* -------------------------------------------------------------------------- *)
+
+module Progress = struct
+  module type S = Progress.TIME_MODE
+  module Make = Progress.Make
+  module Default = Make (Pipeline.Default)
 end

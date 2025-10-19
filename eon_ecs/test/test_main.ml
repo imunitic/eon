@@ -11,5 +11,6 @@ let () =
       "Buses", Test_bus.tests;
       "Systems", Test_system.tests;
       "Pipeline", Test_pipeline.tests;
-      "Query", Test_query.tests
+      "Query", Test_query.tests;
+      "Progress", Test_progress.tests;
     ]

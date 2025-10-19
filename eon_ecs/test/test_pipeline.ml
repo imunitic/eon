@@ -101,6 +101,50 @@ let test_cycle_detection () =
   check bool "cycle detected" true raised
 
 (* -------------------------------------------------------------------------- *)
+(* 🔹 Test 5: run_filtered behavior *)
+(* -------------------------------------------------------------------------- *)
+
+let test_run_filtered () =
+  let logs = ref [] in
+  let record msg = logs := !logs @ [ msg ] in
+
+  (* Helper that makes a system with a given kind *)
+  let mk_sys name kind =
+    Sys.make_core
+      ~register:(fun _ -> record ("register:" ^ name))
+      ~update:(fun _ _ -> record ("update:" ^ name))
+      ()
+    |> Sys.from_core
+    |> fun sys -> { sys with kind }  (* mark kind manually *)
+  in
+
+  (* Systems of different kinds *)
+  let sys_fixed = mk_sys "FixedSys" `Fixed
+  and sys_var = mk_sys "VariableSys" `Variable in
+
+  let p =
+    Pipeline.create ()
+    |> Pipeline.add_phase `Main
+    |> Pipeline.add_system `Main sys_fixed
+    |> Pipeline.add_system `Main sys_var
+  in
+
+  let world = World.create () in
+  Pipeline.register_all p world;
+
+  ignore (Pipeline.run_filtered ~kind:`Fixed p world 0.016);
+  check (list string) "only fixed systems run"
+    [ "register:FixedSys"; "register:VariableSys"; "update:FixedSys" ]
+    !logs;
+
+  logs := [];
+
+  ignore (Pipeline.run_filtered ~kind:`Variable p world 0.016);
+  check (list string) "only variable systems run"
+    [ "update:VariableSys" ]
+    !logs
+
+(* -------------------------------------------------------------------------- *)
 (* 🔹 Collect tests *)
 (* -------------------------------------------------------------------------- *)
 
@@ -109,4 +153,5 @@ let tests = [
   test_case "before/after"     `Quick test_before_after;
   test_case "run order"        `Quick test_run_order;
   test_case "cycle detection"  `Quick test_cycle_detection;
+  test_case "run_filtered"     `Quick test_run_filtered;
 ]

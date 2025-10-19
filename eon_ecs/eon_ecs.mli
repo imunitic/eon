@@ -39,3 +39,9 @@ module Pipeline : sig
   module Make = Pipeline.Make
   module Default : module type of Make (System.Default)
 end
+
+module Progress : sig
+  module type S = Progress.TIME_MODE
+  module Make = Progress.Make
+  module Default : module type of Make (Pipeline.Default)
+end
