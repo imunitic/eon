@@ -12,21 +12,24 @@ module DummyPipeline : Pipeline.S = struct
 
   let add_phase _ _ = ()
   let before ~earlier:_ ~later:_ _ = ()
-  let after  ~later:_ ~earlier:_ _ = ()
+  let after ~later:_ ~earlier:_ _ = ()
   let add_system _ _ _ = ()
   let register_all _ _ = ()
   let phases _ = []
 
-  (* Minimal "run" that increments tick_count *)
+  (* Simulate running systems by incrementing tick_count *)
   let run _ world _dt =
     let open World in
     add_data world "tick_count"
       (1 + Option.value ~default:0 (get_data world "tick_count"));
     world
 
-  (* The filtered version behaves the same for simplicity *)
-  let run_filtered ~kind:_ _ world _dt =
-    run () world _dt
+  (* Match the new run_by_filter signature used by Progress *)
+  let run_by_filter ~filter:_ _ world _dt =
+    let open World in
+    add_data world "tick_count"
+      (1 + Option.value ~default:0 (get_data world "tick_count"));
+    world
 end
 
 module Progress = P.Make(DummyPipeline)

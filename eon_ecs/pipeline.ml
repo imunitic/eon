@@ -14,11 +14,13 @@ module type S = sig
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
 
   val register_all : 'phase t -> World.t -> unit
-  val run : 'phase t -> World.t -> float -> World.t
-  val run_filtered :
-    kind:[ `Fixed | `Variable ] ->
-    'phase t -> World.t -> float -> World.t
+(** Run systems filtered by a predicate on their kind.
+    This is used internally by the Progress module. *)
+val run_by_filter :
+  filter:([`Fixed|`Variable] -> bool) ->
+  'phase t -> World.t -> float -> World.t
 
+  val run : 'phase t -> World.t -> float -> World.t
   val phases : 'phase t -> 'phase list
 end
 
@@ -29,11 +31,8 @@ end
 module Make (System : System.S) = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
 
-  (* --- System record with kind annotation --- *)
-  type kind = [ `Fixed | `Variable ]
-
   type system_entry = {
-      kind : kind;
+      kind : System.kind;
       core : System.core;
     }
 
@@ -137,7 +136,7 @@ module Make (System : System.S) = struct
            List.iter (fun s -> s.core.register world) (List.rev systems))
       order
 
-  let run_filtered ~kind t world dt =
+  let run_by_filter ~filter t world dt =
     let order = topo_sort t.edges t.phases in
     List.fold_left
       (fun world phase ->
@@ -146,19 +145,29 @@ module Make (System : System.S) = struct
         | Some systems ->
            List.fold_left
              (fun w (s : system_entry) ->
-               if s.kind = kind then (
+               if filter s.kind then (
                  s.core.update w dt;
                  w
                ) else w)
              world
              (List.rev systems))
+      world order
+
+  let run t world dt =
+    let order = topo_sort t.edges t.phases in
+    List.fold_left
+      (fun world phase ->
+        match Hashtbl.find_opt t.systems phase with
+        | None -> world
+        | Some systems ->
+           List.fold_left
+             (fun w s ->
+               s.core.update w dt;
+               w)
+             world
+             (List.rev systems))
       world
       order
 
-  let run t world dt =
-    (* Run all systems, regardless of kind *)
-    let world = run_filtered ~kind:`Fixed t world dt in
-    run_filtered ~kind:`Variable t world dt
-  
   let phases t = topo_sort t.edges t.phases
 end

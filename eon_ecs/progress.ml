@@ -124,13 +124,17 @@ module Make (Pipeline : Pipeline.S) = struct
     | Var v ->
        Variable.advance v ~world ~dt
          ~run_fixed:(fun w _ -> w)
-         ~run_variable:(fun w dt -> Pipeline.run t.pipeline w dt)
+         ~run_variable:(fun w dt ->
+           Pipeline.run_by_filter ~filter:(fun k -> k = `Variable) t.pipeline w dt)
     | Fix f ->
        Fixed.advance f ~world ~dt
-         ~run_fixed:(fun w dt -> Pipeline.run t.pipeline w dt)
+         ~run_fixed:(fun w dt ->
+           Pipeline.run_by_filter ~filter:(fun k -> k = `Fixed) t.pipeline w dt)
          ~run_variable:(fun w _ -> w)
     | Hyb h ->
        Hybrid.advance h ~world ~dt
-         ~run_fixed:(fun w dt -> Pipeline.run_filtered ~kind:`Fixed t.pipeline w dt)
-         ~run_variable:(fun w dt -> Pipeline.run_filtered ~kind:`Variable t.pipeline w dt)
+         ~run_fixed:(fun w dt ->
+           Pipeline.run_by_filter ~filter:(fun k -> k = `Fixed) t.pipeline w dt)
+         ~run_variable:(fun w dt ->
+           Pipeline.run_by_filter ~filter:(fun k -> k = `Variable) t.pipeline w dt)
 end
