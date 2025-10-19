@@ -82,3 +82,9 @@ let remove_component world entity ~name =
      Entity_manager.remove_component world.entities entity (Component.Component comp)
   | None ->
      failwith ("Unknown component: " ^ name)
+
+let remove_all_components world e =
+  Component_registry.iter
+    (fun (Component.Component c) ->
+      Sparse_set.remove c.Component.data e)
+    world.components
