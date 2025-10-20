@@ -33,39 +33,59 @@ end
 
 module Variable : sig
   module type KIND = sig
+    (** Abstract mapping of fixed/variable kinds to pipeline tags. *)
     type kind
+    (** Tag associated with fixed-step system execution. *)
     val fixed : kind
+    (** Tag associated with variable-step system execution. *)
     val variable : kind
   end
+  (** Functor producing a variable-step mode for a custom kind mapping. *)
   module Make : functor (K : KIND) -> TIME_MODE with type kind = K.kind
+
+  (** Default variable-step mode using {!System.kind} tags. *)
   include TIME_MODE with type kind = System.kind
 end
 
 module Fixed : sig
   module type KIND = sig
+    (** Abstract mapping of fixed/variable kinds to pipeline tags. *)
     type kind
+    (** Tag associated with fixed-step system execution. *)
     val fixed : kind
+    (** Tag associated with variable-step system execution. *)
     val variable : kind
   end
   module Make : functor (K : KIND) -> sig
     include TIME_MODE with type kind = K.kind
+    (** Instantiate a fixed-step mode with the provided step duration. *)
     val with_step : float -> t
   end
+  (** Default fixed-step mode using {!System.kind} tags. *)
   include TIME_MODE with type kind = System.kind
+
+  (** Instantiate the default fixed-step mode with a step duration in seconds. *)
   val with_step : float -> t
 end
 
 module Hybrid : sig
   module type KIND = sig
+    (** Abstract mapping of fixed/variable kinds to pipeline tags. *)
     type kind
+    (** Tag associated with fixed-step system execution. *)
     val fixed : kind
+    (** Tag associated with variable-step system execution. *)
     val variable : kind
   end
   module Make : functor (K : KIND) -> sig
     include TIME_MODE with type kind = K.kind
+    (** Instantiate a hybrid mode with the provided fixed-step duration. *)
     val with_step : float -> t
   end
+  (** Default hybrid mode using {!System.kind} tags. *)
   include TIME_MODE with type kind = System.kind
+
+  (** Instantiate the default hybrid mode with a fixed-step duration. *)
   val with_step : float -> t
 end
 
@@ -108,5 +128,6 @@ module Make_with_kind
   val tick : 'phase t -> world:World.t -> dt:float -> World.t
 end
 
+(** Convenience functor wiring the progress controller to the default kinds. *)
 module Make (Pipeline : Pipeline.S with type kind = System.kind) :
   module type of Make_with_kind(System.Base_kind)(Pipeline)
