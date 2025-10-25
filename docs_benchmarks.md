@@ -66,31 +66,36 @@ dune exec eon_ecs/bench/bench_sparse_set.exe --profile=release
 
 ## 🏗️ Building Query Worlds for Benches
 
+`Benchmark_helpers` exposes utilities for building synthetic worlds:
+
 ```ocaml
-let register_components world names =
-  List.iteri (fun id name -> ignore (World.register_component world ~name ~id)) names
-
-let populate_world ~entity_count ~component_count =
-  let world = World.create () in
-  let names =
-    List.init component_count (fun i -> Printf.sprintf "C%d" (i + 1))
-  in
-  register_components world names;
-
-  for eid = 0 to entity_count - 1 do
-    let entity = World.create_entity world in
-    List.iteri
-      (fun idx name ->
-         if eid mod (idx + 2) = 0 then
-           World.add_component world entity ~name (eid + idx))
-      names
-  done;
-  world, names
+val register_components : World.t -> string list -> unit
+val populate_world :
+  ?distribution:(int -> int -> bool) ->
+  entity_count:int -> component_count:int -> World.t * string list
 ```
 
-- `component_count` maps to the arity you want (`iter1` … `iter6`).
-- Adjust the modulo rule or use a seeded RNG to control overlap density.
-- Precompute once; stage the `Query.iterN` call just like the sparse-set example.
+You can pick from the bundled distributions or supply your own:
+
+```ocaml
+val default_distribution : int -> int -> bool
+val distribution_all : int -> int -> bool
+val distribution_every : int -> (int -> int -> bool)
+val distribution_alternating : int -> int -> bool
+val distribution_random : ?seed:int -> probability:float -> unit -> int -> int -> bool
+val distribution_gradient : period:int -> peak:int -> int -> int -> bool
+```
+
+Example usage:
+
+```ocaml
+let world, _ =
+  Benchmark_helpers.populate_world
+    ~entity_count:10_000 ~component_count:3
+    ~distribution:(Benchmark_helpers.distribution_every 3)
+```
+
+All helpers are deterministic unless you opt into `distribution_random` (which accepts an optional `~seed`).
 
 ## ✅ TODO — Future Benchmarks
 

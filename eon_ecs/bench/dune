@@ -1,7 +1,7 @@
 (library
  (name benchmark_helpers)
  (modules benchmark_helpers)
- (libraries bechamel))
+ (libraries bechamel eon_ecs))
 
 (executable
  (name bench_sparse_set)
