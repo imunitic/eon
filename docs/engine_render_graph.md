@@ -196,3 +196,37 @@ RenderBackend
 
 Together, they form Eon’s lightweight, data-driven rendering model:
 a clean balance between raw flexibility and the ECS core’s minimalism.
+
+
+### 10. Engine-level Namespacing & Temporary Buffers
+
+To avoid per-frame allocations, the engine layer wraps `World` with an `EngineWorld` API
+that namespacing calls into `Resource_store`. This lets rendering systems store scratch
+buffers (e.g. G-buffers, command lists) in `World` data without colliding with gameplay state.
+
+```ocaml
+module EngineWorld : sig
+  type namespace = [ `Render | `Audio | `Gameplay | `Custom of string ]
+
+  val add_data : World.t -> namespace:namespace -> key:string -> 'a -> unit
+  val get_data : World.t -> namespace:namespace -> key:string -> 'a option
+  val add_service : World.t -> namespace:namespace -> key:string -> 'a -> unit
+  val get_service : World.t -> namespace:namespace -> key:string -> 'a option
+end
+```
+
+Example usage inside the render pipeline:
+
+```ocaml
+let command_buffer =
+  match EngineWorld.get_data world ~namespace:`Render ~key:"command-buffer" with
+  | Some buf -> buf
+  | None ->
+      let buf = Command_buffer.create () in
+      EngineWorld.add_data world ~namespace:`Render ~key:"command-buffer" buf;
+      buf
+```
+
+The ECS core remains agnostic (still string/variant keys); the engine simply encodes the
+namespace before delegating to `Resource_store`. This keeps rendering scratch space
+reusable across frames and avoids GC churn.
