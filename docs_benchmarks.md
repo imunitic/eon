@@ -22,7 +22,6 @@ let mk_sparse_set_add_remove count =
          let set = Sparse_set.create () in
          Array.iter
            (fun (entity, value) ->
-             (* add followed by immediate remove exercises both hot paths *)
              Sparse_set.add set entity value;
              Sparse_set.remove set entity)
            precomputed))
@@ -39,34 +38,13 @@ let instances =
 let benchmark cfg =
   Benchmark.all cfg instances sparse_set_suite
 
-let analyze raw =
-  let open Analyze in
-  let ols = ols ~bootstrap:0 ~r_square:true ~predictors:[| Measure.run |] in
-  let clock = Analyze.all ols Toolkit.Instance.monotonic_clock raw in
-  Analyze.merge ols [ Toolkit.Instance.monotonic_clock ] [ clock ]
-
-let pp_results results =
-  Hashtbl.iter
-    (fun measure_label tests ->
-      Format.printf "== %s ==@." measure_label;
-      Hashtbl.iter
-        (fun test_name ols ->
-          let estimates = Analyze.OLS.estimates ols in
-          let slope =
-            match estimates with
-            | Some (_intercept :: slope :: _) -> slope
-            | Some (slope :: _) -> slope
-            | _ -> nan
-          in
-          Format.printf "  %s: %.3e (time/run)@." test_name slope)
-        tests)
-    results
-
 let () =
   let cfg = Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) () in
   let raw = benchmark cfg in
-  let analyzed = analyze raw in
-  pp_results analyzed;
+  let analyzed =
+    Benchmark_helpers.analyze_single_instance Toolkit.Instance.monotonic_clock raw
+  in
+  Benchmark_helpers.pp_results analyzed;
   Format.printf "@.Hint: use this file as a template when adding more benches.@."
 ```
 
@@ -76,8 +54,7 @@ let () =
 - Precompute workloads so we only measure the target API.
 - Group variant sizes (`1_000`, `10_000`) to compare scaling.
 - Use `Toolkit.Instance.*` for metrics (monotonic clock, allocations, …).
-- Feed results through `Analyze.ols` + `Analyze.merge` to get slopes.
-- Output currently uses plain `Format.printf`; add custom pretty-printing if desired.
+- Feed results through `Benchmark_helpers.analyze_single_instance` and print using `Benchmark_helpers.pp_results` for consistency across benches.
 
 ## ▶️ Running
 
