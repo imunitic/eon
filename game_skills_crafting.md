@@ -51,17 +51,21 @@ Eon’s itemization is deliberately minimalist — focusing on **player agency**
 - Players can **salvage** unwanted items for materials or extract affixes.
 - Affixes are **modular**, attachable, removable, and rerollable.
 
-### 💎 Rarity Model
+### 💎 Slot Occupancy Indicators
 
-| Rarity | Description | Notes |
-|:--------|:-------------|:------|
-| `Normal` | White base item | Crafting foundation |
-| `Rare` | Has prefix and suffix | Upgraded via crafting |
-| `Legendary` | Special craft that consumes both slots | Provides powerful hybrid effect |
+Items never drop with built-in rarity. Every base arrives as a white shell with eight empty affix slots (4 prefix, 4 suffix). The UI tint simply shows how many of those slots you have filled.
 
-- **Legendary crafts** always consume **two affix slots** (one prefix + one suffix).
-- Each legendary affix combines effects, e.g.:
-  - `+Fire Damage` + `+Lightning Damage`  
+| Color | Slots Occupied | Meaning |
+|:------|:----------------|:--------|
+| ⚪ White | 0 | Fresh drop — all eight slots open |
+| 🔵 Blue | 1 – 4 | Early crafted piece with a few affixes slotted |
+| 🟡 Yellow | 5 – 6 | Mid-game item approaching full capacity |
+| 🟣 Purple (Epic) | 7 – 8 | Fully occupied prefix/suffix grid |
+| 🟤 Gold-brown (Legendary) | 6 + legendary | One legendary craft installed (consumes 1 prefix + 1 suffix) plus up to six other affixes |
+
+- **Legendary crafts** always consume **one prefix slot and one suffix slot** simultaneously.
+- Legendary affixes are hybrids, e.g.:
+  - `+Fire Damage` + `+Lightning Damage`
   - `Gain Armor when Evading`
   - `Regenerate Energy when Critical Hits occur`
 
@@ -78,13 +82,13 @@ type affix = {
 
 type item = {
   base_id : int;
-  prefix  : affix option;
-  suffix  : affix option;
-  rarity  : [ `Normal | `Rare | `Legendary ];
+  prefixes : affix option array;  (* length = 4 *)
+  suffixes : affix option array;  (* length = 4 *)
+  legendary : affix option;       (* consumes one prefix + one suffix slot when [Some _] *)
 }
 ```
 
-Legendary affixes take both slots internally, preventing additional prefixes/suffixes but granting unique combined properties.
+Color is derived at runtime from how many `prefixes`/`suffixes` are populated and whether `legendary` is set.
 
 ---
 
@@ -561,5 +565,4 @@ Only the *quality* of materials and permanence rules change at T6/T7.
 - The hard iLvl cap separates **progression** (experience) from **perfection** (crafting mastery).
 
 > “At ninety, the forge stops shaping you — and you start shaping the forge.”
-
 
