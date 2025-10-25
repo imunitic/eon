@@ -63,9 +63,9 @@ let world =
   let signals  = Signals.create ()
   and events   = Events.create ()
   and commands = Commands.create () in
-  World.add_service world "Signals"  signals;
-  World.add_service world "Events"   events;
-  World.add_service world "Commands" commands;
+  World.add_service world `Signals  signals;
+  World.add_service world `Events   events;
+  World.add_service world `Commands commands;
   ignore (World.register_component world ~name:"Position" ~id:0);
   ignore (World.register_component world ~name:"Velocity" ~id:1);
   let _player =
@@ -76,9 +76,9 @@ let world =
   in
   world
 
-let signals  = World.get_service world "Signals"  |> Option.get
-let events   = World.get_service world "Events"   |> Option.get
-let commands = World.get_service world "Commands" |> Option.get
+let signals  = World.get_service world `Signals  |> Option.get
+let events   = World.get_service world `Events   |> Option.get
+let commands = World.get_service world `Commands |> Option.get
 
 (* 3. Define systems — use make_reactive and attach handlers. *)
 let movement_system =
@@ -153,8 +153,26 @@ module Loop_with_logging = Eon_ecs.Loop.Make
     (Logging_renderer(struct let info = Logs.info end))
     (struct
        type world = World.t
-       let collect = Loop.Default_buses.collect
-       let drain   = Loop.Default_buses.drain
+       let require world key =
+         match World.get_service world key with
+         | Some bus -> bus
+         | None ->
+             let id = Hashtbl.hash key land Stdlib.max_int in
+             failwith (Printf.sprintf "Missing service (hash:%d)" id)
+       let collect world =
+         let signals  = require world `Signals in
+         let events   = require world `Events in
+         let commands = require world `Commands in
+         Signals.collect signals;
+         Events.collect events;
+         Commands.collect commands
+       let drain world =
+         let signals  = require world `Signals in
+         let events   = require world `Events in
+         let commands = require world `Commands in
+         Signals.drain signals;
+         Commands.drain commands;
+         Events.drain events
      end)
 
 let () =
@@ -179,7 +197,7 @@ module Render_graph = struct
   let build world : t =
     let nodes = ref [] in
     Query.iter1 world "Position" (fun entity (x, y) ->
-        let sprite = World.get_data world (Printf.sprintf "sprite:%d" (Entity_id.index entity)) in
+        let sprite = World.get_data world (`Sprite (Entity_id.index entity)) in
         nodes := { entity; position = (x, y); sprite } :: !nodes);
     List.rev !nodes
 
@@ -210,8 +228,26 @@ module Loop_with_render_graph = Eon_ecs.Loop.Make
     (Render_graph_logger)
     (struct
        type world = World.t
-       let collect = Loop.Default_buses.collect
-       let drain   = Loop.Default_buses.drain
+       let require world key =
+         match World.get_service world key with
+         | Some bus -> bus
+         | None ->
+             let id = Hashtbl.hash key land Stdlib.max_int in
+             failwith (Printf.sprintf "Missing service (hash:%d)" id)
+       let collect world =
+         let signals  = require world `Signals in
+         let events   = require world `Events in
+         let commands = require world `Commands in
+         Signals.collect signals;
+         Events.collect events;
+         Commands.collect commands
+       let drain world =
+         let signals  = require world `Signals in
+         let events   = require world `Events in
+         let commands = require world `Commands in
+         Signals.drain signals;
+         Commands.drain commands;
+         Events.drain events
      end)
 
 let () =
@@ -309,16 +345,16 @@ module Loop = struct
       (struct
          type world = World.t
          let collect world =
-           let signals  = World.get_service world "Signals"  |> Option.get in
-           let events   = World.get_service world "Events"   |> Option.get in
-           let commands = World.get_service world "Commands" |> Option.get in
+           let signals  = World.get_service world `Signals  |> Option.get in
+           let events   = World.get_service world `Events   |> Option.get in
+           let commands = World.get_service world `Commands |> Option.get in
            Signals.collect signals;
            Events.collect events;
            Commands.collect commands
          let drain world =
-           let signals  = World.get_service world "Signals"  |> Option.get in
-           let events   = World.get_service world "Events"   |> Option.get in
-           let commands = World.get_service world "Commands" |> Option.get in
+           let signals  = World.get_service world `Signals  |> Option.get in
+           let events   = World.get_service world `Events   |> Option.get in
+           let commands = World.get_service world `Commands |> Option.get in
            Signals.drain signals;
            Commands.drain commands;
            Events.drain events

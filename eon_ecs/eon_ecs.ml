@@ -71,35 +71,9 @@ module Loop = struct
     let tick = Progress.Default.tick
   end
 
-  module Default_buses = struct
-    type world = World.t
-
-    let require_service world name =
-      match World.get_service world name with
-      | Some service -> service
-      | None -> failwith ("Missing service: " ^ name)
-
-    let collect world =
-      let signals  = require_service world "Signals" in
-      let events   = require_service world "Events" in
-      let commands = require_service world "Commands" in
-      Signals.collect signals;
-      Events.collect events;
-      Commands.collect commands
-
-    let drain world =
-      let signals  = require_service world "Signals" in
-      let events   = require_service world "Events" in
-      let commands = require_service world "Commands" in
-      Signals.drain signals;
-      Commands.drain commands;
-      Events.drain events
-  end
-
-  module Default =
-    Make
+  module Default = Make
       (Clock.Mtime)
       (Progress_adapter)
       (Noop_renderer)
-      (Default_buses)
+      (Loop_default_buses)
 end

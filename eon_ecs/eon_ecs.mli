@@ -103,8 +103,6 @@ module Loop : sig
   end
   (** Renderer that performs no output. *)
   module Noop_renderer : RENDERER with type world = World.t and type result = unit
-  (** Standard bus pack using the aliases exported above. *)
-  module Default_buses : BUSES with type world = World.t
   (** Ready-to-use loop wired to defaults for the ECS core. *)
   module Default :
     module type of
@@ -112,5 +110,5 @@ module Loop : sig
         (Clock.Mtime)
         (Progress_adapter)
         (Noop_renderer)
-        (Default_buses)
+        (Loop_default_buses)
 end
