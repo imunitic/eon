@@ -230,3 +230,29 @@ let command_buffer =
 The ECS core remains agnostic (still string/variant keys); the engine simply encodes the
 namespace before delegating to `Resource_store`. This keeps rendering scratch space
 reusable across frames and avoids GC churn.
+
+
+### 11. Engine Context for Multi-World Setups
+
+Large games often host multiple `World.t` instances (e.g. one per zone/act). To share
+rendering services or scratch buffers across those worlds, the engine can introduce an
+`Engine_context` that embeds a dedicated `global` world alongside zone-local worlds:
+
+```ocaml
+module Engine_context : sig
+  type zone_id
+  type t = {
+    global : World.t;              (* shared services/data *)
+    worlds : (zone_id, World.t) Hashtbl.t;
+  }
+
+  val create : unit -> t
+  val get_world : t -> zone_id -> World.t
+  val with_global_service :
+    t -> namespace:EngineWorld.namespace -> key:string -> (unit -> 'a) -> 'a
+end
+```
+
+Render-specific helpers can accept `~context` and decide whether a request targets the
+zone world or the global world. This keeps zone ECS state isolated while still letting
+rendering (or audio/input) share long-lived services.
