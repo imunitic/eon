@@ -12,24 +12,24 @@ let test_create_empty () =
 (* 2. Add and get value fro the data-plane *)
 let test_data_add_get () =
   let store = Resource_store.create () in
-  Resource_store.add_data store 0 (42 : int);
-  match Resource_store.get_data store 0 with
+  Resource_store.add_data store `Score (42 : int);
+  match Resource_store.get_data store `Score with
   | Some v -> check int "value retrieved" 42 v
   | None -> fail "value not found"
 
 (* 3. Get non-existent key *)
 let test_data_missing_key () =
   let store = Resource_store.create () in
-  match Resource_store.get_data store 0  with
+  match Resource_store.get_data store `Score with
   | None -> ()  (* OK *)
   | Some _ -> fail "expected None for missing key"
 
 (* 4. Remove key *)
 let test_data_remove_key () =
   let store = Resource_store.create () in
-  Resource_store.add_data store 0  (99 : int);
-  Resource_store.remove_data store 0;
-  match Resource_store.get_data store 0 with
+  Resource_store.add_data store `Score  (99 : int);
+  Resource_store.remove_data store `Score;
+  match Resource_store.get_data store `Score with
   | None -> ()
   | Some _ -> fail "key was not removed"
 
@@ -37,23 +37,23 @@ let test_data_remove_key () =
 (* 5. Add and get value from the service-plane *)
 let test_service_add_get () =
   let store = Resource_store.create () in
-  Resource_store.add_service store (Resource_store.of_typename "health") true;
-  match Resource_store.get_service store (Resource_store.of_typename "health") with
+  Resource_store.add_service store `Health true;
+  match Resource_store.get_service store `Health with
   | Some v -> check bool "value retrieved" true v
   | None -> fail "value not found"
 
 (* 6. Get non-existent key *)
 let test_service_missing_key () =
   let store = Resource_store.create () in
-  match Resource_store.get_service store (Resource_store.of_typename "health") with
+  match Resource_store.get_service store `Health with
   | None -> ()
   | Some _ -> fail "expected None for missing key"
 
 let test_service_remove_key () =
   let store = Resource_store.create () in
-  Resource_store.add_service store (Resource_store.of_typename "health") true;
-  Resource_store.remove_service store (Resource_store.of_typename "health");
-  match Resource_store.get_service store (Resource_store.of_typename "health") with
+  Resource_store.add_service store `Health true;
+  Resource_store.remove_service store `Health;
+  match Resource_store.get_service store `Health with
   | None -> ()
   | Some _ -> fail "key was not removed"
 

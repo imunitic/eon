@@ -156,7 +156,7 @@ module Make_with_kinds
       match signals with
       | Some s -> s
       | None ->
-         (match World.get_service world "Signals" with
+         (match World.get_service world `Signals with
           | Some s -> s
           | None -> failwith "Missing signals service") in
 
@@ -164,7 +164,7 @@ module Make_with_kinds
       match events with
       | Some e -> e
       | None ->
-         (match World.get_service world "Events" with
+         (match World.get_service world `Events with
           | Some e -> e
           | None -> failwith "Missing events service") in
 
@@ -172,7 +172,7 @@ module Make_with_kinds
       match commands with
       | Some c -> c
       | None ->
-         (match World.get_service world "Commands" with
+         (match World.get_service world `Commands with
           | Some c -> c
           | None -> failwith "Missing commands service") in
 

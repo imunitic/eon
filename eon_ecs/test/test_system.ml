@@ -127,9 +127,9 @@ let test_attach_handlers_world_fallback () =
   let command_bus = Single_bus.create () in
 
   (* Register the buses as world services *)
-  World.add_service world "Signals" signal_bus;
-  World.add_service world "Events" event_bus;
-  World.add_service world "Commands" command_bus;
+  World.add_service world `Signals signal_bus;
+  World.add_service world `Events event_bus;
+  World.add_service world `Commands command_bus;
 
   (* Build a system *)
   let _ =

@@ -22,15 +22,15 @@ module DummyPipeline : Pipeline.S with type kind = Kind.kind = struct
   (* Simulate running systems by incrementing tick_count *)
   let run _ world _dt =
     let open World in
-    add_data world "tick_count"
-      (1 + Option.value ~default:0 (get_data world "tick_count"));
+    add_data world `Tick_count
+      (1 + Option.value ~default:0 (get_data world `Tick_count));
     world
 
   (* Match the new run_by_filter signature used by Progress *)
   let run_by_filter ~filter:_ _ world _dt =
     let open World in
-    add_data world "tick_count"
-      (1 + Option.value ~default:0 (get_data world "tick_count"));
+    add_data world `Tick_count
+      (1 + Option.value ~default:0 (get_data world `Tick_count));
     world
 end
 
@@ -41,14 +41,14 @@ let test_variable () =
   let pipeline = DummyPipeline.create () in
   let progress = Progress.create ~mode:Variable pipeline in
   let world = Progress.tick progress ~world ~dt:0.016 in
-  check int "tick_count" 1 (Option.get (World.get_data world "tick_count"))
+  check int "tick_count" 1 (Option.get (World.get_data world `Tick_count))
 
 let test_fixed () =
   let world = World.create () in
   let pipeline = DummyPipeline.create () in
   let progress = Progress.create ~mode:(Fixed 0.01) pipeline in
   let world = Progress.tick progress ~world ~dt:0.03 in
-  check int "fixed steps" 3 (Option.get (World.get_data world "tick_count"))
+  check int "fixed steps" 3 (Option.get (World.get_data world `Tick_count))
 
 let test_hybrid () =
   let world = World.create () in
@@ -57,7 +57,7 @@ let test_hybrid () =
   let world = Progress.tick progress ~world ~dt:0.03 in
   check int "hybrid steps"
     4 (* 3 fixed + 1 variable pass *)
-    (Option.get (World.get_data world "tick_count"))
+    (Option.get (World.get_data world `Tick_count))
 
 let tests =
   [

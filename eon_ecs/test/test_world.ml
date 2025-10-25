@@ -2,7 +2,8 @@ open Alcotest
 
 module World = Eon_ecs__World
 module Query = Eon_ecs__Query
-module Resource_store = Eon_ecs__Resource_store
+let hash_key key =
+  Hashtbl.hash key land Stdlib.max_int
 
 let int_pair = pair int int
 
@@ -65,32 +66,32 @@ let test_remove_all_components () =
 
 let test_data_store () =
   let world = World.create () in
-  World.add_data world "score" 10;
+  World.add_data world `Score 10;
   check int "data count" 1 (World.count_data world);
-  let score = World.get_data world "score" |> Option.value ~default:0 in
+  let score = World.get_data world `Score |> Option.value ~default:0 in
   check int "score fetched" 10 score;
 
-  World.add_data world "best" 42;
-  let best = World.get_data world "best" |> Option.value ~default:0 in
+  World.add_data world `Best 42;
+  let best = World.get_data world `Best |> Option.value ~default:0 in
   check int "second value fetched" 42 best;
   check int "data count two entries" 2 (World.count_data world)
 
 let test_services () =
   let world = World.create () in
-  World.add_service world "Audio" 7;
-  World.add_service world "Input" "keyboard";
+  World.add_service world `Audio 7;
+  World.add_service world `Input "keyboard";
 
-  let audio = World.get_service world "Audio" |> Option.value ~default:(-1) in
+  let audio = World.get_service world `Audio |> Option.value ~default:(-1) in
   check int "service lookup" 7 audio;
   let input =
-    World.get_service world "Input" |> Option.value ~default:""
+    World.get_service world `Input |> Option.value ~default:""
   in
   check string "service lookup (string)" "keyboard" input;
 
   let services = World.list_services world in
   check int "service count" 2 (List.length services);
-  check bool "contains Audio" true (List.mem (Resource_store.of_typename "Audio") services);
-  check bool "contains Input" true (List.mem (Resource_store.of_typename "Input") services)
+  check bool "contains Audio" true (List.mem (hash_key `Audio) services);
+  check bool "contains Input" true (List.mem (hash_key `Input) services)
 
 let tests =
   [

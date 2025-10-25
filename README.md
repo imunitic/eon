@@ -46,7 +46,7 @@ The **Eon ECS Core** is designed to be minimal, pure, and backend-agnostic. It p
 
 - Two planes: services (`Hashtbl`) and data (`Sparse_set`).
 - Efficient for both persistent services and transient data.
-- Integrates with `Type_id` for typed-safe dynamic storage.
+- Uses open polymorphic variant keys hashed via `Hashtbl.hash` for lightweight lookups.
 
 ### 4.3 🧠 Systems
 

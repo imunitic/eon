@@ -29,25 +29,25 @@ val find_component : t -> name:string -> 'a Component.component option
 
 (** {2 Data-plane store} *)
 
-(** Attach arbitrary data, keyed by string, to the world. *)
-val add_data : t -> string -> 'a -> unit
+(** Attach arbitrary data, keyed by an open polymorphic variant, to the world. *)
+val add_data : t -> [> ] -> 'a -> unit
 
 (** Retrieve data by key. *)
-val get_data : t -> string -> 'a option
+val get_data : t -> [> ] -> 'a option
 
 (** Number of stored data entries. *)
 val count_data : t -> int
 
 (** {2 Service-plane store} *)
 
-(** Register a long-lived service (bus, singleton, etc.) accessible by name. *)
-val add_service : t -> string -> 'a -> unit
+(** Register a long-lived service (bus, singleton, etc.) accessible via variant key. *)
+val add_service : t -> [> ] -> 'a -> unit
 
 (** Retrieve a previously registered service. *)
-val get_service : t -> string -> 'a option
+val get_service : t -> [> ] -> 'a option
 
 (** List the identifiers of all registered services. *)
-val list_services : t -> Resource_store.Type_id.t list
+val list_services : t -> int list
 
 (** Attach a component value to the entity, registering the component on demand. *)
 val add_component : t -> Entity_id.t -> name:string -> 'a -> unit
