@@ -1,0 +1,7 @@
+(executable
+ (name bench_sparse_set)
+ (public_name eon-ecs-bench-sparse-set)
+ (modules bench_sparse_set)
+(libraries bechamel unix eon_ecs)
+ (flags (:standard -warn-error -a))
+ (package eon-ecs))
