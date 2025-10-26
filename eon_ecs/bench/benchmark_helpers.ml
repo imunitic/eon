@@ -1,5 +1,4 @@
 open Bechamel
-open Printf
 
 module World = Eon_ecs__World
 
@@ -37,11 +36,8 @@ let distribution_gradient ~period ~peak eid idx =
   let local = (eid + idx) mod period in
   local < peak
 
-let populate_world
-    ?(distribution = default_distribution)
-    ~entity_count
-    ~component_count
-  =
+let[@warning "-16"] populate_world ?(distribution = default_distribution) ~entity_count
+    ~component_count =
   let world = World.create () in
   let names =
     List.init component_count (fun i -> Printf.sprintf "C%d" (i + 1))
@@ -78,6 +74,24 @@ let pp_results results =
             | Some (slope :: _) -> slope
             | _ -> nan
           in
-          Format.printf "  %s: %.3e (time/run)@." test_name slope)
+          let metric =
+            match String.lowercase_ascii measure_label with
+            | lbl when String.ends_with ~suffix:"allocated" lbl -> "alloc/run"
+            | _ -> "time/run"
+          in
+          Format.printf "  %s: %.3e (%s)@." test_name slope metric)
         tests)
     results
+
+let bench_with_gc cfg suite =
+  let instances =
+    [ Toolkit.Instance.monotonic_clock;
+      Toolkit.Instance.minor_allocated;
+      Toolkit.Instance.major_allocated ]
+  in
+  let raw = Benchmark.all cfg instances suite in
+  List.iter
+    (fun instance ->
+       let analyzed = analyze_single_instance instance raw in
+       pp_results analyzed)
+    instances
