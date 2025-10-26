@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           opam install . --deps-only -y
-          opam install alcotest -y
+          opam install alcotest mtime -y
 
       - name: Run tests
         run: just run-tests
@@ -55,7 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           opam install . --deps-only -y
-          opam install bechamel -y
+          opam install bechamel mtime -y
 
       - name: Run sparse-set benchmark
         run: just bench-sparse-set
