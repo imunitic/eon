@@ -1,0 +1,61 @@
+name: Eon ECS Core CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # allows manual trigger from Actions tab
+
+jobs:
+  build-test:
+    name: 🧪 Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Just
+        uses: taiki-e/install-action@just
+
+      - name: Setup OCaml environment
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.3.0
+          dune-cache: true
+          opam-depext: true
+
+      - name: Install dependencies
+        run: |
+          opam install . --deps-only -y
+          opam install alcotest -y
+
+      - name: Run tests
+        run: just run-tests
+
+  benchmark:
+    name: ⚙️ Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Just
+        uses: taiki-e/install-action@just
+
+      - name: Setup OCaml environment
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.3.0
+          dune-cache: true
+
+      - name: Install dependencies
+        run: |
+          opam install . --deps-only -y
+          opam install bechamel -y
+
+      - name: Run sparse-set benchmark
+        run: just bench-sparse-set
