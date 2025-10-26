@@ -1,4 +1,4 @@
-[![Eon ECS Core CI](https://github.com/ivica-munitic/eon/actions/workflows/ci.yml/badge.svg)](https://github.com/ivica-munitic/eon/actions/workflows/ci.yml)
+[![Eon ECS Core CI](https://github.com/imunitic/eon/actions/workflows/ci.yml/badge.svg)](https://github.com/imunitic/eon/actions/workflows/ci.yml)
 
 # 🧩 Eon ECS Development Canvas (Project‑Wide Master)
 
