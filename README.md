@@ -1,3 +1,5 @@
+[![Eon ECS Core CI](https://github.com/ivica-munitic/eon/actions/workflows/ci.yml/badge.svg)](https://github.com/ivica-munitic/eon/actions/workflows/ci.yml)
+
 # 🧩 Eon ECS Development Canvas (Project‑Wide Master)
 
 📘 **This is the project‑wide master design canvas for the Eon ECS project.**  
