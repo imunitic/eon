@@ -1,34 +1,44 @@
-(** Sparse set storage keyed by entity identifiers. *)
+(** Sparse set storage indexed by zero-based integers. *)
 
-(** Packed storage for values associated with [Entity_id.t] keys. *)
+(** Module type describing a key that can be mapped to an integer slot. *)
+module type INDEXED_KEY = sig
+  type t
+  val index : t -> int
+end
+
+(** Signature exposed by sparse-set specialisations. *)
+module type S = sig
+  type key
+  type 'a t
+
+  val create : ?capacity:int -> unit -> 'a t
+  val capacity : 'a t -> int
+  val size : 'a t -> int
+  val grow : 'a t -> unit
+  val contains : 'a t -> key -> bool
+  val get : 'a t -> key -> 'a option
+  val add : 'a t -> key -> 'a -> unit
+  val set_value : 'a t -> key -> 'a -> unit
+  val remove : 'a t -> key -> unit
+  val iter : (int -> 'a -> unit) -> 'a t -> unit
+end
+
+(** Build a sparse set keyed by the provided indexable type. *)
+module Make (Key : INDEXED_KEY) : S with type key = Key.t
+
+(** Default sparse set keyed by [Entity_id.t]. Backwards-compatible alias. *)
 type 'a t
 
-(** Create an empty sparse set with an optional initial [capacity]. *)
 val create : ?capacity:int -> unit -> 'a t
-
-(** Maximum number of elements that can be stored without growing. *)
 val capacity : 'a t -> int
-
-(** Number of currently stored elements. *)
 val size : 'a t -> int
-
-(** Double the storage capacity to accommodate more entries. *)
 val grow : 'a t -> unit
-
-(** Test whether a value exists for the given entity. *)
 val contains : 'a t -> Entity_id.t -> bool
-
-(** Retrieve the stored value for an entity, if present. *)
 val get : 'a t -> Entity_id.t -> 'a option
-
-(** Insert a new value for an entity. Fails if the slot is already occupied. *)
 val add : 'a t -> Entity_id.t -> 'a -> unit
-
-(** Replace the value stored for an entity, growing the set if needed. *)
 val set_value : 'a t -> Entity_id.t -> 'a -> unit
-
-(** Remove any value associated with the entity. *)
 val remove : 'a t -> Entity_id.t -> unit
-
-(** Iterate over all stored entries in dense index order. *)
 val iter : (int -> 'a -> unit) -> 'a t -> unit
+
+(** Integer-keyed sparse set helper for resource and service stores. *)
+module Int : S with type key = int

@@ -10,6 +10,8 @@ open Bechamel.Toolkit
 open Staged
 
 module Sparse_set = Eon_ecs__Sparse_set
+(* For non-entity keys you can spin up a specialised set with
+   [module Int_set = Sparse_set.Make(struct type t = int let index x = x end)]. *)
 module Entity_id  = Eon_ecs__Entity_id
 
 let int_entities count =

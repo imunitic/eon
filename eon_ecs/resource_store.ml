@@ -1,8 +1,10 @@
 type packed = Pack : 'a * (unit -> string) -> packed
 
+module Data_store = Sparse_set.Int
+
 type t = {
   services : (int, packed) Hashtbl.t;
-  data : packed Sparse_set.t;
+  data : packed Data_store.t;
   data_ids : (int, int) Hashtbl.t;
   mutable next_id : int;
 }
@@ -21,7 +23,7 @@ let resolve_or_alloc store key =
 
 let create () = {
   services = Hashtbl.create 16;
-  data = Sparse_set.create ();
+  data = Data_store.create ();
   data_ids = Hashtbl.create 16;
   next_id = 0;
 }
@@ -49,15 +51,13 @@ let list_services store =
 let add_data store id value =
   let key = hash_key id in
   let resolved = resolve_or_alloc store key in
-  let entity = Entity_id.make resolved 0 in
-  Sparse_set.set_value store.data entity (Pack (value, fun () -> "data"))
+  Data_store.set_value store.data resolved (Pack (value, fun () -> "data"))
 
 let get_data store id =
   let key = hash_key id in
   match Hashtbl.find_opt store.data_ids key with
   | Some resolved ->
-      let entity = Entity_id.make resolved 0 in
-      (match Sparse_set.get store.data entity with
+      (match Data_store.get store.data resolved with
        | Some (Pack (v, _)) -> Some (Obj.magic v)
        | None -> None)
   | None -> None
@@ -66,12 +66,11 @@ let remove_data store id =
   let key = hash_key id in
   match Hashtbl.find_opt store.data_ids key with
   | Some resolved ->
-      let entity = Entity_id.make resolved 0 in
-      Sparse_set.remove store.data entity
+      Data_store.remove store.data resolved
   | None -> ()
 
 let iter_data f store =
-  Sparse_set.iter (fun id (Pack (v, _)) -> f id (Obj.magic v)) store.data
+  Data_store.iter (fun id (Pack (v, _)) -> f id (Obj.magic v)) store.data
 
 let count_data store =
-  Sparse_set.size store.data
+  Data_store.size store.data
