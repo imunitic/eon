@@ -1,13 +1,26 @@
-# 📁 edn/ — Minimal EDN Parser Library (Algebraic Effects Version)
+# 🧠 EDN Parser Library (Algebraic Effects Version)
 
-# ├── dune
-# ├── edn_effects.ml
-# ├── edn_parser.ml
-# ├── edn_middleware.ml
-# └── main.ml
+This document defines a minimal **EDN parser library written in OCaml 5.x** using **algebraic effects**.  
+It’s designed for loading **prefabs**, **configs**, and **modding data** in the **Eon ECS** or **Eon Engine** project.
 
-───────────────────────────────────────────────────────────────────────────────
-;; dune
+---
+
+## 📂 Directory Structure
+
+```
+edn/
+├── dune
+├── edn_effects.ml
+├── edn_parser.ml
+├── edn_middleware.ml
+└── main.ml
+```
+
+---
+
+## ⚙️ Dune Configuration
+
+```lisp
 (library
  (name edn)
  (public_name edn)
@@ -17,9 +30,13 @@
  (name main)
  (modules main)
  (libraries edn))
+```
 
-───────────────────────────────────────────────────────────────────────────────
-(* edn_effects.ml *)
+---
+
+## 🧩 Module: edn_effects.ml
+
+```ocaml
 (** Core effects and EDN AST types *)
 
 effect Peek  : char option
@@ -42,9 +59,13 @@ type value =
   | VMeta of value * value
 
 let failf fmt = Printf.ksprintf (fun msg -> perform (Fail msg)) fmt
+```
 
-───────────────────────────────────────────────────────────────────────────────
-(* edn_parser.ml *)
+---
+
+## 🧠 Module: edn_parser.ml
+
+```ocaml
 open Edn_effects
 
 let peek () = perform Peek
@@ -189,9 +210,13 @@ let run parser input handle_tag handle_meta =
     | effect (Fail msg) _ -> failwith msg
   in
   exec parser
+```
 
-───────────────────────────────────────────────────────────────────────────────
-(* edn_middleware.ml *)
+---
+
+## 🧱 Module: edn_middleware.ml
+
+```ocaml
 open Edn_effects
 open Edn_parser
 
@@ -232,9 +257,13 @@ let run_with_middleware ?(handlers=[]) parser input =
   and meta_handler = default_meta in
   let base = fun () -> run parser input tag_handler meta_handler in
   List.fold_right compose handlers (fun () -> base ()) ()
+```
 
-───────────────────────────────────────────────────────────────────────────────
-(* main.ml — demo usage *)
+---
+
+## 🚀 Example: main.ml
+
+```ocaml
 open Edn_effects
 open Edn_parser
 open Edn_middleware
@@ -295,3 +324,4 @@ let () =
 
   print_endline "\n--- Interpreting entity ---";
   interpret parsed
+```
