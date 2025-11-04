@@ -59,3 +59,6 @@ jobs:
 
       - name: Run sparse-set benchmark
         run: just bench-sparse-set
+
+      - name: Run entity-manager benchmark
+        run: just bench-entity-manager

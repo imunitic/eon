@@ -10,3 +10,11 @@
  (libraries bechamel unix eon_ecs benchmark_helpers)
  (flags (:standard -warn-error -a))
  (package eon-ecs))
+
+(executable
+ (name bench_entity_manager)
+ (public_name eon-ecs-bench-entity-manager)
+ (modules bench_entity_manager)
+ (libraries bechamel unix eon_ecs benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-ecs))
