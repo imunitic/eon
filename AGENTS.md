@@ -396,5 +396,5 @@ Feel free to extend AGENTS.md as the engine grows—the goal is to keep automati
 
 ## TODO
 
-- Benchmark with Bechamel: `Sparse_set.add/set_value/remove`, `Entity_manager.create_entity/destroy_entity`, `World.set_component/get_component`, `Query.iter{2,3,4}`, and `Loop.step` to understand frame-time hotspots.
+- Benchmark with Bechamel: ✅ `Sparse_set` / `Entity_manager` (create/destroy, churn, world attach-detach); ⏳ still pending `World.set_component/get_component`, `Query.iter{2,3,4}`, and `Loop.step`.
 - Add QCheck suites: `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
