@@ -4,6 +4,7 @@ open Staged
 
 module Entity_manager = Eon_ecs__Entity_manager
 module Entity_id = Eon_ecs__Entity_id
+module World = Eon_ecs__World
 
 let mk_entity_manager_add_remove count =
   Test.make ~name:(Printf.sprintf "add/remove-%d" count)
@@ -136,6 +137,41 @@ let mk_entity_manager_tapered_churn ~capacity ~occupancy ~max_delta ~cycles =
            done
          done))
 
+let mk_world_attach_detach ~entity_count ~component_count ~cycles =
+  if entity_count <= 0 then invalid_arg "entity_count must be > 0";
+  if component_count <= 0 then invalid_arg "component_count must be > 0";
+  let name =
+    Printf.sprintf "attach-detach-world-entities%d-comps%d-cyc%d" entity_count
+      component_count cycles
+  in
+  Test.make ~name
+    (stage (fun () ->
+         let world = World.create () in
+         let components =
+           Array.init component_count (fun idx ->
+               let name = Printf.sprintf "C%d" idx in
+               ignore (World.register_component world ~name ~id:idx);
+               name)
+         in
+         let entities =
+           Array.init entity_count (fun _ -> World.create_entity world)
+         in
+         for _ = 1 to cycles do
+           for i = 0 to entity_count - 1 do
+             let entity = entities.(i) in
+             for j = 0 to component_count - 1 do
+               let name = components.(j) in
+               World.add_component world entity ~name (i + j)
+             done
+           done;
+           for i = 0 to entity_count - 1 do
+             let entity = entities.(i) in
+             for j = 0 to component_count - 1 do
+               World.remove_component world entity ~name:components.(j)
+             done
+           done
+         done))
+
 let entity_manager_suite =
   Test.make_grouped ~name:"entity_manager"
     [ mk_entity_manager_add_remove 1_000
@@ -148,6 +184,7 @@ let entity_manager_suite =
         ~cycles:10
     ; mk_entity_manager_reuse ~capacity:5_000 ~batch_size:1_000 ~cycles:5
     ; mk_entity_manager_reuse ~capacity:50_000 ~batch_size:10_000 ~cycles:5
+    ; mk_world_attach_detach ~entity_count:5_000 ~component_count:4 ~cycles:5
     ]
 
 let instances =
@@ -165,12 +202,4 @@ let () =
   in
   Benchmark_helpers.pp_results analyzed;
   Format.printf "@.Hint: use this file as a template when adding more benches.@."
-         
 
-(* Ideas for next benchmarks
-   - Mix create/destroy batches to stress the free list recycling. ✓
-   - Reuse destroyed IDs to check generational safety under stale handles. ✓
-   - Destroy random subsets of a large pool to gauge behaviour near capacity. ✓
-   - Simulate tapered churn near capacity with jittery batches. ✓
-   - Attach/detach components per entity to measure world integration overhead.
-*)
