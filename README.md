@@ -23,7 +23,7 @@ All ECS‑related updates, architectural decisions, and implementation notes are
 - Implement optional Drawable / RenderGraph integration for rendering
 - Implement multiple Pipelines per World (active/inactive switching for pause/UI separation)
 - Add QCheck property-based tests for critical components
-- Add Benchmarking Suite using Bechamel
+- Add Benchmarking Suite using Bechamel ✅ *(initial sparse-set & entity-manager coverage)*
 
 ## 2️⃣ ECS Core Philosophy 💎
 
