@@ -18,3 +18,12 @@
  (libraries bechamel unix eon_ecs benchmark_helpers)
  (flags (:standard -warn-error -a))
  (package eon-ecs))
+
+(executable
+ (name bench_query)
+ (public_name eon-ecs-bench-query)
+ (modules bench_query)
+ (libraries bechamel unix eon_ecs benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-ecs))
+
