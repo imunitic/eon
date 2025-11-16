@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: '0 3 * * 1' # Mondays at 03:00 UTC
   workflow_dispatch: # allows manual trigger from Actions tab
 
 jobs:
@@ -37,7 +39,7 @@ jobs:
   benchmark:
     name: ⚙️ Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
 
     steps:
       - name: Checkout repository
@@ -62,3 +64,6 @@ jobs:
 
       - name: Run entity-manager benchmark
         run: just bench-entity-manager
+
+      - name: Run query benchmark
+        run: just bench-query
