@@ -11,7 +11,7 @@ Eon ECS is a **minimal, deterministic, backend‑agnostic entity–component–s
 - A **small World API** that owns entities, component storage, and resource stores.
 - **Message buses** (`Signals`, `Events`, `Commands`) that enforce intent → effect → reaction ordering.
 - A **Pipeline** for ordering system phases.
-- A **Progress controller** (variable / fixed / hybrid time modes) that orchestrates frames.
+- A **Progress controller** (variable / fixed / hybrid time modes) that advances pipelines, plus a **Loop** that orchestrates collect → tick → drain → render.
 
 The core stays pure and assumption‑free: no rendering, input, or physics. Higher layers (the engine) inject those concerns.
 
@@ -36,6 +36,7 @@ While everything is functorised, everyday usage normally sticks to the default s
 | Systems     | `Eon_ecs.System.Default`       | Reactive systems with built‑in buses and command/event handlers.       |
 | Pipeline    | `Eon_ecs.Pipeline.Default`     | Phase graph over polymorphic variant keys.                             |
 | Progress    | `Eon_ecs.Progress.Default`     | Variable, Fixed(step), Hybrid modes wired for `System.kind` variants.  |
+| Loop        | `Eon_ecs.Loop.Default`         | Clock + progress + renderer + default buses for a ready-to-run loop.   |
 | Buses       | `System.Signal_bus`, `Event_bus`, `Command_bus` | Single- vs double-buffer semantics baked in.                           |
 
 > Tip: For custom kind tags (`\`AI`, `\`Replay`, …) you can use `System.Make_with_kinds` and `Progress.Make_with_kind`, but the defaults cover the canonical `[ \`Fixed | \`Variable ]` workflow.
@@ -256,7 +257,7 @@ let () =
   ignore (Loop_with_render_graph.run ~progress ~world ~should_continue)
 ```
 
-### Message Bus Order (per README.md)
+### Message Bus Order (default loop wiring)
 1. `collect` **Signals → Events → Commands** at the start of the frame.
 2. Call `Progress.tick`.
 3. End of frame: `drain` **Signals → Commands → Events** exactly once (drains on the single buses also apply any same-frame emissions).
@@ -266,8 +267,8 @@ This sequencing keeps commands same-frame, events next-frame, and signals transi
 
 ```mermaid
 flowchart TD
-    A["Frame Start"] --> B["events.collect()"]
-    B --> C["signals.collect()"]
+    A["Frame Start"] --> B["signals.collect()"]
+    B --> C["events.collect()"]
     C --> D["commands.collect()"]
     D --> E["Progress.tick"]
     E --> F["signals.drain()"]
@@ -291,18 +292,18 @@ flowchart TD
 
 | Area       | API Pointers                                                                                                          |
 |------------|------------------------------------------------------------------------------------------------------------------------|
-| Components | Use `World.add_component` when attaching for the first time, `World.set_component` for updates.                        |
-| Messaging  | Systems should never manually drain/collect; only `Progress` orchestrates buses.                                      |
+| Components | Register components up front; use `World.add_component` for first attach, `World.set_component` for updates.           |
+| Messaging  | Systems should never manually drain/collect; the `Loop` orchestrates buses.                                            |
 | Systems    | `System.make_reactive` is declarative; you can provide any subset of the record fields (`register`, `update`, etc.).   |
 | Kinds      | Default kinds are `[ \`Fixed | \`Variable ]`. For custom tags, create a `Kinds` module and use `System.Make_with_kinds`.|
 | Progress   | `Progress.Make_with_kind` + `Custom (Mode { ... })` let you plug fully bespoke time modes.                             |
-| Resources  | World services (buses, singletons) ride on `Resource_store` with typed IDs; data entries are keyed by strings.         |
+| Resources  | World services and data are keyed by open variants hashed to ints in `Resource_store`.                                |
 
 ---
 
-## 5. Loop Module Design (proposed)
+## 5. Loop Module (implemented)
 
-Plan for a lightweight `Loop` module that mirrors the “functor + default alias” style used by `System`, `Pipeline`, and `Progress`:
+The `Loop` module mirrors the “functor + default alias” style used by `System`, `Pipeline`, and `Progress` and is fully implemented. `Eon_ecs.Loop` also ships a `Progress_adapter`, `Noop_renderer`, and `Loop_default_buses` used by the default wiring.
 
 ```ocaml
 module Loop = struct
@@ -329,6 +330,14 @@ module Loop = struct
        end)
       (Renderer : RENDERER with type world = Progress.world)
       (Buses    : BUSES with type world = Progress.world) = struct
+    val step :
+      progress:'phase Progress.t ->
+      world:Progress.world ->
+      last_time:float ->
+      now:float ->
+      should_continue:(Progress.world -> Renderer.result -> bool) ->
+      Progress.world * float * Renderer.result * bool
+
     val run :
       progress:'phase Progress.t ->
       world:Progress.world ->
@@ -338,27 +347,9 @@ module Loop = struct
 
   module Default = Make
       ( Clock.Mtime )
-      (Progress.Default)
-      (struct type world = World.t
-              type result = unit
-              let render _ ~dt:_ = () end)
-      (struct
-         type world = World.t
-         let collect world =
-           let signals  = World.get_service world `Signals  |> Option.get in
-           let events   = World.get_service world `Events   |> Option.get in
-           let commands = World.get_service world `Commands |> Option.get in
-           Signals.collect signals;
-           Events.collect events;
-           Commands.collect commands
-         let drain world =
-           let signals  = World.get_service world `Signals  |> Option.get in
-           let events   = World.get_service world `Events   |> Option.get in
-           let commands = World.get_service world `Commands |> Option.get in
-           Signals.drain signals;
-           Commands.drain commands;
-           Events.drain events
-       end)
+      (Progress_adapter)
+      (Noop_renderer)
+      (Loop_default_buses)
 end
 ```
 
@@ -370,11 +361,11 @@ end
 4. `result = Renderer.render world' ~dt`.
 5. Loop while `should_continue world' result` is true.
 
-You can plug in a real renderer (build a render graph or call a backend), switch clocks for determinism, or swap the progress controller without touching the loop core. The default alias uses `Unix.gettimeofday`, the stock buses, and a no-op renderer, so it works out of the box.
+You can plug in a real renderer (build a render graph or call a backend), switch clocks for determinism, or swap the progress controller without touching the loop core. The default alias uses `Clock.Mtime`, the stock buses, and a no-op renderer, so it works out of the box.
 
 ---
 
-## 5. Philosophy Reminders (for future contributors)
+## 6. Philosophy Reminders (for future contributors)
 
 - **Commands mutate, Events describe, Signals announce.** Stick to the naming tense guidelines.
 - Rendering should **pull** from the world after command handlers run; don’t treat events as a high-frequency render feed.
@@ -383,7 +374,7 @@ You can plug in a real renderer (build a render graph or call a backend), switch
 
 ---
 
-## 6. Suggested Future Additions
+## 7. Suggested Future Additions
 
 When updating this file, consider documenting:
 
@@ -396,5 +387,5 @@ Feel free to extend AGENTS.md as the engine grows—the goal is to keep automati
 
 ## TODO
 
-- Benchmark with Bechamel: ✅ `Sparse_set` / `Entity_manager` (create/destroy, churn, world attach-detach); ⏳ still pending `World.set_component/get_component`, `Query.iter{2,3,4}`, and `Loop.step`.
+- Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), and `Query.iter{1,2,3,4}`; ⏳ still pending `World.set_component/get_component` and `Loop.step`.
 - Add QCheck suites: `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
