@@ -349,10 +349,10 @@ All items drop as **white bases** — the only rarity distinction is **visual**,
 | Color | Visual Tier | Prefix/Suffix Slots Used | Notes |
 |:-------|:-------------|:------------------------:|:------|
 | ⚪ White | Normal | 0/0 | Base item — all 8 slots free |
-| 🔵 Blue | Magic | 2/2 | Early crafted item |
-| 🟡 Yellow | Rare | 3/3 | Midgame crafted item |
-| 🟣 Purple | Epic | 4/4 | Full affix item (max roll potential) |
-| 🟤 Golden-Brown | Legendary | 3/3 + 1 legendary (consumes 2 slots) | Single unique hybrid affix |
+| 🔵 Blue | Magic | 1–4 total | Early crafted item |
+| 🟡 Yellow | Rare | 5–6 total | Midgame crafted item |
+| 🟣 Purple | Epic | 7–8 total | Full affix item (max roll potential) |
+| 🟤 Golden-Brown | Legendary | 6 total + 1 legendary (consumes 2 slots) | Single unique hybrid affix |
 
 This creates a **visual rarity progression** that maps directly to mechanical depth — not to random drop tables.
 
@@ -416,9 +416,9 @@ Skills themselves are **loot drops**, just like crafting materials.
 
 When a skill drops, its **initial level** is determined by both **character level (cLvl)** and **area level (aLvl)**:
 
-`SkillDropLevel = (cLvl + aLvl) / 2 ± RandomVariance`
+`SkillDropLevel = (cLvl + aLvl) / 2`
 
-This ensures skills scale with world progression while maintaining some randomness.
+This keeps drops deterministic while still scaling with world progression.
 
 ---
 
@@ -565,4 +565,3 @@ Only the *quality* of materials and permanence rules change at T6/T7.
 - The hard iLvl cap separates **progression** (experience) from **perfection** (crafting mastery).
 
 > “At ninety, the forge stops shaping you — and you start shaping the forge.”
-

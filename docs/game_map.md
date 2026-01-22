@@ -39,7 +39,7 @@ Map affixes are added using **map crafting materials** of tiers T1–T7, followi
 The **Map Level** is calculated at forge time.  
 If using **standard materials (T1–T5)**:
 
-`MapLevel = cLvl + (Tier * 5) + RandomVariance`
+`MapLevel = cLvl + (Tier * 5)`
 
 If using **special high-tier map materials (T6–T7)**:
 
@@ -286,5 +286,4 @@ Example scaling function:
 
 - **Hardcore variant:** early unlock possible via hidden quest or special crafting discovery.  
 - **NG+ option:** start with the Forge unlocked from level 1 for alternate playthroughs.
-
 
