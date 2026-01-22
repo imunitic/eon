@@ -102,7 +102,7 @@ All helpers are deterministic unless you opt into `distribution_random` (which a
 ## ✅ TODO — Future Benchmarks
 
 - [ ] Component registry + world component attach/remove cycles
-- [ ] Query iterators (`iter1`, `iter2`, …) over varying tuple widths and populations
+- [x] Query iterators (`iter1`, `iter2`, `iter3`, `iter4`) over varying tuple widths and populations
 - [ ] Bus emit/collect/drain throughput (`Single_bus`, `Double_bus`)
 - [ ] Resource_store service/data get/set loops (post-variant keys)
 - [ ] Pipeline registration + `run_by_filter` scheduling overhead

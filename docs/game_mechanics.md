@@ -69,14 +69,16 @@ A typical combat event loop might look like:
 (* Combat_system.ml *)
 module Combat_system = struct
   let register world =
-    Events.on world.events (function
+    let events = World.get_service world `Events |> Option.get in
+    let commands = World.get_service world `Commands |> Option.get in
+    Events.on events (function
       | `Hit (attacker, target) ->
           let damage = Combat.calculate world attacker target in
-          Commands.emit world.commands (`Apply_damage (target, damage))
+          Commands.emit commands (`Apply_damage (target, damage))
       | _ -> ()
     )
 
-  let update world dt = ()
+  let update _world _dt = ()
 end
 ```
 
@@ -356,4 +358,3 @@ This model guarantees that:
 - “Difficulty” becomes a tool for player-driven challenge rather than a preset mode.
 
 > “You don’t pick a difficulty — you *become* the difficulty.”
-
