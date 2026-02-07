@@ -18,10 +18,11 @@ This repo currently contains:
 - [x] Query helpers: `iter1`, `iter2`, `iter3`, `iter4`, and `count`.
 - [x] Loop module with `step` and `run`, plus `Loop.Default` wiring.
 - [x] Bechamel benchmarks for Sparse_set, Entity_manager, and Query iter1-4.
-- [ ] Optional RenderGraph/Drawable integration (engine layer).
 - [ ] Multiple pipelines per world (not built into the core).
 - [ ] QCheck property-based tests for core invariants.
 - [ ] Benchmarks for `World.set_component/get_component` and `Loop.step`.
+
+Reminder: RenderGraph/Drawable integration (engine layer).
 
 ## Default stack (Eon_ecs)
 
