@@ -385,6 +385,20 @@ When updating this file, consider documenting:
 
 Feel free to extend AGENTS.md as the engine grows—the goal is to keep automation-friendly guidance close to the code.
 
+## 8. Build, Test, Bench (Justfile)
+
+Use `just` to run the supported workflows defined in the project `Justfile`.
+
+```sh
+just tasks
+just run-tests
+just bench-sparse-set
+just bench-entity-manager
+just bench-query
+```
+
+Build note: there is no `just build` target yet. If you need a build command, add one to the `Justfile` or run `dune build` directly.
+
 ## TODO
 
 - Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), and `Query.iter{1,2,3,4}`; ⏳ still pending `World.set_component/get_component` and `Loop.step`.
