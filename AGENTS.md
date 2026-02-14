@@ -41,6 +41,31 @@ While everything is functorised, everyday usage normally sticks to the default s
 
 > Tip: For custom kind tags (`\`AI`, `\`Replay`, …) you can use `System.Make_with_kinds` and `Progress.Make_with_kind`, but the defaults cover the canonical `[ \`Fixed | \`Variable ]` workflow.
 
+### Public API Entry Point (`eon_ecs/eon_ecs.ml` + `eon_ecs/eon_ecs.mli`)
+
+Treat these files as the canonical package surface and composition root.
+
+- `eon_ecs/eon_ecs.mli` is the API contract:
+  - it defines what downstream users should depend on.
+  - it should prefer stable names and documented module intent.
+- `eon_ecs/eon_ecs.ml` is the wiring layer:
+  - re-exports core modules (`World`, `Query`, `Entity_id`, etc.).
+  - defines default bus aliases (`Signals`, `Events`, `Commands`).
+  - composes the default stack (`System.Default` -> `Pipeline.Default` -> `Progress.Default` -> `Loop.Default`).
+  - still exposes functors (`System.Make`, `Pipeline.Make`, `Progress.Make`, `Loop.Make`) for custom stacks.
+
+Design intent:
+
+- New users should be able to stay inside `Eon_ecs.*` without importing internal implementation modules.
+- Advanced users can customize via exposed functors and module types without forking internals.
+- Internal modules not re-exported here should be treated as private/unstable integration detail.
+
+When adding/changing core modules:
+
+1. Decide whether the module belongs in the public surface (`eon_ecs.mli`) or should stay internal.
+2. If public, add both type-level docs in `.mli` and wiring in `.ml`.
+3. Keep default aliases coherent so the canonical usage pattern in this document remains valid.
+
 ---
 
 ## 3. Canonical Usage Pattern
@@ -374,30 +399,239 @@ You can plug in a real renderer (build a render graph or call a backend), switch
 
 ---
 
-## 7. Suggested Future Additions
-
-When updating this file, consider documenting:
-
-1. **Extended Kind Examples** – show how `System.Make_with_kinds` and `Progress.Make_with_kind` enable tags like `\`AI` or `\`Replay`.
-2. **Custom Progress Modes** – a short example of wrapping a bespoke accumulator in `Progress.Custom`.
-3. **World Service Catalog** – describe typical services (input, audio, render graph) and their expected keys in the resource store.
-4. **Testing Playbook** – outline how to unit test systems by attaching them to dummy buses and worlds.
-
-Feel free to extend AGENTS.md as the engine grows—the goal is to keep automation-friendly guidance close to the code.
-
-## 8. Build, Test, Bench (Justfile)
+## 7. Build, Test, Bench (Justfile)
 
 Use `just` to run the supported workflows defined in the project `Justfile`.
 
 ```sh
 just tasks
+just build
 just run-tests
 just bench-sparse-set
 just bench-entity-manager
 just bench-query
 ```
 
-Build note: there is no `just build` target yet. If you need a build command, add one to the `Justfile` or run `dune build` directly.
+Task intent:
+
+- `just tasks`: list available tasks.
+- `just build`: compile the workspace (`dune build`).
+- `just run-tests`: run the full test suite (`dune test`).
+- `just bench-sparse-set`: run Sparse_set benchmarks (release profile).
+- `just bench-entity-manager`: run Entity_manager benchmarks (release profile).
+- `just bench-query`: run Query iteration benchmarks (release profile).
+
+## 8. Testing Playbook
+
+Test layout:
+
+- Test directory: `eon_ecs/test/`
+- Dune test stanza: `eon_ecs/test/dune`
+- Test entrypoint and suite registry: `eon_ecs/test/test_main.ml`
+- Current unit framework: `Alcotest`
+
+Run commands:
+
+```sh
+just run-tests
+opam exec -- dune test
+opam exec -- dune exec eon_ecs/test/test_main.exe
+```
+
+Property testing conventions:
+
+- Preferred library: `QCheck2` via `qcheck`, integrated with `qcheck-alcotest`.
+- Naming: use `test_prop_<area>.ml` for property suites.
+- Registration: add each new property suite to `test_main.ml`.
+- Scope: keep generators small, shrinkable, and model-based.
+- Debugging: run failing properties with a fixed seed and replay minimized counterexamples.
+
+Suggested QCheck suite map (from TODO):
+
+- `Sparse_set`: membership invariants.
+- `Entity_manager`: generational safety.
+- `World`: resource/component round-trips.
+- `Double_bus`: `collect`/`drain` delivery guarantees.
+- `Pipeline` + `Progress`: topo/order and tick-order guarantees.
+- `Loop.step`: collect -> tick -> drain -> render sequencing.
+
+## 9. Benchmark Setup & Comparison
+
+Benchmark layout and wiring:
+
+- Bench directory: `eon_ecs/bench/`
+- Dune wiring: `eon_ecs/bench/dune`
+- Shared helpers: `eon_ecs/bench/benchmark_helpers.ml`
+- Current executables:
+  - `bench_sparse_set.ml`
+  - `bench_entity_manager.ml`
+  - `bench_query.ml`
+
+Current benchmark implementation style (keep this consistent):
+
+- Use `Bechamel` with `Staged` benchmarks (`Test.make ... (stage (fun () -> ...))`).
+- Precompute fixture data outside the hot loop to avoid measuring setup allocations.
+- Group related cases with `Test.make_grouped` and explicit workload sizes in test names.
+- Use a fixed config for comparability:
+  - `Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) ()`
+- Prefer deterministic/randomized workloads with explicit seeds when randomness is used.
+- For query/world shape variants, use helper distributions from `Benchmark_helpers`:
+  - `default_distribution`, `distribution_all`, `distribution_every`,
+    `distribution_alternating`, `distribution_random`, `distribution_gradient`.
+- For multi-metric benches, include time + allocation instances:
+  - `monotonic_clock`, `minor_allocated`, `major_allocated`.
+
+Helper utilities available in `benchmark_helpers.ml`:
+
+- `register_components`: consistent component registration.
+- `populate_world`: reusable world fixture generator.
+- `analyze_single_instance`: OLS analysis against run count.
+- `pp_results`: uniform textual reporting (`time/run` or `alloc/run`).
+- `bench_with_gc`: convenience runner for time + allocation metrics.
+
+How to compare benchmark runs:
+
+1. Run benchmarks in release profile and capture outputs.
+2. Repeat each benchmark at least 3 times on a quiet machine.
+3. Compare like-for-like test names only (same entity/component counts and distribution labels).
+4. Prioritize `time/run` deltas first; then check `minor_allocated` and `major_allocated`.
+5. Treat small changes as noise unless they are stable across repeated runs.
+
+What to look for:
+
+- Regressions:
+  - sustained `time/run` increase across repeats.
+  - increased `major_allocated` (usually higher risk than minor allocation growth).
+  - widened gap in high-cardinality cases (`10_000+`, `50_000+`) vs small cases.
+- Improvements:
+  - stable `time/run` reduction without compensating large allocation growth.
+  - flatter scaling between small and large workloads.
+
+Practical run protocol:
+
+```sh
+just bench-sparse-set | tee /tmp/bench_sparse_set_run1.txt
+just bench-sparse-set | tee /tmp/bench_sparse_set_run2.txt
+just bench-sparse-set | tee /tmp/bench_sparse_set_run3.txt
+```
+
+Repeat for `bench-entity-manager` and `bench-query`, then compare matching test lines.
+
+## 10. Contribution Checklist
+
+- After code changes, run `just run-tests`.
+- For ordering or determinism changes, add/adjust property tests before merge.
+- For performance-sensitive changes, run the relevant bench task(s).
+- Keep this file and TODO status aligned with the actual test/bench coverage.
+
+## 11. Architecture Invariants (Do Not Break)
+
+- Bus order: collect `Signals -> Events -> Commands`; drain `Signals -> Commands -> Events`.
+- Command semantics: same-frame effects through handlers.
+- Event semantics: queued reactions, delivered on the double-buffer schedule.
+- Signal semantics: transient notifications.
+- Render/read-only passes happen after drains, not before.
+- Determinism-sensitive logic must run under fixed or hybrid progress modes.
+
+## 12. API Stability Policy
+
+Public API boundary:
+
+- Anything exported from `eon_ecs/eon_ecs.mli` is public API.
+- Anything not exported there is internal and may change without notice.
+
+Breaking-change policy:
+
+- Treat these as breaking:
+  - Removing or renaming public modules, values, or types.
+  - Changing public type signatures in incompatible ways.
+  - Changing core semantics documented as invariants (bus order, frame timing behavior).
+- For intended breaking changes, prefer a deprecation window when practical:
+  - Keep old symbol with deprecation notice.
+  - Introduce replacement API in the same release.
+  - Remove in the next planned breaking release.
+
+Compatibility guidance:
+
+- Prefer additive changes (`new module/value`) over in-place mutation of existing signatures.
+- Preserve default stack wiring semantics unless explicitly version-bumped.
+- Update this document and README examples whenever public API shape changes.
+
+## 13. Release Checklist
+
+Before tagging a release:
+
+1. Build and test:
+   - `just build`
+   - `just run-tests`
+2. Performance sanity:
+   - run relevant benchmarks for touched subsystems.
+   - if performance-sensitive code changed, run all bench tasks.
+3. API and docs sync:
+   - ensure `eon_ecs/eon_ecs.mli` matches intended public surface.
+   - update `README.md` and `AGENTS.md` for behavior/API changes.
+4. TODO/status hygiene:
+   - mark completed benchmark/property-test TODO items.
+   - add new TODOs only with clear scope and target module.
+5. Packaging sanity:
+   - verify dune/opam metadata remains valid for test/build deps.
+
+## 14. Adding a New Core Module (Playbook)
+
+Use this sequence when introducing a new core ECS module.
+
+1. Implement module internals:
+   - add `<module>.ml` and `<module>.mli` under `eon_ecs/`.
+   - keep implementation-specific helpers internal to that module unless broadly reusable.
+2. Decide public exposure:
+   - if public, re-export from `eon_ecs/eon_ecs.mli` with short intent docs.
+   - wire module alias/composition in `eon_ecs/eon_ecs.ml`.
+3. Connect to default stack if applicable:
+   - if module affects systems/pipeline/progress/loop defaults, update the corresponding `Default` wiring.
+4. Add tests:
+   - unit tests in `eon_ecs/test/test_<module>.ml`.
+   - property tests in `eon_ecs/test/test_prop_<module>.ml` when invariants are stateful/order-sensitive.
+   - register suites in `eon_ecs/test/test_main.ml`.
+5. Add benchmarks when perf-relevant:
+   - create `eon_ecs/bench/bench_<module>.ml`.
+   - reuse `benchmark_helpers.ml` patterns and metrics.
+   - add `just` task if it is a benchmark intended for regular use.
+6. Update docs:
+   - add usage notes to `AGENTS.md`.
+   - update README examples if user-facing API changed.
+7. Final validation:
+   - run `just build`, `just run-tests`, and relevant benches.
+
+## 15. Commit Message Convention
+
+Use commit subject lines that match existing history style.
+
+Primary format:
+
+- `[eon :: <area>] <summary>`
+
+Examples from current history:
+
+- `[eon :: docs] align design docs`
+- `[eon :: bench] add query benchmark matrix`
+- `[eon :: core] harden sparse-set growth & add benches`
+- `[eon :: tooling] add Justfile for tests and benchmarks`
+- `[eon :: ecs] factor benchmark helpers`
+
+Area tokens currently used:
+
+- `docs`, `bench`, `core`, `tooling`, `ecs`
+
+Fallback format (already present in history):
+
+- `[eon] <summary>`
+
+Style rules:
+
+- Keep subject concise and action-oriented (usually imperative mood).
+- Prefer sentence case with minimal punctuation.
+- Mention the primary subsystem touched; avoid generic summaries.
+- If one commit spans multiple areas, pick the dominant area or use fallback `[eon]`.
 
 ## TODO
 
