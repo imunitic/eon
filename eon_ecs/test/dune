@@ -1,6 +1,5 @@
 (test
  (name test_main)
  (modules :standard)
- (libraries eon_ecs alcotest)
+ (libraries eon_ecs alcotest qcheck qcheck-alcotest)
  (enabled_if (<> %{profile} "release")))
-
