@@ -60,13 +60,13 @@ jobs:
           opam install bechamel mtime -y
 
       - name: Run sparse-set benchmark
-        run: just bench-sparse-set
+        run: just bench sparse_set
 
       - name: Run entity-manager benchmark
-        run: just bench-entity-manager
+        run: just bench entity_manager
 
       - name: Run query benchmark
-        run: just bench-query
+        run: just bench query
 
       - name: Run world component benchmark
-        run: just bench-world
+        run: just bench world

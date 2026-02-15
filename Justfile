@@ -8,21 +8,20 @@ build:
 run-tests:
     opam exec -- dune test
 
-# Run sparse-set benchmark (release profile recommended)
-bench-sparse-set:
-    opam exec -- dune exec --profile=release eon_ecs/bench/bench_sparse_set.exe
+# Run a benchmark by name: sparse_set | entity_manager | query | world
+bench name:
+    case "{{name}}" in \
+      sparse_set|entity_manager|query|world) ;; \
+      *) echo "Unknown benchmark: {{name}}"; exit 1 ;; \
+    esac
+    opam exec -- dune exec --profile=release eon_ecs/bench/bench_{{name}}.exe
 
-# Run entity-manager benchmark (release profile recommended)
-bench-entity-manager:
-    opam exec -- dune exec --profile=release eon_ecs/bench/bench_entity_manager.exe
-
-# Run query benchmark (release profile recommended)
-bench-query:
-    opam exec -- dune exec --profile=release eon_ecs/bench/bench_query.exe
-
-# Run world component benchmark (release profile recommended)
-bench-world:
-    opam exec -- dune exec --profile=release eon_ecs/bench/bench_world.exe
+# Run all benchmarks (release profile recommended)
+bench-all:
+    just bench sparse_set
+    just bench entity_manager
+    just bench query
+    just bench world
 
 # List all available tasks
 tasks:
