@@ -13,7 +13,7 @@ let pp_op = function
 
 let gen_op =
   let open QCheck.Gen in
-  frequency
+  oneof_weighted
     [
       (6, pure Create);
       (4, map (fun i -> Destroy i) (int_bound 255));
