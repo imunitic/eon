@@ -15,7 +15,7 @@ let entity_of_index i = Entity_id.make i 0
 let gen_op =
   let open QCheck.Gen in
   let gen_idx = int_range 0 max_entity_index in
-  frequency
+  oneof_weighted
     [
       (4, map2 (fun idx v -> Add (idx, v)) gen_idx int);
       (4, map2 (fun idx v -> Set_value (idx, v)) gen_idx int);

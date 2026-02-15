@@ -18,7 +18,7 @@ let pp_op = function
 
 let gen_op =
   let open QCheck.Gen in
-  frequency
+  oneof_weighted
     [
       (6, map (fun v -> Emit v) int);
       (2, pure Collect);

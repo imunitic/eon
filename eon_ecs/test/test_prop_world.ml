@@ -18,7 +18,7 @@ let pp_component_op = function
 
 let gen_component_op =
   let open QCheck.Gen in
-  frequency
+  oneof_weighted
     [
       (4, map2 (fun s v -> Add_component (s, v)) (int_bound 127) int);
       (4, map2 (fun s v -> Set_component (s, v)) (int_bound 127) int);
@@ -102,7 +102,7 @@ let service_key = function
 
 let gen_resource_op =
   let open QCheck.Gen in
-  frequency
+  oneof_weighted
     [
       (1, map2 (fun k v -> Put_data (k, v)) (int_bound 7) int);
       (1, map2 (fun k v -> Put_service (k, v)) (int_bound 7) int);
