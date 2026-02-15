@@ -38,15 +38,15 @@ bench-compare name:
       *" {{name}} "*) ;; \
       *) echo "Unknown benchmark: {{name}}"; exit 1 ;; \
     esac
-    ts="$$(date +%Y%m%d-%H%M%S)"; \
-    out_dir="/tmp/eon-bench-$${ts}"; \
-    mkdir -p "$$out_dir"; \
+    ts="$(date +%Y%m%d-%H%M%S)"; \
+    out_dir="/tmp/eon-bench-${ts}"; \
+    mkdir -p "$out_dir"; \
     i=1; \
-    while [ $$i -le 3 ]; do \
-      just bench {{name}} | tee "$$out_dir/{{name}}-run$$i.txt"; \
-      i=$$((i+1)); \
+    while [ $i -le 3 ]; do \
+      just bench {{name}} | tee "$out_dir/{{name}}-run$i.txt"; \
+      i=$((i+1)); \
     done; \
-    echo "Saved benchmark runs to $$out_dir"
+    echo "Saved benchmark runs to $out_dir"
 
 # Clean build artifacts
 clean:
