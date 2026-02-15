@@ -6,7 +6,12 @@
  (name eon-ecs)
  (synopsis "Entity Component System core for Eon engine")
  (description "Eon ECS is a minimal, data-oriented ECS library for OCaml.")
-(depends ocaml dune))
+ (depends
+  ocaml
+  dune
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))
 
  (package
   (name eon-engine)
