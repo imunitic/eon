@@ -67,3 +67,6 @@ jobs:
 
       - name: Run query benchmark
         run: just bench-query
+
+      - name: Run world component benchmark
+        run: just bench-world

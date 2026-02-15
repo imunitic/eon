@@ -20,6 +20,10 @@ bench-entity-manager:
 bench-query:
     opam exec -- dune exec --profile=release eon_ecs/bench/bench_query.exe
 
+# Run world component benchmark (release profile recommended)
+bench-world:
+    opam exec -- dune exec --profile=release eon_ecs/bench/bench_world.exe
+
 # List all available tasks
 tasks:
     just --list
