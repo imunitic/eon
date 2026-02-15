@@ -1,5 +1,5 @@
 [![Eon ECS Core CI](https://github.com/imunitic/eon/actions/workflows/ci.yml/badge.svg)](https://github.com/imunitic/eon/actions/workflows/ci.yml)
-[![Coverage (Bisect)](https://img.shields.io/github/actions/workflow/status/imunitic/eon/ci.yml?branch=main&label=Coverage%20(Bisect))](https://github.com/imunitic/eon/actions/workflows/ci.yml)
+[![Coverage (Bisect)](https://github.com/imunitic/eon/actions/workflows/ci.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/imunitic/eon/actions/workflows/ci.yml)
 
 # Eon ECS
 
