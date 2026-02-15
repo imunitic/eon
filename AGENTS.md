@@ -646,4 +646,4 @@ Style rules:
 ## TODO
 
 - Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), `Query.iter{1,2,3,4}`, `World.set_component/get_component`, and `Loop.step`.
-- Add QCheck suites: `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
+- Add QCheck suites: ✅ `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
