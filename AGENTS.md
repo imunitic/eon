@@ -407,10 +407,12 @@ Use `just` to run the supported workflows defined in the project `Justfile`.
 just tasks
 just build
 just run-tests
-just bench-sparse-set
-just bench-entity-manager
-just bench-query
-just bench-world
+just test eon_ecs/test/test_main.exe
+just bench sparse_set
+just bench-all
+just bench-ci
+just bench-compare world
+just clean
 ```
 
 Task intent:
@@ -418,10 +420,12 @@ Task intent:
 - `just tasks`: list available tasks.
 - `just build`: compile the workspace (`dune build`).
 - `just run-tests`: run the full test suite (`dune test`).
-- `just bench-sparse-set`: run Sparse_set benchmarks (release profile).
-- `just bench-entity-manager`: run Entity_manager benchmarks (release profile).
-- `just bench-query`: run Query iteration benchmarks (release profile).
-- `just bench-world`: run World component benchmarks (release profile).
+- `just test <suite>`: run a specific dune test target/alias (for example `eon_ecs/test/test_main.exe`).
+- `just bench <name>`: run one benchmark by name (`sparse_set`, `entity_manager`, `query`, `world`).
+- `just bench-all`: run all benchmarks locally.
+- `just bench-ci`: run the benchmark matrix used in CI.
+- `just bench-compare <name>`: run the named benchmark 3 times and save outputs under `/tmp`.
+- `just clean`: clean build artifacts (`dune clean`).
 
 ## 8. Testing Playbook
 
@@ -518,12 +522,10 @@ What to look for:
 Practical run protocol:
 
 ```sh
-just bench-sparse-set | tee /tmp/bench_sparse_set_run1.txt
-just bench-sparse-set | tee /tmp/bench_sparse_set_run2.txt
-just bench-sparse-set | tee /tmp/bench_sparse_set_run3.txt
+just bench-compare sparse_set
 ```
 
-Repeat for `bench-entity-manager`, `bench-query`, and `bench-world`, then compare matching test lines.
+Repeat for `entity_manager`, `query`, and `world`, then compare matching test lines.
 
 ## 10. Contribution Checklist
 
