@@ -1,5 +1,5 @@
 # Eon project tasks
-BENCH_NAMES := "sparse_set entity_manager query world"
+BENCH_NAMES := "sparse_set entity_manager query world loop"
 
 # Build project
 build:
@@ -18,7 +18,7 @@ check:
 test suite:
     opam exec -- dune test {{suite}}
 
-# Run a benchmark by name: sparse_set | entity_manager | query | world
+# Run a benchmark by name: sparse_set | entity_manager | query | world | loop
 bench name:
     case " {{BENCH_NAMES}} " in \
       *" {{name}} "*) ;; \

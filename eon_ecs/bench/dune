@@ -34,3 +34,11 @@
  (libraries bechamel unix eon_ecs benchmark_helpers)
  (flags (:standard -warn-error -a))
  (package eon-ecs))
+
+(executable
+ (name bench_loop)
+ (public_name eon-ecs-bench-loop)
+ (modules bench_loop)
+ (libraries bechamel unix eon_ecs benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-ecs))
