@@ -29,9 +29,7 @@ jobs:
           opam-depext: true
 
       - name: Install dependencies
-        run: |
-          opam install . --deps-only -y
-          opam install alcotest mtime -y
+        run: opam install . --deps-only -y
 
       - name: Run tests
         run: just run-tests
@@ -55,9 +53,7 @@ jobs:
           dune-cache: true
 
       - name: Install dependencies
-        run: |
-          opam install . --deps-only -y
-          opam install bechamel mtime -y
+        run: opam install . --deps-only -y
 
       - name: Run sparse-set benchmark
         run: just bench sparse_set
