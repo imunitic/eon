@@ -1,0 +1,36 @@
+name: Eon ECS Coverage
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # Mondays at 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    name: 📊 Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Just
+        uses: taiki-e/install-action@just
+
+      - name: Setup OCaml environment
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.3.0
+          dune-cache: true
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test -y
+
+      - name: Run coverage
+        run: just coverage
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: _coverage/html
