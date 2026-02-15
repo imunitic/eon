@@ -410,6 +410,7 @@ just run-tests
 just bench-sparse-set
 just bench-entity-manager
 just bench-query
+just bench-world
 ```
 
 Task intent:
@@ -420,6 +421,7 @@ Task intent:
 - `just bench-sparse-set`: run Sparse_set benchmarks (release profile).
 - `just bench-entity-manager`: run Entity_manager benchmarks (release profile).
 - `just bench-query`: run Query iteration benchmarks (release profile).
+- `just bench-world`: run World component benchmarks (release profile).
 
 ## 8. Testing Playbook
 
@@ -466,6 +468,7 @@ Benchmark layout and wiring:
   - `bench_sparse_set.ml`
   - `bench_entity_manager.ml`
   - `bench_query.ml`
+  - `bench_world.ml`
 
 Current benchmark implementation style (keep this consistent):
 
@@ -480,6 +483,11 @@ Current benchmark implementation style (keep this consistent):
     `distribution_alternating`, `distribution_random`, `distribution_gradient`.
 - For multi-metric benches, include time + allocation instances:
   - `monotonic_clock`, `minor_allocated`, `major_allocated`.
+- For mixed `World.get_component` lookup benchmarks, include multiple topologies:
+  - `mixed` (alternating hit/miss),
+  - `clustered` (hit block then miss block),
+  - `random50` (deterministic seeded random hit/miss).
+  This captures branch/locality sensitivity better than a single mixed pattern.
 
 Helper utilities available in `benchmark_helpers.ml`:
 
@@ -515,7 +523,7 @@ just bench-sparse-set | tee /tmp/bench_sparse_set_run2.txt
 just bench-sparse-set | tee /tmp/bench_sparse_set_run3.txt
 ```
 
-Repeat for `bench-entity-manager` and `bench-query`, then compare matching test lines.
+Repeat for `bench-entity-manager`, `bench-query`, and `bench-world`, then compare matching test lines.
 
 ## 10. Contribution Checklist
 
@@ -635,5 +643,5 @@ Style rules:
 
 ## TODO
 
-- Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), and `Query.iter{1,2,3,4}`; ⏳ still pending `World.set_component/get_component` and `Loop.step`.
+- Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), `Query.iter{1,2,3,4}`, and `World.set_component/get_component`; ⏳ still pending `Loop.step`.
 - Add QCheck suites: `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
