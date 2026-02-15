@@ -2,4 +2,5 @@
  (name test_main)
  (modules :standard)
  (libraries eon_ecs alcotest qcheck qcheck-alcotest)
+ (instrumentation (backend bisect_ppx))
  (enabled_if (<> %{profile} "release")))

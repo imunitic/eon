@@ -14,6 +14,17 @@ check:
     just build
     just run-tests
 
+# Run coverage-instrumented tests and generate HTML report under _coverage/html
+coverage:
+    rm -rf _coverage
+    mkdir -p _coverage
+    BISECT_FILE="$PWD/_coverage/bisect-%p.coverage" opam exec -- dune runtest --instrument-with bisect_ppx --force
+    opam exec -- bisect-ppx-report html --source-path . --coverage-path _coverage -o _coverage/html
+
+# Print aggregate coverage summary from _coverage
+coverage-summary:
+    opam exec -- bisect-ppx-report summary --coverage-path _coverage
+
 # Run a specific test target/alias (example: eon_ecs/test/test_main.exe or @runtest)
 test suite:
     opam exec -- dune test {{suite}}

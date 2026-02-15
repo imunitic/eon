@@ -2,4 +2,5 @@
  (name eon_ecs)
  (public_name eon-ecs)
  (libraries mtime mtime.clock)
+ (instrumentation (backend bisect_ppx))
  (flags (:standard -w +m-i-s-s-i-n-g-i-n-t-e-r-f-a-c-e -warn-error +A)))
