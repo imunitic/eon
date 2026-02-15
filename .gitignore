@@ -70,6 +70,7 @@ _build/
 doc/
 dist/
 coverage/
+_coverage/
 result/
 output/
 *.native
