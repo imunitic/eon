@@ -409,6 +409,7 @@ just build
 just run-tests
 just test eon_ecs/test/test_main.exe
 just bench sparse_set
+just bench loop
 just bench-ci
 just bench-compare world
 just clean
@@ -420,7 +421,7 @@ Task intent:
 - `just build`: compile the workspace (`dune build`).
 - `just run-tests`: run the full test suite (`dune test`).
 - `just test <suite>`: run a specific dune test target/alias (for example `eon_ecs/test/test_main.exe`).
-- `just bench <name>`: run one benchmark by name (`sparse_set`, `entity_manager`, `query`, `world`).
+- `just bench <name>`: run one benchmark by name (`sparse_set`, `entity_manager`, `query`, `world`, `loop`).
 - `just bench-ci`: run the benchmark matrix used in CI.
 - `just bench-compare <name>`: run the named benchmark 3 times and save outputs under `/tmp`.
 - `just clean`: clean build artifacts (`dune clean`).
@@ -471,6 +472,7 @@ Benchmark layout and wiring:
   - `bench_entity_manager.ml`
   - `bench_query.ml`
   - `bench_world.ml`
+  - `bench_loop.ml`
 
 Current benchmark implementation style (keep this consistent):
 
@@ -523,7 +525,7 @@ Practical run protocol:
 just bench-compare sparse_set
 ```
 
-Repeat for `entity_manager`, `query`, and `world`, then compare matching test lines.
+Repeat for `entity_manager`, `query`, `world`, and `loop`, then compare matching test lines.
 
 ## 10. Contribution Checklist
 
@@ -643,5 +645,5 @@ Style rules:
 
 ## TODO
 
-- Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), `Query.iter{1,2,3,4}`, and `World.set_component/get_component`; ⏳ still pending `Loop.step`.
+- Benchmark with Bechamel: ✅ `Sparse_set`, `Entity_manager` (create/destroy, churn, world attach-detach), `Query.iter{1,2,3,4}`, `World.set_component/get_component`, and `Loop.step`.
 - Add QCheck suites: `Sparse_set` membership invariants, `Entity_manager` generational safety, `World` resource/component round-trips, `Double_bus.collect/drain` delivery guarantees, `Pipeline.topo_sort` and `Progress.tick` ordering, plus `Loop.step` sequencing.
