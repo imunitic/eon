@@ -409,7 +409,6 @@ just build
 just run-tests
 just test eon_ecs/test/test_main.exe
 just bench sparse_set
-just bench-all
 just bench-ci
 just bench-compare world
 just clean
@@ -422,7 +421,6 @@ Task intent:
 - `just run-tests`: run the full test suite (`dune test`).
 - `just test <suite>`: run a specific dune test target/alias (for example `eon_ecs/test/test_main.exe`).
 - `just bench <name>`: run one benchmark by name (`sparse_set`, `entity_manager`, `query`, `world`).
-- `just bench-all`: run all benchmarks locally.
 - `just bench-ci`: run the benchmark matrix used in CI.
 - `just bench-compare <name>`: run the named benchmark 3 times and save outputs under `/tmp`.
 - `just clean`: clean build artifacts (`dune clean`).

@@ -26,12 +26,6 @@ bench name:
     esac
     opam exec -- dune exec --profile=release eon_ecs/bench/bench_{{name}}.exe
 
-# Run all benchmarks (release profile recommended)
-bench-all:
-    for bench in {{BENCH_NAMES}}; do \
-      just bench "$$bench"; \
-    done
-
 # Run the benchmark matrix used in CI
 bench-ci:
     for bench in {{BENCH_NAMES}}; do \
