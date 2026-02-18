@@ -1,4 +1,8 @@
-(** Typed component definitions and runtime packing. *)
+(** Typed component descriptors and runtime packing.
+
+    Components are registered once in {!World} and then used by name to attach
+    or update per-entity values.
+*)
 
 (** A component storing values of type ['a]. *)
 type 'a component = {
@@ -11,7 +15,13 @@ type 'a component = {
 type any_component =
   | Component : 'a component -> any_component
 
-(** Create a new typed component with the given ID and name. *)
+(** Create a new typed component with the given ID and name.
+
+    Example:
+    {[
+      let position = Component.make 0 "Position"
+    ]}
+*)
 val make : int -> string -> 'a component
 
 (** Get the name of a component. *)

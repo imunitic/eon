@@ -1,0 +1,68 @@
+* DONE Write public API documentation using odoc with examples
+:PROPERTIES:
+:ID: ecs-001
+:END:
+
+** Tasks
+- [X] Document eon_ecs.mli and give meaningfull usage examples in the documentation
+- [X] Document all other public facing modules that are exported through eon_ecs.mli
+- [X] Write a tutorial style documentation in docs using markdown format about eon_ecs usage
+
+** Notes
+- Expanded public API docs and usage examples in `eon_ecs/eon_ecs.mli` for all exported modules (`Entity_id`, `Component`, `World`, `Query`, `Clock`, `Bus`, `Signals`, `Events`, `Commands`, `System`, `Pipeline`, `Progress`, `Loop`).
+- Improved module-level/public docs in:
+  - `eon_ecs/world.mli`
+  - `eon_ecs/query.mli`
+  - `eon_ecs/component.mli`
+  - `eon_ecs/entity_id.mli`
+  - `eon_ecs/clock.mli`
+  - `eon_ecs/bus.mli`
+  - `eon_ecs/single_bus.mli`
+  - `eon_ecs/double_bus.mli`
+  - `eon_ecs/progress.mli`
+  - `eon_ecs/loop.mli`
+- Added documentation to public signatures exported from `.ml` modules:
+  - `eon_ecs/system.ml`
+  - `eon_ecs/pipeline.ml`
+- Added tutorial-style documentation file: `docs/eon_ecs_usage_tutorial.md`.
+- Validation performed:
+  - `just build` (pass)
+  - `opam exec -- dune build @doc` (pass; existing odoc warning about hidden fields in `Component.component` include expansion)
+  - `just run-tests` (pass; 69 tests).
+
+* DONE Add a generate-docs task to just
+:PROPERTIES:
+:ID: ecs-004
+:END:
+
+** Tasks
+
+- [X] Add a generate-docs task to just that will use odoc and generate documentation
+
+** Notes
+- Added `generate-docs` recipe in `Justfile`:
+  - `opam exec -- dune build @doc`
+- Validation:
+  - `just generate-docs` (pass)
+
+* TODO Write a snake game example using non-reactive style (direct updates)
+:PROPERTIES:
+:ID: ecs-002
+:END:
+
+** Tasks
+- [ ] Write a classic snake game using notty as the graphics backend
+- [ ] Passthrough walls is not possible. Hiting the wall ends the game
+- [ ] Write the game in non-reactive style. This means direct updates to components and not using buses
+
+* TODO Write a snake game example using reactive style (using buses)
+:PROPERTIES:
+:id: ecs-003
+:END:
+
+** Tasks
+- [ ] Write a classic snake game using notty as the graphics backend
+- [ ] Passthrough walls is not possible. Hiting the wall ends the game
+- [ ] Write the game in reactive style. This means no direct updates to components but using buses instead (Commands, Signals, and Events)
+
+* TODO Update AGENTS.md and README.md

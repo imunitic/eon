@@ -1,6 +1,9 @@
 module type KIND = sig
+  (** Kind tag used by Pipeline/Progress scheduling. *)
   type kind
+  (** Canonical fixed-step kind tag. *)
   val fixed : kind
+  (** Canonical variable-step kind tag. *)
   val variable : kind
 end
 
@@ -14,18 +17,27 @@ type base_kind = Base_kind.kind
 type kind = base_kind
 
 module type S = sig
+  (** Common bus module type. *)
   module type BUS = Bus.BUS
+  (** Bus used for signals. *)
   module Signal_bus : BUS
+  (** Bus used for events. *)
   module Event_bus : BUS
+  (** Bus used for commands. *)
   module Command_bus : BUS
 
+  (** Side-effect-free core callbacks for a system. *)
   type core = {
+    (** Called once during pipeline registration. *)
     register : World.t -> unit;
+    (** Called when the pipeline executes this system. *)
     update   : World.t -> float -> unit;
   }
 
+  (** Kind tag attached to this system instance. *)
   type kind
 
+  (** Reactive system with bus handlers and scheduling kind. *)
   type ('signal, 'event, 'command) reactive = {
     core       : core;
     on_signal  : World.t -> 'signal -> unit;
@@ -36,15 +48,23 @@ module type S = sig
 
   type ('s, 'e, 'c) t = ('s, 'e, 'c) reactive
 
+  (** Default no-op signal handler. *)
   val ignore_signal  : 'a -> 'b -> unit
+  (** Default no-op event handler. *)
   val ignore_event   : 'a -> 'b -> unit
+  (** Default no-op command handler. *)
   val ignore_command : 'a -> 'b -> unit
 
+  (** Build a core system from optional [register] and [update] callbacks. *)
   val make_core :
     ?register:(World.t -> unit) ->
     ?update:(World.t -> float -> unit) ->
     unit -> core
 
+  (** Build a reactive system from optional callbacks.
+
+      [kind] defaults to variable kind.
+  *)
   val make_reactive :
     ?register:(World.t -> unit) ->
     ?update:(World.t -> float -> unit) ->
@@ -54,10 +74,17 @@ module type S = sig
     ?kind : kind  ->  (** default = variable **)
     unit -> ('s, 'e, 'c) reactive
 
+  (** Lift a [core] into a reactive system with no-op handlers and explicit kind. *)
   val make_with_kind :
     kind -> core -> ('s, 'e, 'c) t
 
+  (** Lift a [core] into a variable-kind reactive system with no-op handlers. *)
   val from_core : core -> ('s, 'e, 'c) reactive
+  (** Register bus handlers for this system.
+
+      If buses are not provided, this reads [`Signals], [`Events], and [`Commands]
+      services from the world.
+  *)
   val attach_handlers :
     ?signals:'s Signal_bus.t ->
     ?events:'e Event_bus.t ->

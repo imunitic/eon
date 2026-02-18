@@ -1,4 +1,16 @@
-(** Iteration helpers for accessing component storage. *)
+(** Query helpers over registered world components.
+
+    Query functions iterate only alive entities and only those with the requested
+    component sets.
+
+    Example:
+    {[
+      Query.iter2 world "Position" "Velocity"
+        (fun entity (x, y) (vx, vy) ->
+           ignore entity;
+           ignore (x +. vx, y +. vy))
+    ]}
+*)
 
 (** Iterate over all entities that provide the named component, yielding each
     entity ID and component payload to the callback. *)

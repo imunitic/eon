@@ -24,7 +24,14 @@ module type BUSES = sig
   val drain   : world -> unit
 end
 
-(** Generic loop builder combining a clock, progress mode, renderer, and buses. *)
+(** Generic loop builder combining a clock, progress mode, renderer, and buses.
+
+    Frame order:
+    1. [collect]
+    2. [Progress.tick]
+    3. [drain]
+    4. [Renderer.render]
+*)
 module Make
     (Clock    : CLOCK)
     (Progress : sig
@@ -55,7 +62,17 @@ module Make
       @param progress progress controller to advance
       @param world initial ECS world
       @param should_continue loop guard tested after each frame
-      @return final world after the loop terminates. *)
+      @return final world after the loop terminates.
+
+      Example:
+      {[
+        let final_world =
+          Loop.run
+            ~progress
+            ~world
+            ~should_continue:(fun _world _result -> true)
+      ]}
+  *)
   val run :
     progress:'phase Progress.t ->
     world:Progress.world ->

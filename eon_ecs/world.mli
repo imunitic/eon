@@ -1,4 +1,18 @@
-(** The Eon ECS world - holds entities, components, and resources. *)
+(** The Eon ECS world.
+
+    [World] is the mutable runtime state shared by systems. It contains:
+    - entity lifecycle state
+    - component registry + component storages
+    - resource stores for arbitrary data and long-lived services
+
+    Basic usage:
+    {[
+      let world = World.create () in
+      ignore (World.register_component world ~name:"Position" ~id:0);
+      let e = World.create_entity world in
+      World.add_component world e ~name:"Position" (0.0, 0.0)
+    ]}
+*)
 
 (** Opaque handle to the world state. *)
 type t
@@ -49,7 +63,9 @@ val get_service : t -> [> ] -> 'a option
 (** List the identifiers of all registered services. *)
 val list_services : t -> int list
 
-(** Attach a component value to the entity, registering the component on demand. *)
+(** Attach a component value to an entity.
+
+    Raises if the component name is not registered. *)
 val add_component : t -> Entity_id.t -> name:string -> 'a -> unit
 
 (** Overwrite the component value held by the entity. *)
