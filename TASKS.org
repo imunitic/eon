@@ -1,4 +1,6 @@
-* DONE Write public API documentation using odoc with examples
+#+TODO: TODO IN_PROGRESS REVIEW | DONE
+
+* IN_PROGRESS Write public API documentation using odoc with examples
 :PROPERTIES:
 :ID: ecs-001
 :END:
@@ -7,6 +9,9 @@
 - [X] Document eon_ecs.mli and give meaningfull usage examples in the documentation
 - [X] Document all other public facing modules that are exported through eon_ecs.mli
 - [X] Write a tutorial style documentation in docs using markdown format about eon_ecs usage
+- [ ] Add CI job `docs` using odoc
+- [ ] Publish the `_build/default/_doc/_html` directory using `peaceiris/actions-gh-pages`
+- [ ] Add a badge/link to README
 
 ** Notes
 - Expanded public API docs and usage examples in `eon_ecs/eon_ecs.mli` for all exported modules (`Entity_id`, `Component`, `World`, `Query`, `Clock`, `Bus`, `Signals`, `Events`, `Commands`, `System`, `Pipeline`, `Progress`, `Loop`).
