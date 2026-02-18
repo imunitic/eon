@@ -1,8 +1,17 @@
-(** Eon ECS — Progress
-    ------------------------------------------------------------------
-    Time-step progression manager for running ECS pipelines.
-    Supports fixed, variable, and hybrid modes.
-    ------------------------------------------------------------------ *)
+(** Time-step progression manager for ECS pipelines.
+
+    {!Make} and {!Make_with_kind} provide a controller that advances systems
+    according to mode selection.
+
+    Example with default stack:
+    {[
+      module Pipeline = Eon_ecs.Pipeline.Default
+      module Progress = Eon_ecs.Progress.Default
+
+      let pipeline = Pipeline.create () |> Pipeline.add_phase `Gameplay
+      let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline
+    ]}
+*)
 
 (** {1 Abstract Time Modes} *)
 
@@ -124,7 +133,13 @@ module Make_with_kind
       @param t progress controller
       @param world the ECS world
       @param dt delta time (in seconds)
-      @return updated world after all pipeline systems have run *)
+      @return updated world after all pipeline systems have run
+
+      Example:
+      {[
+        let world' = Progress.tick progress ~world ~dt:0.016
+      ]}
+  *)
   val tick : 'phase t -> world:World.t -> dt:float -> World.t
 end
 

@@ -9,6 +9,10 @@ build:
 run-tests:
     opam exec -- dune test
 
+# Generate API documentation via odoc/dune
+generate-docs:
+    opam exec -- dune build @doc
+
 # Run default pre-push checks
 check:
     just build

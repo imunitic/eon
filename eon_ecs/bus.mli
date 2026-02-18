@@ -1,5 +1,10 @@
 module type BUS = sig
-  (** Message bus abstraction with deterministic collect/drain semantics. *)
+  (** Message bus abstraction with deterministic collect/drain semantics.
+
+      Bus implementations differ in when emitted messages become visible:
+      - single-buffered: same frame
+      - double-buffered: next frame
+  *)
 
   (** Handle to a concrete bus instance carrying payloads of type ['msg]. *)
   type 'msg t
@@ -7,15 +12,24 @@ module type BUS = sig
   (** Allocate a new empty bus. *)
   val create  : unit -> 'msg t
 
-  (** Register a callback invoked when messages are drained. *)
+  (** Register a callback invoked on message delivery. *)
   val on      : 'msg t -> ('msg -> unit) -> unit
 
   (** Enqueue a message for delivery. *)
   val emit    : 'msg t -> 'msg -> unit
 
-  (** Prepare messages for the upcoming frame, respecting buffering policy. *)
+  (** Collect messages according to the buffering policy. *)
   val collect : 'msg t -> unit
 
-  (** Deliver and clear messages according to the bus semantics. *)
+  (** Deliver and clear messages according to the bus semantics.
+
+      Example:
+      {[
+        let bus = Commands.create () in
+        Commands.on bus (fun cmd -> ignore cmd);
+        Commands.emit bus `Tick;
+        Commands.drain bus
+      ]}
+  *)
   val drain   : 'msg t -> unit
 end

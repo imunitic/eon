@@ -3,17 +3,29 @@
 (* ================================================================ *)
 
 module type S = sig
+  (** Pipeline state keyed by phase values. *)
   type 'phase t
+  (** System type stored in this pipeline implementation. *)
   type ('s, 'e, 'c) system_t
+  (** Kind tag used for filtered execution. *)
   type kind
 
+  (** Create an empty pipeline. *)
   val create : unit -> 'phase t
+  (** Add a phase if not already present. *)
   val add_phase : 'phase -> 'phase t -> 'phase t
+  (** Declare [earlier] must run before [later]. *)
   val before : earlier:'phase -> later:'phase -> 'phase t -> 'phase t
+  (** Declare [later] must run after [earlier]. *)
   val after  : later:'phase -> earlier:'phase -> 'phase t -> 'phase t
 
+  (** Attach a system to a phase.
+
+      Raises [Invalid_argument] if the phase is not registered.
+  *)
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
 
+  (** Execute [register] callback of every system in phase order. *)
   val register_all : 'phase t -> World.t -> unit
 (** Run systems filtered by a predicate on their kind.
     This is used internally by the Progress module. *)
@@ -21,7 +33,9 @@ val run_by_filter :
   filter:(kind -> bool) ->
   'phase t -> World.t -> float -> World.t
 
+  (** Run all systems in topological phase order. *)
   val run : 'phase t -> World.t -> float -> World.t
+  (** Return phases in resolved topological order. *)
   val phases : 'phase t -> 'phase list
 end
 

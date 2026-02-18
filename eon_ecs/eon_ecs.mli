@@ -1,20 +1,91 @@
+(** Eon ECS public API.
+
+    This module is the canonical entry-point for users of the [eon-ecs] package.
+    It re-exports core modules and provides a default stack for systems, pipelines,
+    progress controllers, and loop orchestration.
+
+    Typical default-stack setup:
+    {[
+      module World    = Eon_ecs.World
+      module System   = Eon_ecs.System.Default
+      module Pipeline = Eon_ecs.Pipeline.Default
+      module Progress = Eon_ecs.Progress.Default
+      module Loop     = Eon_ecs.Loop.Default
+      module Signals  = Eon_ecs.Signals
+      module Events   = Eon_ecs.Events
+      module Commands = Eon_ecs.Commands
+
+      let world =
+        let w = World.create () in
+        World.add_service w `Signals (Signals.create ());
+        World.add_service w `Events (Events.create ());
+        World.add_service w `Commands (Commands.create ());
+        w
+    ]}
+*)
+
 module Entity_id : sig
-  (** Unique, generational entity identifiers. *)
+  (** Unique, generational entity identifiers.
+
+      Entity identifiers are opaque values containing:
+      - an entity slot index
+      - a generation counter used to prevent stale-handle reuse
+
+      Example:
+      {[
+        let e = Eon_ecs.Entity_id.make 4 2 in
+        assert (Eon_ecs.Entity_id.index e = 4);
+        assert (Eon_ecs.Entity_id.generation e = 2)
+      ]}
+  *)
   include module type of Entity_id
 end
 
 module Component : sig
-  (** Defines component metadata and typed storage. *)
+  (** Typed component metadata and storage wrappers.
+
+      Components are registered in the world by [name] and [id], then mapped to
+      sparse-set storage internally.
+
+      Example:
+      {[
+        let world = Eon_ecs.World.create () in
+        ignore (Eon_ecs.World.register_component world ~name:"Position" ~id:0)
+      ]}
+  *)
   include module type of Component
 end
 
 module World : sig
-  (** Central ECS world — manages entities, components, and resources. *)
+  (** Central ECS state container.
+
+      [World] owns:
+      - entities and their lifecycle
+      - component registration and per-entity attachments
+      - resource stores for data and long-lived services
+
+      Example:
+      {[
+        let world = Eon_ecs.World.create () in
+        ignore (Eon_ecs.World.register_component world ~name:"Health" ~id:0);
+        let e = Eon_ecs.World.create_entity world in
+        Eon_ecs.World.add_component world e ~name:"Health" 100
+      ]}
+  *)
   include module type of World
 end
 
 module Query : sig
-  (** Iteration helpers for fetching component combinations. *)
+  (** Iteration and counting helpers over component intersections.
+
+      Example:
+      {[
+        Eon_ecs.Query.iter1 world "Position"
+          (fun entity (x, y) ->
+             ignore entity;
+             ignore (x, y))
+      ]}
+  *)
   include module type of Query
 end
 
@@ -36,15 +107,37 @@ module Bus : sig
   module Double = Double_bus
 end
 
-(** Single-buffered bus used for transient signals delivered within a frame. *)
+(** Single-buffered bus used for transient same-frame notifications.
+
+    [Signals.emit] can be consumed by [Signals.collect] or [Signals.drain] in the
+    same frame, depending on loop orchestration.
+*)
 module Signals = Single_bus
-(** Double-buffered bus used for events delivered on the next frame. *)
+(** Double-buffered bus for next-frame reactions.
+
+    Emissions are staged and become visible after the next [collect]/[drain] cycle.
+*)
 module Events = Double_bus
-(** Single-buffered bus used for same-frame command processing. *)
+(** Single-buffered bus for same-frame command handling. *)
 module Commands = Single_bus
 
 module System : sig
-  (** System definitions and helpers for attaching handlers to buses. *)
+  (** System definitions and reactive bus handlers.
+
+      [System.Default] is the most common choice and is wired to
+      {!Signals}, {!Events}, and {!Commands}.
+
+      Example:
+      {[
+        module System = Eon_ecs.System.Default
+
+        let s =
+          System.make_reactive
+            ~update:(fun _world _dt -> ())
+            ~kind:`Variable
+            ()
+      ]}
+  *)
   (** Signature implemented by concrete systems. *)
   module type S = System.S
   (** Enumeration of system kinds used for scheduling. *)
@@ -61,7 +154,24 @@ module System : sig
 end
 
 module Pipeline : sig
-  (** Execution pipeline grouping systems into ordered phases. *)
+  (** Ordered execution graph for systems.
+
+      Pipelines define:
+      - phases
+      - phase dependencies
+      - systems assigned to phases
+
+      Example:
+      {[
+        module Pipeline = Eon_ecs.Pipeline.Default
+
+        let pipeline =
+          Pipeline.create ()
+          |> Pipeline.add_phase `Input
+          |> Pipeline.add_phase `Gameplay
+          |> Pipeline.before ~earlier:`Input ~later:`Gameplay
+      ]}
+  *)
   (** Signature exposed by pipelines. *)
   module type S = Pipeline.S
   (** Functor building custom pipeline implementations. *)
@@ -71,7 +181,19 @@ module Pipeline : sig
 end
 
 module Progress : sig
-  (** Frame progression controllers (variable, fixed, hybrid). *)
+  (** Time progression controllers over pipelines.
+
+      Modes:
+      - [Variable]: run variable systems once per frame
+      - [Fixed step]: run fixed systems at deterministic step size
+      - [Hybrid step]: run fixed systems at [step], then variable once/frame
+
+      Example:
+      {[
+        module Progress = Eon_ecs.Progress.Default
+        let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline
+      ]}
+  *)
   (** Signature implemented by time modes. *)
   module type S = Progress.TIME_MODE
   (** Functor producing progress controllers for custom kind sets. *)
@@ -83,7 +205,25 @@ module Progress : sig
 end
 
 module Loop : sig
-  (** Control loop orchestrating collect → progress → drain → render. *)
+  (** Control loop orchestration.
+
+      Frame order in default wiring:
+      1. collect Signals -> Events -> Commands
+      2. tick Progress
+      3. drain Signals -> Commands -> Events
+      4. render
+
+      Example:
+      {[
+        module Loop = Eon_ecs.Loop.Default
+
+        let final_world =
+          Loop.run
+            ~progress
+            ~world
+            ~should_continue:(fun _world () -> false)
+      ]}
+  *)
   (** Clock signature required by loop implementations. *)
   module type CLOCK = Loop.CLOCK
   (** Renderer signature consumed by loop implementations. *)
