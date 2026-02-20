@@ -24,9 +24,6 @@ module Make
     (Renderer : RENDERER with type world = Progress.world)
     (Buses    : BUSES with type world = Progress.world)
 = struct
-  type world = Progress.world
-  type renderer_result = Renderer.result
-
   let step ~progress ~world ~last_time ~now ~should_continue =
     Buses.collect world;
     let dt = now -. last_time in
@@ -36,7 +33,7 @@ module Make
     let continue = should_continue world result in
     (world, now, result, continue)
 
-  let rec run ~progress ~world ~should_continue =
+  let run ~progress ~world ~should_continue =
     let rec loop world last_time =
       let now = Clock.now () in
       let world, _, _, continue =

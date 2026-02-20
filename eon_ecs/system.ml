@@ -170,8 +170,6 @@ module Make_with_kinds
       kind = Kinds.variable;
     }
 
-  let to_core (r : ('s, 'e, 'c) reactive) : core = r.core
-
   let attach_handlers
       ?(signals : 's Signal_bus.t option)
       ?(events : 'e Event_bus.t option)

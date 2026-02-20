@@ -1,5 +1,7 @@
+(** Registry of component definitions. Internal API. *)
+
+(** Internal, hash-table backed registry exposing raw storage helpers. *)
 module Registry : sig
-  (** Internal, hash-table backed registry exposing raw storage helpers. *)
   (** Underlying hash-table type alias. *)
   type t
 
@@ -19,8 +21,6 @@ module Registry : sig
   (** Number of entries present in the table. *)
   val count : ('a, 'b) Hashtbl.t -> int
 end
-
-(** Registry of component definitions. Internal API. *)
 
 (** Opaque registry handle. *)
 type t
