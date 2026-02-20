@@ -57,9 +57,10 @@ module Make (System : System.S) = struct
   (* ================================================================ *)
 
   type 'phase t = {
-      mutable phases  : ('phase, unit) Hashtbl.t;
-      mutable edges   : ('phase * 'phase) list;
-      mutable systems : ('phase, system_entry list) Hashtbl.t;
+      phases       : ('phase, unit) Hashtbl.t;
+      mutable edges        : ('phase * 'phase) list;
+      systems      : ('phase, system_entry list) Hashtbl.t;
+      mutable order_cache  : 'phase list option;
     }
 
   (* ================================================================ *)
@@ -67,11 +68,16 @@ module Make (System : System.S) = struct
   (* ================================================================ *)
 
   let create () =
-    { phases = Hashtbl.create 16; edges = []; systems = Hashtbl.create 16 }
+    { phases = Hashtbl.create 16;
+      edges = [];
+      systems = Hashtbl.create 16;
+      order_cache = None }
 
   let add_phase phase t =
-    if not (Hashtbl.mem t.phases phase) then
+    if not (Hashtbl.mem t.phases phase) then begin
       Hashtbl.add t.phases phase ();
+      t.order_cache <- None
+    end;
     t
 
   (* ================================================================ *)
@@ -79,8 +85,10 @@ module Make (System : System.S) = struct
   (* ================================================================ *)
 
   let before ~earlier ~later t =
-    if not (List.exists (fun (a, b) -> a = earlier && b = later) t.edges)
-    then t.edges <- (earlier, later) :: t.edges;
+    if not (List.exists (fun (a, b) -> a = earlier && b = later) t.edges) then begin
+      t.edges <- (earlier, later) :: t.edges;
+      t.order_cache <- None
+    end;
     t
 
   let after ~later ~earlier t = before ~earlier ~later t
@@ -138,12 +146,20 @@ module Make (System : System.S) = struct
       invalid_arg "Pipeline: cycle detected in phase dependencies";
     order
 
+  let sorted_phases t =
+    match t.order_cache with
+    | Some order -> order
+    | None ->
+        let order = topo_sort t.edges t.phases in
+        t.order_cache <- Some order;
+        order
+
   (* ================================================================ *)
   (* 🔹 Execution helpers *)
   (* ================================================================ *)
 
   let register_all t world =
-    let order = topo_sort t.edges t.phases in
+    let order = sorted_phases t in
     List.iter
       (fun phase ->
         match Hashtbl.find_opt t.systems phase with
@@ -153,7 +169,7 @@ module Make (System : System.S) = struct
       order
 
   let run_by_filter ~filter t world dt =
-    let order = topo_sort t.edges t.phases in
+    let order = sorted_phases t in
     List.fold_left
       (fun world phase ->
         match Hashtbl.find_opt t.systems phase with
@@ -170,7 +186,7 @@ module Make (System : System.S) = struct
       world order
 
   let run t world dt =
-    let order = topo_sort t.edges t.phases in
+    let order = sorted_phases t in
     List.fold_left
       (fun world phase ->
         match Hashtbl.find_opt t.systems phase with
@@ -185,5 +201,5 @@ module Make (System : System.S) = struct
       world
       order
 
-  let phases t = topo_sort t.edges t.phases
+  let phases t = sorted_phases t
 end
