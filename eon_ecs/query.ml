@@ -17,7 +17,7 @@ let smallest sets =
 
 (** Helper to get component storage by name. *)
 let storage world name =
-  match World.find_component world name with
+  match World.find_component world ~name with
   | Some c -> Some c.Component.data
   | None -> None
 
@@ -38,17 +38,16 @@ let iter1 world c1 f =
 let iter2 world c1 c2 f =
   match storage world c1, storage world c2 with
   | Some s1, Some s2 ->
-     let base, other =
+     let base, _ =
        if Sparse_set.size s1 < Sparse_set.size s2 then (s1, s2)
        else (s2, s1)
      in
      Sparse_set.iter
-       (fun id v1 ->
+       (fun id _ ->
          let eid = eid_of world id in
-         if Sparse_set.contains other eid then
-           match Sparse_set.get other eid with
-           | Some v2 -> f eid v1 v2
-           | None -> ())
+         match Sparse_set.get s1 eid, Sparse_set.get s2 eid with
+         | Some v1, Some v2 -> f eid v1 v2
+         | _ -> ())
        base
   | _ -> ()
 
