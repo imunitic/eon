@@ -44,7 +44,7 @@ bench name:
 # Run the benchmark matrix used in CI
 bench-ci:
     for bench in {{BENCH_NAMES}}; do \
-      just bench "$$bench"; \
+      just bench "$bench"; \
     done
 
 # Run benchmark 3 times and save outputs under /tmp
