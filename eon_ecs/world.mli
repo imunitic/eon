@@ -68,13 +68,20 @@ val list_services : t -> int list
     Raises if the component name is not registered. *)
 val add_component : t -> Entity_id.t -> name:string -> 'a -> unit
 
-(** Overwrite the component value held by the entity. *)
+(** Overwrite the component value held by the entity.
+
+    Raises if the component name is not registered. *)
 val set_component : t -> Entity_id.t -> name:string -> 'a -> unit
 
-(** Retrieve a component value, if the entity currently owns it. *)
+(** Retrieve a component value, if the entity currently owns it.
+
+    Returns [None] if the entity does not have the component.
+    Raises if the component name is not registered. *)
 val get_component : t -> Entity_id.t -> name:string -> 'a option
 
-(** Remove a component from the entity. *)
+(** Remove a component from the entity.
+
+    Raises if the component name is not registered. *)
 val remove_component : t -> Entity_id.t -> name:string -> unit
 
 (** Detach every component from the entity, typically during destruction. *)

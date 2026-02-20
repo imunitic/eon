@@ -12,7 +12,10 @@ module type BUS = sig
   (** Allocate a new empty bus. *)
   val create  : unit -> 'msg t
 
-  (** Register a callback invoked on message delivery. *)
+  (** Register a callback invoked on message delivery.
+
+      Subscribers are called in reverse registration order
+      (most recently registered first). *)
   val on      : 'msg t -> ('msg -> unit) -> unit
 
   (** Enqueue a message for delivery. *)
