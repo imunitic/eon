@@ -59,6 +59,39 @@ let test_iter2 () =
   | _ -> fail "Unexpected results in iter2"
 
 (* ------------------------------------------------------------- *)
+(* iter2 — argument order when c2 set is smaller than c1        *)
+(* Regression test for the base-set swap bug: when s2.size <=   *)
+(* s1.size the wrong set is chosen as the iteration base,        *)
+(* causing c1 and c2 values to be passed to f in swapped order. *)
+(* ------------------------------------------------------------- *)
+let test_iter2_arg_order () =
+  let world = World.create () in
+  World.register_component world ~name:"Position" ~id:0 |> ignore;
+  World.register_component world ~name:"Velocity" ~id:1 |> ignore;
+
+  (* Two entities carry Position — s1.size = 2 *)
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  World.add_component world e1 ~name:"Position" (10.0, 20.0);
+  World.add_component world e2 ~name:"Position" (99.0, 99.0);
+
+  (* Only e1 carries Velocity — s2.size = 1, so s2 becomes the
+     iteration base and the bug causes c2's value to land in v1. *)
+  World.add_component world e1 ~name:"Velocity" (1.0, 2.0);
+
+  let got_pos = ref (0.0, 0.0) in
+  let got_vel = ref (0.0, 0.0) in
+  Query.iter2 world "Position" "Velocity"
+    (fun _ pos vel ->
+       got_pos := pos;
+       got_vel := vel);
+
+  check bool "position x is 10" true (float_eq (fst !got_pos) 10.0);
+  check bool "position y is 20" true (float_eq (snd !got_pos) 20.0);
+  check bool "velocity x is 1"  true (float_eq (fst !got_vel)  1.0);
+  check bool "velocity y is 2"  true (float_eq (snd !got_vel)  2.0)
+
+(* ------------------------------------------------------------- *)
 (* count — shared component count                                *)
 (* ------------------------------------------------------------- *)
 let test_count () =
@@ -113,6 +146,7 @@ let tests =
   [
     test_case "iter1" `Quick test_iter1;
     test_case "iter2" `Quick test_iter2;
+    test_case "iter2 argument order" `Quick test_iter2_arg_order;
     test_case "iter3 and iter4" `Quick test_iter3_iter4;
     test_case "count" `Quick test_count;
   ]
