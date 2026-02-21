@@ -5,6 +5,7 @@ description: "Eon ECS is a minimal, data-oriented ECS library for OCaml."
 depends: [
   "ocaml"
   "dune" {>= "3.15"}
+  "notty"
   "alcotest" {with-test}
   "bechamel" {with-test}
   "bisect_ppx" {with-test}

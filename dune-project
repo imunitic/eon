@@ -9,6 +9,7 @@
  (depends
   ocaml
   dune
+  notty
   (alcotest :with-test)
   (bechamel :with-test)
   (bisect_ppx :with-test)

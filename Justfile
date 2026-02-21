@@ -63,6 +63,10 @@ bench-compare name:
     done; \
     echo "Saved benchmark runs to $out_dir"
 
+# Run snake non-reactive example
+snake_nonreactive:
+    opam exec -- dune exec eon_ecs/examples/snake_nonreactive.exe
+
 # Clean build artifacts
 clean:
     opam exec -- dune clean
