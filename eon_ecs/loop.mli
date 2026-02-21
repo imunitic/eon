@@ -52,18 +52,26 @@ module Make
 
   (** Repeatedly call {!step} until [should_continue] returns [false].
 
+      If [render_initial] is [true], render one frame with [dt = 0.0] before
+      the first simulation step. This avoids ad-hoc pre-loop rendering in apps
+      that want an immediate first frame.
+
       Example:
       {[
         let final_world =
           Loop.run
+            ~render_initial:true
             ~progress
             ~world
             ~should_continue:(fun _world _result -> true)
+            ()
       ]}
   *)
   val run :
+    ?render_initial:bool ->
     progress:'phase Progress.t ->
     world:Progress.world ->
     should_continue:(Progress.world -> Renderer.result -> bool) ->
+    unit ->
     Progress.world
 end
