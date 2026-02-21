@@ -185,21 +185,16 @@ let build_game () =
         match World.get_data world term_key with
         | None -> ()
         | Some term ->
-            let current_direction = ref (1, 0) in
-            Query.iter2 world direction_component alive_component (fun _entity direction alive ->
-                if alive then current_direction := direction);
-
             let paused = is_paused world in
-            let next_direction, quit_requested, paused =
-              drain_input term !current_direction paused
-            in
-
-            Query.iter2 world direction_component alive_component (fun entity _direction alive ->
-                if alive then
-                  World.set_component world entity ~name:direction_component next_direction);
-
-            World.add_data world paused_key paused;
-            if quit_requested then World.add_data world quit_key true)
+            Query.iter2 world direction_component alive_component (fun entity direction alive ->
+                if alive then begin
+                  let next_direction, quit_requested, next_paused =
+                    drain_input term direction paused
+                  in
+                  World.set_component world entity ~name:direction_component next_direction;
+                  World.add_data world paused_key next_paused;
+                  if quit_requested then World.add_data world quit_key true
+                end))
       ~kind:`Variable
       ()
   in
