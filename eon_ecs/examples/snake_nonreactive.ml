@@ -13,6 +13,7 @@ module Progress = Eon_ecs.Progress.Default
   - Input is polled in the renderer and written back as component/data updates.
   - Rendering is isolated in Snake_renderer and runs after ECS tick/drain.
   - Loop orchestration controls timing and frame order.
+  - The terminal and all game state live in the World; no module-level mutable state.
 *)
 
 type pos = { x : int; y : int }
@@ -37,7 +38,7 @@ let quit_key = `Quit
 let rng_key = `Snake_rng
 let score_key = `Snake_score
 let any_alive_key = `Snake_any_alive
-let term_ref : Term.t option ref = ref None
+let term_key = `Snake_term
 
 (* Pure helpers *)
 let pos_equal a b = a.x = b.x && a.y = b.y
@@ -77,14 +78,8 @@ let score world =
 
 (* World setup *)
 let init_game_state world ~snake_entity ~food_entity =
-  let rng =
-    match World.get_data world rng_key with
-    | Some v -> v
-    | None ->
-        let v = Random.State.make_self_init () in
-        World.add_data world rng_key v;
-        v
-  in
+  let rng = Random.State.make_self_init () in
+  World.add_data world rng_key rng;
   let cx = grid_width / 2 in
   let cy = grid_height / 2 in
   let segments =
@@ -96,6 +91,7 @@ let init_game_state world ~snake_entity ~food_entity =
   World.add_data world score_key 0;
   World.add_data world any_alive_key true;
   World.add_data world paused_key false;
+  World.add_data world quit_key false;
   match spawn_food rng segments with
   | Some food -> World.set_component world food_entity ~name:position_component food
   | None -> World.set_component world snake_entity ~name:alive_component false
@@ -115,14 +111,8 @@ let build_world () =
   let food = World.create_entity world in
   World.add_component world food ~name:position_component { x = 0; y = 0 };
 
-  World.add_data world paused_key false;
-  World.add_data world quit_key false;
-  World.add_data world rng_key (Random.State.make_self_init ());
-  World.add_data world score_key 0;
-  World.add_data world any_alive_key true;
-
   init_game_state world ~snake_entity:snake ~food_entity:food;
-  (world, snake, food)
+  world
 
 type game = {
   world : World.t;
@@ -131,7 +121,7 @@ type game = {
 
 (* ECS systems & pipeline *)
 let build_game () =
-  let world, _snake_entity, food_entity = build_world () in
+  let world = build_world () in
 
   let ascii_lower_of_key = function
     | `ASCII c -> Some (Char.lowercase_ascii c)
@@ -192,7 +182,7 @@ let build_game () =
   let input_system =
     System.make_reactive
       ~update:(fun world _dt ->
-        match !term_ref with
+        match World.get_data world term_key with
         | None -> ()
         | Some term ->
             let current_direction = ref (1, 0) in
@@ -218,15 +208,18 @@ let build_game () =
     System.make_reactive
       ~update:(fun world _dt ->
         if is_paused world then ()
-        else
+        else begin
           (* ECS pattern:
-             1) read required world state (food position),
+             1) read required world state (food position) by querying component shape,
              2) query entities by component shape (trail + direction + alive),
              3) compute next state,
              4) write component/data updates back to the world. *)
-          match World.get_component world food_entity ~name:position_component with
+          let food_ref = ref None in
+          Query.iter1 world position_component (fun entity food ->
+              if !food_ref = None then food_ref := Some (entity, food));
+          match !food_ref with
           | None -> ()
-          | Some food_pos ->
+          | Some (food_entity, food_pos) ->
               Query.iter3 world trail_component direction_component alive_component
                 (fun entity segments direction alive ->
                   if alive then
@@ -272,7 +265,8 @@ let build_game () =
                           | None -> World.set_component world entity ~name:alive_component false
                         end
                       end
-                    end))
+                    end)
+        end)
       ~kind:`Fixed
       ()
   in
@@ -300,13 +294,6 @@ let build_game () =
   Pipeline.register_all pipeline world;
   let progress = Progress.create ~mode:(Progress.Hybrid fixed_step_s) pipeline in
   { world; progress }
-
-module Snake_progress = struct
-  type 'phase t = 'phase Progress.t
-  type world = World.t
-
-  let tick = Progress.tick
-end
 
 (* Rendering & input *)
 module Snake_renderer = struct
@@ -370,12 +357,10 @@ module Snake_renderer = struct
         Term.image term (I.vsnap ~align:`Top rows (I.hsnap ~align:`Left cols frame))
 
   let render world ~dt:_dt =
-    match !term_ref with
+    match World.get_data world term_key with
     | None -> ()
     | Some term ->
-        render_world term world (is_paused world);
-        (* Small sleep to avoid maxing a CPU core while still feeling responsive. *)
-        Unix.sleepf 0.005
+        render_world term world (is_paused world)
 end
 
 (* Loop wiring *)
@@ -387,7 +372,7 @@ end
 
 module Snake_loop = Eon_ecs.Loop.Make
     (Eon_ecs.Clock.Mtime)
-    (Snake_progress)
+    (Eon_ecs.Loop.Progress_adapter)
     (Snake_renderer)
     (Noop_buses)
 
@@ -404,7 +389,7 @@ let any_alive world =
 
 let rec run_session term =
   let game = build_game () in
-  term_ref := Some term;
+  World.add_data game.world term_key term;
   let final_world =
     Snake_loop.run
       ~render_initial:true
@@ -418,7 +403,5 @@ let rec run_session term =
 let () =
   let term = Term.create () in
   Fun.protect
-    ~finally:(fun () ->
-      term_ref := None;
-      Term.release term)
+    ~finally:(fun () -> Term.release term)
     (fun () -> run_session term)
