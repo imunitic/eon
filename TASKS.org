@@ -70,4 +70,34 @@
 - [ ] Passthrough walls is not possible. Hiting the wall ends the game
 - [ ] Write the game in reactive style. This means no direct updates to components but using buses instead (Commands, Signals, and Events)
 
-* TODO Update AGENTS.md and README.md
+* DONE Update AGENTS.md and README.md to reflect the latest changes
+:PROPERTIES:
+:ID: ecs-006
+:LAST_UPDATED: 2026-02-21 16:37
+:END:
+
+** Tasks
+
+- [X] Update AGENTS.md, trim the content and move the example to README.md. Keep AGENTS.md lean and relevant for AI agents to understand the codebase and rules
+- [X] Update README.md to be up to date with the current changes
+
+** Notes
+- Trimmed `AGENTS.md` from a long narrative/example-heavy document to a focused agent playbook (public API boundary, invariants, default stack, build/test/bench, contribution/release checklist, commit convention).
+- Moved and expanded usage examples in `README.md` (canonical default-stack flow and custom loop renderer wiring) and updated behavior notes to current semantics (bus order, unregistered component raises, pipeline topo cache, resource key identity).
+- Validation: `just build` (pass; existing warning 33 in benchmark files).
+- Validation: `just run-tests` (pass).
+
+* DONE Check changes that claude code did
+:PROPERTIES:
+:ID: ecs-005
+:LAST_UPDATED: 2026-02-21 16:32
+:END:
+
+** Tasks
+
+- [X] Check the last 5 commits and do a review of them. They were done by comrade claude-code.
+
+** Notes
+- Reviewed commits: `c3e5c05`, `0a017ac`, `8099467`, `547240d`, `f8263aa` (all co-authored by Claude Sonnet 4.6).
+- Focused review on behavior/API risk areas in `eon_ecs/query.ml`, `eon_ecs/resource_store.ml`, `eon_ecs/pipeline.ml`, `eon_ecs/loop.mli`, and `Justfile`.
+- Validation performed: `just run-tests` (pass).

@@ -4,40 +4,61 @@
 # Eon ECS
 
 Eon ECS is a minimal, deterministic, backend-agnostic entity-component-system runtime for OCaml.
+
 This repo currently contains:
+- `eon_ecs/` (`eon-ecs`): ECS core runtime.
+- `eon_engine/` (`eon-engine`): higher-level engine layer.
 
-- `eon_ecs/` (library: `eon-ecs`) - the ECS core.
-- `eon_engine/` (library: `eon-engine`) - a stub engine layer that currently only depends on `eon-ecs`.
+## Principles
 
-## Core status and TODOs
+- Minimalism: core primitives only.
+- Extensibility: functorized modules and open polymorphic variant keys.
+- Purity: systems express intent; command handlers apply effects.
+- Determinism: fixed/hybrid progress modes provide stable simulation behavior.
 
-- [x] Resource_store (services + data planes) with hashed variant keys.
-- [x] Signals, Events, and Commands buses with collect/drain semantics.
-- [x] System core + reactive record (register/update/on_* + kind).
-- [x] Pipeline with ordered phases and dependency edges.
-- [x] Progress controller with Variable, Fixed(step), and Hybrid modes.
-- [x] Query helpers: `iter1`, `iter2`, `iter3`, `iter4`, and `count`.
-- [x] Loop module with `step` and `run`, plus `Loop.Default` wiring.
-- [x] Bechamel benchmarks for Sparse_set, Entity_manager, Query iter1-4, World set/get component, and Loop.step.
-- [x] QCheck property-based tests for core invariants.
-- [ ] Multiple pipelines per world (not built into the core).
+## Build and test
 
-Reminder: RenderGraph/Drawable integration (engine layer).
+Use `just`:
 
-## Default stack (Eon_ecs)
+```sh
+just tasks
+just build
+just run-tests
+just check
+just test eon_ecs/test/test_main.exe
+just clean
+```
 
-The standard entry point is the `Eon_ecs` module, which exposes a default stack:
+## Benchmarks
 
-| Role      | Default Module                 | Notes |
-|-----------|--------------------------------|-------|
-| World     | `Eon_ecs.World`                | Entities, components, resources, services. |
-| Systems   | `Eon_ecs.System.Default`       | Reactive systems wired to default buses. |
-| Pipeline  | `Eon_ecs.Pipeline.Default`     | Phase graph over polymorphic variant keys. |
-| Progress  | `Eon_ecs.Progress.Default`     | Variable/Fixed/Hybrid modes over `System.kind`. |
-| Loop      | `Eon_ecs.Loop.Default`         | Clock + progress + renderer + default buses. |
-| Buses     | `Eon_ecs.Signals/Events/Commands` | Single/Double buffer semantics. |
+```sh
+just bench sparse_set
+just bench entity_manager
+just bench query
+just bench world
+just bench loop
+just bench-ci
+just bench-compare world
+```
 
-## Quickstart (default modules)
+## Default stack (`Eon_ecs`)
+
+For most projects, use the default aliases exposed by `Eon_ecs`:
+
+| Role | Module |
+|---|---|
+| World | `Eon_ecs.World` |
+| Systems | `Eon_ecs.System.Default` |
+| Pipeline | `Eon_ecs.Pipeline.Default` |
+| Progress | `Eon_ecs.Progress.Default` |
+| Loop | `Eon_ecs.Loop.Default` |
+| Buses | `Eon_ecs.Signals`, `Eon_ecs.Events`, `Eon_ecs.Commands` |
+
+Canonical package surface:
+- API contract: `eon_ecs/eon_ecs.mli`
+- Composition root: `eon_ecs/eon_ecs.ml`
+
+## Canonical usage (default modules)
 
 ```ocaml
 module World    = Eon_ecs.World
@@ -65,27 +86,27 @@ let world =
   World.add_component world entity ~name:"Velocity" (1.0, 0.0);
   world
 
+let signals  = World.get_service world `Signals  |> Option.get
+let events   = World.get_service world `Events   |> Option.get
 let commands = World.get_service world `Commands |> Option.get
 
 let movement_system =
   System.make_reactive
     ~update:(fun world dt ->
       Query.iter2 world "Position" "Velocity"
-        (fun entity (x, y) (vx, vy) ->
-          let speed = (vx *. dt, vy *. dt) in
-          Commands.emit commands (`Move_player (entity, speed)) ))
+        (fun entity (_x, _y) (vx, vy) ->
+          Commands.emit commands (`Move_player (entity, (vx *. dt, vy *. dt)))))
     ~on_command:(fun world -> function
-        | `Move_player (entity, (dx, dy)) ->
-            begin
-              match World.get_component world entity ~name:"Position" with
-              | Some (x, y) ->
-                  World.set_component world entity ~name:"Position" (x +. dx, y +. dy)
-              | None -> ()
-            end
-        | _ -> ())
+      | `Move_player (entity, (dx, dy)) ->
+          begin match World.get_component world entity ~name:"Position" with
+          | Some (x, y) ->
+              World.set_component world entity ~name:"Position" (x +. dx, y +. dy)
+          | None -> ()
+          end
+      | _ -> ())
     ~kind:`Fixed
     ()
-  |> System.attach_handlers world
+  |> System.attach_handlers ~signals ~events ~commands world
 
 let pipeline =
   Pipeline.create ()
@@ -105,47 +126,58 @@ let _final_world =
     ~should_continue
 ```
 
-## Message buses
+## Loop and bus semantics
 
-- `Signals` uses `Single_bus` (same-frame delivery).
-- `Events` uses `Double_bus` (next-frame delivery).
-- `Commands` uses `Single_bus` (same-frame delivery).
-
-Default loop bus order:
-
-1. `collect` Signals -> Events -> Commands
+Default frame flow:
+1. Collect: `Signals -> Events -> Commands`
 2. `Progress.tick`
-3. `drain` Signals -> Commands -> Events
-4. Render after drains
+3. Drain: `Signals -> Commands -> Events`
+4. Render/read-only pass
 
-The loop orchestrates collect/drain; systems only emit or handle messages.
+Semantics:
+- `Signals` (`Single_bus`): same-frame transient delivery.
+- `Commands` (`Single_bus`): same-frame effects through handlers.
+- `Events` (`Double_bus`): next-frame reactions.
 
-## Loop
+## Custom loop renderer example
 
-`Eon_ecs.Loop.Make` combines a clock, progress controller, renderer, and bus wiring.
-`Eon_ecs.Loop.Default` uses `Clock.Mtime`, `Progress.Default`, a no-op renderer, and
-`Loop_default_buses`. The loop exposes:
+```ocaml
+module Logging_renderer = struct
+  type world = Eon_ecs.World.t
+  type result = unit
 
-- `step`: one frame given `last_time` and `now`.
-- `run`: repeatedly calls `step` until the continuation predicate returns false.
+  let render world ~dt =
+    let open Eon_ecs in
+    let positions =
+      let acc = ref [] in
+      Query.iter1 world "Position" (fun entity (x, y) ->
+        acc := (Entity_id.index entity, x, y) :: !acc);
+      List.rev !acc
+    in
+    Logs.info (fun m -> m "[frame dt=%.3f] entities=%d" dt (List.length positions))
+end
 
-## Progress
+module Loop_with_logging = Eon_ecs.Loop.Make
+  (Eon_ecs.Clock.Mtime)
+  (Eon_ecs.Progress.Default)
+  (Logging_renderer)
+  (Eon_ecs.Loop_default_buses)
+```
 
-`Eon_ecs.Progress` provides Variable/Fixed/Hybrid modes and runs pipeline systems
-filtered by system kind. Custom kind sets are supported via `Make_with_kind`.
+## API behavior notes
 
-## Pipeline
-
-Pipelines define phases, dependencies, and system registration. `run_by_filter` is
-used by `Progress` to execute systems matching a given kind.
-
-## World and resources
-
-`World` manages entities, component registration/storage, and a `Resource_store` that
-holds services and arbitrary data keyed by open variants (hashed to ints).
-Components must be registered before `add_component`/`set_component`.
+- Component names must be registered before use.
+- `World.get_component`, `World.set_component`, and `World.remove_component` raise if the component name is unregistered.
+- Resource store uses key identity (`Obj.repr`), avoiding overwrite on hash collisions for service/data keys.
+- Pipeline phase ordering is topologically sorted and cached until phase/edge structure changes.
 
 ## Tests and benchmarks
 
-- Alcotest suites cover `Pipeline`, `Progress`, `World`, `System`, `Query`, and `Loop`.
-- Bechamel benchmarks live in `eon_ecs/bench/`.
+- Unit and property tests live under `eon_ecs/test/`.
+- Benchmarks live under `eon_ecs/bench/` and use Bechamel staged tests.
+
+## Contributing
+
+- Keep public API changes synchronized between `eon_ecs/eon_ecs.mli`, `eon_ecs/eon_ecs.ml`, and docs.
+- For deterministic/order changes, add or update tests before merge.
+- Use commit subjects like: `[eon :: <area>] <summary>`.
