@@ -26,7 +26,7 @@ val iter2 :
   World.t ->
   string ->
   string ->
-  (Entity_id.t -> 'a -> 'a -> unit) ->
+  (Entity_id.t -> 'a -> 'b -> unit) ->
   unit
 
 (** Iterate over entities that expose three named components simultaneously. *)
@@ -35,7 +35,7 @@ val iter3 :
   string ->
   string ->
   string ->
-  (Entity_id.t -> 'a -> 'a -> 'a -> unit) ->
+  (Entity_id.t -> 'a -> 'b -> 'c -> unit) ->
   unit
 
 (** Iterate over entities that expose four named components simultaneously. *)
@@ -45,7 +45,7 @@ val iter4 :
   string ->
   string ->
   string ->
-  (Entity_id.t -> 'a -> 'a -> 'a -> 'a -> unit) ->
+  (Entity_id.t -> 'a -> 'b -> 'c -> 'd -> unit) ->
   unit
 
 (** Count the entities that contain every component listed. *)
