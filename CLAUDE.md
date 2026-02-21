@@ -104,7 +104,13 @@ The topological sort result is **cached** (`order_cache` field). It is computed 
 Primary format:
 
 ```
-[eon :: <area>] <imperative summary>
+[eon :: <area>] <imperative summary> (ecs-<id>)
+```
+
+If one commit addresses multiple TODO items:
+
+```
+[eon :: <area>] <imperative summary> (ecs-<id1>, ecs-<id2>)
 ```
 
 Area tokens:
@@ -115,11 +121,13 @@ Area tokens:
 - `ecs` — cross-cutting ECS concerns, composition root, default stack wiring
 - `fix` — bug fixes (use alongside the primary area when one commit = one fix)
 
-Fallback for cross-cutting commits: `[eon] <summary>`
+Fallback for cross-cutting commits: `[eon] <summary> (ecs-<id>)`
 
 Style rules:
 - Imperative mood, sentence case, no trailing period.
 - Mention the primary subsystem; avoid generic summaries like "update files".
+- Append TODO IDs at the end of the subject in parentheses.
+- Use lowercase `ecs-` IDs exactly as listed in `TASKS.org`.
 - If one commit spans multiple areas, pick the dominant one or use `[eon]`.
 
 ## Adding a New Core Module

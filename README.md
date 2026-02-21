@@ -134,10 +134,10 @@ The repository includes a compact, data-centric Snake example:
 - Run: `just snake_nonreactive`
 
 Why this example is useful:
-- Game logic and mutations happen in ECS systems (`movement_system`, `alive_system`).
+- Game logic and mutations happen in ECS systems (`input_system`, `movement_system`, `alive_system`).
 - State is modeled via components/world data; systems query by component shape.
 - Rendering is fully separated in `Snake_renderer`.
-- Loop timing/orchestration is explicit (`Pipeline` + `Progress.Fixed` + `Loop.run`).
+- Loop timing/orchestration is explicit (`Pipeline` phases with `Input -> Gameplay` ordering + `Progress.Hybrid` + `Loop.run`).
 
 The example is intended as the reference pattern for non-reactive ECS usage.
 
@@ -195,4 +195,4 @@ module Loop_with_logging = Eon_ecs.Loop.Make
 
 - Keep public API changes synchronized between `eon_ecs/eon_ecs.mli`, `eon_ecs/eon_ecs.ml`, and docs.
 - For deterministic/order changes, add or update tests before merge.
-- Use commit subjects like: `[eon :: <area>] <summary>`.
+- Use commit subjects like: `[eon :: <area>] <summary> (ecs-<id>)`.

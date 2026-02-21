@@ -50,7 +50,7 @@
 - Validation:
   - `just generate-docs` (pass)
 
-* REVIEW Write a snake game example using non-reactive style (direct updates)
+* DONE Write a snake game example using non-reactive style (direct updates)
 :PROPERTIES:
 :ID: ecs-002
 :LAST_UPDATED: 2026-02-21 20:10
