@@ -33,7 +33,7 @@ module Make
     let continue = should_continue world result in
     (world, now, result, continue)
 
-  let run ~progress ~world ~should_continue =
+  let run ?(render_initial = false) ~progress ~world ~should_continue () =
     let rec loop world last_time =
       let now = Clock.now () in
       let world, _, _, continue =
@@ -43,5 +43,9 @@ module Make
       if continue then loop world now else world
     in
     let start = Clock.now () in
-    loop world start
+    if render_initial then
+      let result = Renderer.render world ~dt:0.0 in
+      if should_continue world result then loop world start else world
+    else
+      loop world start
 end

@@ -98,7 +98,8 @@ let test_run () =
     (Test_loop.run
        ~progress:()
        ~world:w
-       ~should_continue);
+       ~should_continue
+       ());
   let expected =
     [ "collect"
     ; "tick 0.500"

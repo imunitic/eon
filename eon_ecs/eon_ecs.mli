@@ -222,6 +222,7 @@ module Loop : sig
             ~progress
             ~world
             ~should_continue:(fun _world () -> false)
+            ()
       ]}
   *)
   (** Clock signature required by loop implementations. *)
