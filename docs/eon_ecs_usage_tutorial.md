@@ -54,7 +54,11 @@ let movement =
           end)
     ~kind:`Fixed
     ()
-  |> System.attach_handlers world
+  |> System.attach_handlers
+       ~signals:(Option.get (World.get_service world `Signals))
+       ~events:(Option.get (World.get_service world `Events))
+       ~commands:(Option.get (World.get_service world `Commands))
+       world
 ```
 
 Pattern: keep update logic pure-ish by emitting commands, then mutate state in command handlers.
@@ -94,7 +98,7 @@ Mode selection:
 module Loop = Eon_ecs.Loop.Default
 
 let should_continue _world () = true
-let _final_world = Loop.run ~progress ~world ~should_continue
+let _final_world = Loop.run ~progress ~world ~should_continue ()
 ```
 
 Default loop ordering per frame:
