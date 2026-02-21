@@ -109,16 +109,21 @@ When adding a new core module:
 ## 8. Commit message convention
 
 Primary format:
-- `[eon :: <area>] <summary>`
+- `[eon :: <area>] <summary> (ecs-<id>)`
+
+If one commit addresses multiple TODO items:
+- `[eon :: <area>] <summary> (ecs-<id1>, ecs-<id2>)`
 
 Area tokens in current history:
 - `docs`, `bench`, `core`, `tooling`, `ecs`, `fix`
 
 Fallback:
-- `[eon] <summary>`
+- `[eon] <summary> (ecs-<id>)`
 
 Style:
 - Imperative, concise, subsystem-focused subject.
+- Append TODO IDs at the end of the subject in parentheses.
+- Use lowercase `ecs-` IDs exactly as listed in `TASKS.org`.
 
 ## 9. Release checklist
 
