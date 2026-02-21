@@ -217,60 +217,62 @@ let build_game () =
   let movement_system =
     System.make_reactive
       ~update:(fun world _dt ->
-        (* ECS pattern:
-           1) read required world state (food position),
-           2) query entities by component shape (trail + direction + alive),
-           3) compute next state,
-           4) write component/data updates back to the world. *)
-        match World.get_component world food_entity ~name:position_component with
-        | None -> ()
-        | Some food_pos ->
-            Query.iter3 world trail_component direction_component alive_component
-              (fun entity segments direction alive ->
-                if alive then
-                  let head =
-                    match segments with
-                    | h :: _ -> h
-                    | [] -> { x = grid_width / 2; y = grid_height / 2 }
-                  in
-                  (* Authoritative direction guard in simulation:
-                     ignore opposite turns even if input timing produced one. *)
-                  let effective_direction =
-                    match segments with
-                    | head :: neck :: _ ->
-                        let current = (head.x - neck.x, head.y - neck.y) in
-                        if is_opposite direction current then current else direction
-                    | _ -> direction
-                  in
-                  let dx, dy = effective_direction in
-                  let new_head = { x = head.x + dx; y = head.y + dy } in
-                  let grew = pos_equal food_pos new_head in
-                  (* If not growing this tick, tail moves away, so exclude it from self-hit check. *)
-                  let body_for_collision = if grew then segments else all_but_last segments in
-                  if (not (in_bounds new_head)) || occupied body_for_collision new_head then
-                    World.set_component world entity ~name:alive_component false
-                  else begin
-                    (* Write-back phase: persist updated trail and related world data. *)
-                    let new_segments =
-                      if grew then new_head :: segments
-                      else new_head :: all_but_last segments
+        if is_paused world then ()
+        else
+          (* ECS pattern:
+             1) read required world state (food position),
+             2) query entities by component shape (trail + direction + alive),
+             3) compute next state,
+             4) write component/data updates back to the world. *)
+          match World.get_component world food_entity ~name:position_component with
+          | None -> ()
+          | Some food_pos ->
+              Query.iter3 world trail_component direction_component alive_component
+                (fun entity segments direction alive ->
+                  if alive then
+                    let head =
+                      match segments with
+                      | h :: _ -> h
+                      | [] -> { x = grid_width / 2; y = grid_height / 2 }
                     in
-                    World.set_component world entity ~name:trail_component new_segments;
-                    if grew then begin
-                      let rng =
-                        match World.get_data world rng_key with
-                        | Some v -> v
-                        | None -> failf "missing world data Snake_rng"
+                    (* Authoritative direction guard in simulation:
+                       ignore opposite turns even if input timing produced one. *)
+                    let effective_direction =
+                      match segments with
+                      | head :: neck :: _ ->
+                          let current = (head.x - neck.x, head.y - neck.y) in
+                          if is_opposite direction current then current else direction
+                      | _ -> direction
+                    in
+                    let dx, dy = effective_direction in
+                    let new_head = { x = head.x + dx; y = head.y + dy } in
+                    let grew = pos_equal food_pos new_head in
+                    (* If not growing this tick, tail moves away, so exclude it from self-hit check. *)
+                    let body_for_collision = if grew then segments else all_but_last segments in
+                    if (not (in_bounds new_head)) || occupied body_for_collision new_head then
+                      World.set_component world entity ~name:alive_component false
+                    else begin
+                      (* Write-back phase: persist updated trail and related world data. *)
+                      let new_segments =
+                        if grew then new_head :: segments
+                        else new_head :: all_but_last segments
                       in
-                      begin
-                        match spawn_food rng new_segments with
-                        | Some new_food ->
-                            World.set_component world food_entity ~name:position_component new_food;
-                            World.add_data world score_key (score world + 1)
-                        | None -> World.set_component world entity ~name:alive_component false
+                      World.set_component world entity ~name:trail_component new_segments;
+                      if grew then begin
+                        let rng =
+                          match World.get_data world rng_key with
+                          | Some v -> v
+                          | None -> failf "missing world data Snake_rng"
+                        in
+                        begin
+                          match spawn_food rng new_segments with
+                          | Some new_food ->
+                              World.set_component world food_entity ~name:position_component new_food;
+                              World.add_data world score_key (score world + 1)
+                          | None -> World.set_component world entity ~name:alive_component false
+                        end
                       end
-                    end
-                  end))
+                    end))
       ~kind:`Fixed
       ()
   in
@@ -303,10 +305,7 @@ module Snake_progress = struct
   type 'phase t = 'phase Progress.t
   type world = World.t
 
-  let tick progress ~world ~dt =
-    (* Freeze simulation time while paused; loop/render still runs for input + HUD updates. *)
-    if is_paused world then world
-    else Progress.tick progress ~world ~dt
+  let tick = Progress.tick
 end
 
 (* Rendering & input *)
