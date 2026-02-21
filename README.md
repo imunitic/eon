@@ -124,7 +124,22 @@ let _final_world =
     ~progress
     ~world
     ~should_continue
+    ()
 ```
+
+## Example: Non-reactive Snake (canonical ECS shape)
+
+The repository includes a compact, data-centric Snake example:
+- Source: `eon_ecs/examples/snake_nonreactive.ml`
+- Run: `just snake_nonreactive`
+
+Why this example is useful:
+- Game logic and mutations happen in ECS systems (`movement_system`, `alive_system`).
+- State is modeled via components/world data; systems query by component shape.
+- Rendering is fully separated in `Snake_renderer`.
+- Loop timing/orchestration is explicit (`Pipeline` + `Progress.Fixed` + `Loop.run`).
+
+The example is intended as the reference pattern for non-reactive ECS usage.
 
 ## Loop and bus semantics
 

@@ -50,25 +50,132 @@
 - Validation:
   - `just generate-docs` (pass)
 
-* TODO Write a snake game example using non-reactive style (direct updates)
+* REVIEW Write a snake game example using non-reactive style (direct updates)
 :PROPERTIES:
 :ID: ecs-002
+:LAST_UPDATED: 2026-02-21 20:10
+:END:
+
+** Goal
+- [X] Implement a classic Snake game using notty as the rendering backend
+- [X] Follow a non-reactive ECS style
+- [X] Place the example in: eon_ecs/examples/snake_nonreactive
+- [X] add a just task called snake_nonreactive to run the game
+- [X] When the game ends it restarts automatically, and pressing `q` exits the game
+- [X] Pause feature: pressing `p` pauses/unpauses gameplay without input/timing issues
+- [X] Draw walls as gray squares around the game field
+
+** Grid
+- [X] Use a fixed grid size of 40x20 cells
+- [X] Each cell represents one logical game unit
+
+** Snake Model
+- [X] Represent the snake as an ordered list of grid positions
+- [X] The first element in the list is the head
+- [X] Initial snake length is 3 segments
+- [X] The snake starts centered on the grid moving right
+- [X] Represent direction as a 2D unit vector:
+      - Up    = (0, -1)
+      - Down  = (0,  1)
+      - Left  = (-1, 0)
+      - Right = (1,  0)
+- [X] On each update tick:
+      - Compute new_head = current_head + direction
+      - Insert new_head at the front of the list
+      - Remove the last segment unless food was eaten
+
+** Movement Rules
+- [X] Velocity is constant and equal to 1 cell per tick
+- [X] Use a fixed timestep of 100ms per update
+- [X] Input must be handled non-blocking
+- [X] Direction is controlled by arrow keys or W, A, S, D
+- [X] 180-degree turns are not allowed
+
+** Food Rules
+- [X] Only one food exists at a time
+- [X] Food spawns at a random grid position not occupied by the snake
+- [X] When food is eaten:
+      - Do not remove the tail on that tick (snake grows by 1)
+      - Spawn new food at a new valid random position
+
+** Collision Rules
+- [X] Hitting a wall ends the game
+- [X] Hitting the snake’s own body ends the game
+- [X] No wall wrapping is allowed
+
+** Rendering
+- [X] Render snake segments as white squares
+- [X] Render food as a distinct colored square
+- [X] Clear and redraw the grid each frame
+
+** Architecture Constraints
+- [X] Non-reactive means:
+      - No signals
+      - No event buses
+      - No command queues
+      - No reactive streams
+- [X] Systems directly mutate components inside the main update loop
+- [X] The game loop explicitly calls update systems and render systems
+
+** Notes
+- Added non-reactive Snake example in `eon_ecs/examples/snake_nonreactive.ml` with `notty` rendering, run target `just snake_nonreactive`, and fixed-step gameplay (`0.125s`).
+- Refactored component model to clearer ECS names: `Trail`, `Direction`, `Alive`, and generic `Position` for food.
+- Kept game state in world data/resources (`paused`, `quit`, `score`, RNG, `any_alive`) and removed unnecessary tag/id bookkeeping.
+- Introduced dedicated `input_system` (variable tick) that drains non-blocking terminal input and writes world state (`Direction`, pause/quit flags); renderer is now render-only.
+- Pipeline now uses explicit phase ordering with dependencies: `Input -> Gameplay` via `Pipeline.before`, with gameplay systems handling movement and alive aggregation.
+- Movement system enforces authoritative anti-180 behavior in simulation and applies collision/growth/food-spawn updates directly on queried entities.
+- Restart behavior now rebuilds a fresh world/session when snake dies (app-level orchestration), while `q`/`Esc` exits immediately.
+- Added pause toggle (`p`) without accumulated tick jump on resume and wall rendering as gray border tiles.
+- Improved example readability with architecture comments, non-trivial logic notes, and grouped sections in the file.
+- Validation: `just build` (pass).
+- Validation: `just run-tests` (pass).
+
+* DONE Add optional initial render to Loop.run
+:PROPERTIES:
+:ID: ecs-008
+:LAST_UPDATED: 2026-02-21 19:05
 :END:
 
 ** Tasks
-- [ ] Write a classic snake game using notty as the graphics backend
-- [ ] Passthrough walls is not possible. Hiting the wall ends the game
-- [ ] Write the game in non-reactive style. This means direct updates to components and not using buses
+- [X] Add optional `~render_initial:bool` to `Loop.run` in `eon_ecs/loop.mli` and `eon_ecs/loop.ml` (default `false`).
+- [X] When enabled, render one frame with `dt=0.0` before the first simulation step.
+- [X] Update `eon_ecs/examples/snake_nonreactive.ml` to use `~render_initial:true` and remove manual pre-loop render call.
+- [X] Document rationale: this removes per-game ad-hoc first-frame render calls and keeps initial-frame behavior in the loop abstraction.
 
+** Notes
+- Added `render_initial` as an optional `Loop.run` argument to support first-frame rendering through loop API instead of game-specific bootstrap code.
+- Updated snake non-reactive example to rely on loop-managed initial render, removing direct `Snake_renderer.render_world` call before `Snake_loop.run`.
+- Validation: `just build` (pass).
+- Validation: `just run-tests` (pass; 70 tests).
+
+* DONE Enable Heterogeneous Query Payloads
+:PROPERTIES:
+:ID: ecs-007
+:LAST_UPDATED: 2026-02-21 18:43
+:END:
+
+** Tasks
+- [X] Update `Query.iter2`, `Query.iter3`, and `Query.iter4` signatures to support mixed payload types (`'a`, `'b`, `'c`, `'d`).
+- [X] Update query implementation to preserve smallest-base iteration while supporting heterogeneous storages.
+- [X] Verify ECS tests and snake example compile/run with heterogeneous query callbacks.
+
+** Notes
+- Changed `eon_ecs/query.mli` callback signatures for `iter2/iter3/iter4` to heterogeneous type parameters.
+- Updated `eon_ecs/query.ml` with explicit local abstract types and size-based base-set selection logic that works across mixed payload types.
+- Refactored `eon_ecs/examples/snake_nonreactive.ml` to use mixed-type `Query.iter2/iter3` in systems and renderer, aligning with shape-based ECS usage.
+- Validation: `just build` (pass).
+- Validation: `just run-tests` (pass; 70 tests).
+  
 * TODO Write a snake game example using reactive style (using buses)
 :PROPERTIES:
 :id: ecs-003
 :END:
 
 ** Tasks
-- [ ] Write a classic snake game using notty as the graphics backend
-- [ ] Passthrough walls is not possible. Hiting the wall ends the game
-- [ ] Write the game in reactive style. This means no direct updates to components but using buses instead (Commands, Signals, and Events)
+- [ ] do the same as in ecs-002 but using a reactive style
+- [ ] reactive means: mutation happens only in command handlers, in systems only signals and events are published
+- [ ] add this example in eon_ecs/examples/snake_reactive
+- [ ] add a just task called snake_reactive to run the game
 
 * DONE Update AGENTS.md and README.md to reflect the latest changes
 :PROPERTIES:
