@@ -154,6 +154,12 @@ Semantics:
 - `Commands` (`Single_bus`): same-frame effects through handlers.
 - `Events` (`Double_bus`): next-frame reactions.
 
+When to use which bus (practical rule of thumb):
+- Use `Commands` when a system already knows the intended effect (`Move`, `Set_health`, `Spawn_enemy`).
+- Use `Signals` for transient notifications or fan-out (`Button_pressed`, `Collision_detected`) where multiple systems may react.
+- Use `Events` for queued reactions that should become visible on the next-frame schedule.
+- It is fine for systems to emit commands directly; keep world mutation in command handlers.
+
 ## Custom loop renderer example
 
 ```ocaml
@@ -174,9 +180,9 @@ end
 
 module Loop_with_logging = Eon_ecs.Loop.Make
   (Eon_ecs.Clock.Mtime)
-  (Eon_ecs.Progress.Default)
+  (Eon_ecs.Loop.Progress_adapter)
   (Logging_renderer)
-  (Eon_ecs.Loop_default_buses)
+  (Eon_ecs.Loop.Default_buses)
 ```
 
 ## API behavior notes
