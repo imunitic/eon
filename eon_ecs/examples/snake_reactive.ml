@@ -82,7 +82,7 @@ let score world =
 (* World setup *)
 let init_game_state world ~snake_entity ~food_entity =
   let rng = Random.State.make_self_init () in
-  World.add_data world rng_key rng;
+  World.set_data world rng_key rng;
   let cx = grid_width / 2 in
   let cy = grid_height / 2 in
   let segments =
@@ -91,10 +91,10 @@ let init_game_state world ~snake_entity ~food_entity =
   World.set_component world snake_entity ~name:trail_component segments;
   World.set_component world snake_entity ~name:direction_component (1, 0);
   World.set_component world snake_entity ~name:alive_component true;
-  World.add_data world score_key 0;
-  World.add_data world any_alive_key true;
-  World.add_data world paused_key false;
-  World.add_data world quit_key false;
+  World.set_data world score_key 0;
+  World.set_data world any_alive_key true;
+  World.set_data world paused_key false;
+  World.set_data world quit_key false;
   match spawn_food rng segments with
   | Some food -> World.set_component world food_entity ~name:position_component food
   | None -> World.set_component world snake_entity ~name:alive_component false
@@ -217,9 +217,9 @@ let build_game () =
         | `Set_direction (entity, dir) ->
             World.set_component world entity ~name:direction_component dir
         | `Set_paused paused ->
-            World.add_data world paused_key paused
+            World.set_data world paused_key paused
         | `Set_quit ->
-            World.add_data world quit_key true
+            World.set_data world quit_key true
         | _ -> ())
       ~kind:`Variable
       ()
@@ -283,7 +283,7 @@ let build_game () =
                         match spawn_food rng new_segments with
                         | Some new_food ->
                             World.set_component world food_entity ~name:position_component new_food;
-                            World.add_data world score_key (score world + 1)
+                            World.set_data world score_key (score world + 1)
                         | None ->
                             World.set_component world entity ~name:alive_component false
                       end
@@ -304,7 +304,7 @@ let build_game () =
         Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
         Commands.emit commands (`Set_any_alive !any_alive))
       ~on_command:(fun world -> function
-        | `Set_any_alive v -> World.add_data world any_alive_key v
+        | `Set_any_alive v -> World.set_data world any_alive_key v
         | _ -> ())
       ~kind:`Fixed
       ()
@@ -411,7 +411,7 @@ let any_alive world =
 
 let rec run_session term =
   let game = build_game () in
-  World.add_data game.world term_key term;
+  World.set_data game.world term_key term;
   let final_world =
     Snake_loop.run
       ~render_initial:true
