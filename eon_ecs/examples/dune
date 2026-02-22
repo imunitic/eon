@@ -1,3 +1,7 @@
 (executable
  (name snake_nonreactive)
  (libraries eon_ecs notty.unix unix))
+
+(executable
+ (name snake_reactive)
+ (libraries eon_ecs notty.unix unix))

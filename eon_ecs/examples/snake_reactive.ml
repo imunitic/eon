@@ -6,14 +6,17 @@ module Term = Notty_unix.Term
 module System = Eon_ecs.System.Default
 module Pipeline = Eon_ecs.Pipeline.Default
 module Progress = Eon_ecs.Progress.Default
+module Signals = Eon_ecs.Signals
+module Events = Eon_ecs.Events
+module Commands = Eon_ecs.Commands
 
 (*
   Architecture summary:
-  - Simulation is data-centric ECS: systems query components and mutate world state.
-  - Input is polled in the renderer and written back as component/data updates.
+  - Systems publish intents via signals; command handlers apply all world mutations.
+  - Input is polled in an ECS input system (not in the renderer).
   - Rendering is isolated in Snake_renderer and runs after ECS tick/drain.
-  - Loop orchestration controls timing and frame order.
-  - The terminal and all game state live in the World; no module-level mutable state.
+  - Loop orchestration controls timing and bus ordering.
+  - The terminal and all game state live in the World.
 *)
 
 type pos = { x : int; y : int }
@@ -111,8 +114,12 @@ let build_world () =
   let food = World.create_entity world in
   World.add_component world food ~name:position_component { x = 0; y = 0 };
 
+  World.add_service world `Signals (Signals.create ());
+  World.add_service world `Events (Events.create ());
+  World.add_service world `Commands (Commands.create ());
+
   init_game_state world ~snake_entity:snake ~food_entity:food;
-  world
+  (world, snake, food)
 
 type game = {
   world : World.t;
@@ -121,7 +128,22 @@ type game = {
 
 (* ECS systems & pipeline *)
 let build_game () =
-  let world = build_world () in
+  let world, _snake_entity, food_entity = build_world () in
+  let signals =
+    match World.get_service world `Signals with
+    | Some bus -> bus
+    | None -> failf "missing Signals service"
+  in
+  let events =
+    match World.get_service world `Events with
+    | Some bus -> bus
+    | None -> failf "missing Events service"
+  in
+  let commands =
+    match World.get_service world `Commands with
+    | Some bus -> bus
+    | None -> failf "missing Commands service"
+  in
 
   let ascii_lower_of_key = function
     | `ASCII c -> Some (Char.lowercase_ascii c)
@@ -132,7 +154,6 @@ let build_game () =
           None
     | _ -> None
   in
-
   let decode_direction = function
     | `Arrow `Up -> Some (0, -1)
     | `Arrow `Down -> Some (0, 1)
@@ -147,14 +168,12 @@ let build_game () =
         | _ -> None
       end
   in
-
   let drain_input term current_direction paused =
     let input_fd, _ = Term.fds term in
     let input_ready () =
       let ready, _, _ = Unix.select [ input_fd ] [] [] 0.0 in
       ready <> []
     in
-    (* Drain all currently pending key events without blocking the frame. *)
     let rec loop direction quit_requested paused =
       if Term.pending term || input_ready () then
         match Term.event term with
@@ -166,7 +185,6 @@ let build_game () =
             else
               let next_direction =
                 match decode_direction key with
-                (* Prevent 180-degree turns so the snake cannot reverse into itself instantly. *)
                 | Some proposed when not (is_opposite direction proposed) -> proposed
                 | _ -> direction
               in
@@ -185,97 +203,127 @@ let build_game () =
         match World.get_data world term_key with
         | None -> ()
         | Some term ->
-            let paused = is_paused world in
-            Query.iter2 world direction_component alive_component (fun entity direction alive ->
-                if alive then begin
-                  let next_direction, quit_requested, next_paused =
-                    drain_input term direction paused
-                  in
-                  World.set_component world entity ~name:direction_component next_direction;
-                  World.add_data world paused_key next_paused;
-                  if quit_requested then World.add_data world quit_key true
-                end))
+            let current_direction = ref (1, 0) in
+            Query.iter2 world direction_component alive_component (fun _entity direction alive ->
+                if alive then current_direction := direction);
+            let next_direction, quit_requested, paused =
+              drain_input term !current_direction (is_paused world)
+            in
+            Query.iter2 world direction_component alive_component (fun entity _direction alive ->
+                if alive then Signals.emit signals (`Input_set_direction (entity, next_direction)));
+            Signals.emit signals (`Input_set_paused paused);
+            if quit_requested then Signals.emit signals `Input_request_quit)
+      ~on_signal:(fun _world -> function
+        | `Input_set_direction (entity, dir) ->
+            Commands.emit commands (`Set_direction (entity, dir))
+        | `Input_set_paused paused ->
+            Commands.emit commands (`Set_paused paused)
+        | `Input_request_quit ->
+            Commands.emit commands `Set_quit
+        | _ -> ())
+      ~on_command:(fun world -> function
+        | `Set_direction (entity, dir) ->
+            World.set_component world entity ~name:direction_component dir
+        | `Set_paused paused ->
+            World.add_data world paused_key paused
+        | `Set_quit ->
+            World.add_data world quit_key true
+        | _ -> ())
       ~kind:`Variable
       ()
+    |> System.attach_handlers ~signals ~events ~commands world
   in
 
   let movement_system =
     System.make_reactive
       ~update:(fun world _dt ->
-        if is_paused world then ()
-        else begin
-          (* ECS pattern:
-             1) read required world state (food position) by querying component shape,
-             2) query entities by component shape (trail + direction + alive),
-             3) compute next state,
-             4) write component/data updates back to the world. *)
-          let food_ref = ref None in
-          Query.iter1 world position_component (fun entity food ->
-              if !food_ref = None then food_ref := Some (entity, food));
-          match !food_ref with
-          | None -> ()
-          | Some (food_entity, food_pos) ->
-              Query.iter3 world trail_component direction_component alive_component
-                (fun entity segments direction alive ->
-                  if alive then
-                    let head =
-                      match segments with
-                      | h :: _ -> h
-                      | [] -> { x = grid_width / 2; y = grid_height / 2 }
+        if not (is_paused world) then
+          Query.iter3 world trail_component direction_component alive_component
+            (fun entity _trail _direction alive ->
+              if alive then Signals.emit signals (`Gameplay_step (entity, food_entity))))
+      ~on_signal:(fun _world -> function
+        | `Gameplay_step (entity, food) ->
+            Commands.emit commands (`Apply_step (entity, food))
+        | _ -> ())
+      ~on_command:(fun world -> function
+        | `Apply_step (entity, food_entity) ->
+            let segments = World.get_component world entity ~name:trail_component in
+            let direction = World.get_component world entity ~name:direction_component in
+            let alive = World.get_component world entity ~name:alive_component in
+            let food_pos = World.get_component world food_entity ~name:position_component in
+            begin
+              match
+                segments,
+                direction,
+                alive,
+                food_pos
+              with
+              | Some segments, Some direction, Some true, Some food_pos ->
+                  let head =
+                    match segments with
+                    | h :: _ -> h
+                    | [] -> { x = grid_width / 2; y = grid_height / 2 }
+                  in
+                  let effective_direction =
+                    match segments with
+                    | head :: neck :: _ ->
+                        let current = (head.x - neck.x, head.y - neck.y) in
+                        if is_opposite direction current then current else direction
+                    | _ -> direction
+                  in
+                  if effective_direction <> direction then
+                    World.set_component world entity ~name:direction_component effective_direction;
+                  let dx, dy = effective_direction in
+                  let new_head = { x = head.x + dx; y = head.y + dy } in
+                  let grew = pos_equal food_pos new_head in
+                  let body_for_collision = if grew then segments else all_but_last segments in
+                  if (not (in_bounds new_head)) || occupied body_for_collision new_head then
+                    World.set_component world entity ~name:alive_component false
+                  else begin
+                    let new_segments =
+                      if grew then new_head :: segments
+                      else new_head :: all_but_last segments
                     in
-                    (* Authoritative direction guard in simulation:
-                       ignore opposite turns even if input timing produced one. *)
-                    let effective_direction =
-                      match segments with
-                      | head :: neck :: _ ->
-                          let current = (head.x - neck.x, head.y - neck.y) in
-                          if is_opposite direction current then current else direction
-                      | _ -> direction
-                    in
-                    if effective_direction <> direction then
-                      World.set_component world entity ~name:direction_component effective_direction;
-                    let dx, dy = effective_direction in
-                    let new_head = { x = head.x + dx; y = head.y + dy } in
-                    let grew = pos_equal food_pos new_head in
-                    (* If not growing this tick, tail moves away, so exclude it from self-hit check. *)
-                    let body_for_collision = if grew then segments else all_but_last segments in
-                    if (not (in_bounds new_head)) || occupied body_for_collision new_head then
-                      World.set_component world entity ~name:alive_component false
-                    else begin
-                      (* Write-back phase: persist updated trail and related world data. *)
-                      let new_segments =
-                        if grew then new_head :: segments
-                        else new_head :: all_but_last segments
+                    World.set_component world entity ~name:trail_component new_segments;
+                    if grew then begin
+                      let rng =
+                        match World.get_data world rng_key with
+                        | Some v -> v
+                        | None -> failf "missing world data Snake_rng"
                       in
-                      World.set_component world entity ~name:trail_component new_segments;
-                      if grew then begin
-                        let rng =
-                          match World.get_data world rng_key with
-                          | Some v -> v
-                          | None -> failf "missing world data Snake_rng"
-                        in
-                        begin
-                          match spawn_food rng new_segments with
-                          | Some new_food ->
-                              World.set_component world food_entity ~name:position_component new_food;
-                              World.add_data world score_key (score world + 1)
-                          | None -> World.set_component world entity ~name:alive_component false
-                        end
+                      begin
+                        match spawn_food rng new_segments with
+                        | Some new_food ->
+                            World.set_component world food_entity ~name:position_component new_food;
+                            World.add_data world score_key (score world + 1)
+                        | None ->
+                            World.set_component world entity ~name:alive_component false
                       end
-                    end)
-        end)
+                    end
+                  end
+              | _ -> ()
+            end
+        | _ -> ())
       ~kind:`Fixed
       ()
+    |> System.attach_handlers ~signals ~events ~commands world
   in
 
   let alive_system =
     System.make_reactive
-      ~update:(fun world _dt ->
-        let any_alive = ref false in
-        Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
-        World.add_data world any_alive_key !any_alive)
+      ~update:(fun _world _dt -> Signals.emit signals `Refresh_any_alive)
+      ~on_signal:(fun world -> function
+        | `Refresh_any_alive ->
+            let any_alive = ref false in
+            Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
+            Commands.emit commands (`Set_any_alive !any_alive)
+        | _ -> ())
+      ~on_command:(fun world -> function
+        | `Set_any_alive v -> World.add_data world any_alive_key v
+        | _ -> ())
       ~kind:`Fixed
       ()
+    |> System.attach_handlers ~signals ~events ~commands world
   in
 
   let pipeline =
@@ -287,7 +335,6 @@ let build_game () =
     |> Pipeline.add_system `Gameplay movement_system
     |> Pipeline.add_system `Gameplay alive_system
   in
-
   Pipeline.register_all pipeline world;
   let progress = Progress.create ~mode:(Progress.Hybrid fixed_step_s) pipeline in
   { world; progress }
@@ -360,18 +407,11 @@ module Snake_renderer = struct
         render_world term world (is_paused world)
 end
 
-(* Loop wiring *)
-module Noop_buses = struct
-  type world = World.t
-  let collect _ = ()
-  let drain _ = ()
-end
-
 module Snake_loop = Eon_ecs.Loop.Make
     (Eon_ecs.Clock.Mtime)
     (Eon_ecs.Loop.Progress_adapter)
     (Snake_renderer)
-    (Noop_buses)
+    (Eon_ecs.Loop.Default_buses)
 
 (* Runtime session orchestration *)
 let should_quit world =
