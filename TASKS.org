@@ -169,13 +169,13 @@
 * DONE Write a snake game example using reactive style (using buses)
 :PROPERTIES:
 :ID: ecs-003
-:LAST_UPDATED: 2026-02-22 00:45
+:LAST_UPDATED: 2026-02-22 01:05
 :END:
 
 ** Tasks
 - [X] do the same as in ecs-002 but using a reactive style
 - [X] use the eon_ecs/examples/snake_nonreactive.ml as a blueprint and guide to implement this
-- [X] reactive means: mutation happens only in command handlers, in systems only signals and events are published
+- [X] reactive means: mutation happens only in command handlers; systems may emit commands directly and may use signals/events when decoupling/fan-out is useful
 - [X] add this example in eon_ecs/examples/snake_reactive
 - [X] add a just task called snake_reactive to run the game
 
@@ -186,6 +186,7 @@
 - Added executable entry in `eon_ecs/examples/dune` and `just snake_reactive` task in `Justfile`.
 - Exposed `Eon_ecs.Loop.Default_buses` in the public API and updated `snake_reactive` loop wiring to use `Eon_ecs.Loop.Progress_adapter` + `Eon_ecs.Loop.Default_buses`.
 - Kept `Apply_step` as an entity-targeted command handler using direct `World.get_component` reads, and rewrote the handler in a staged `let ... in` style for readability.
+- Simplified reactive systems by removing signal-to-command forwarding where no preprocessing was needed; systems now emit commands directly while command handlers remain the only mutation boundary.
 - Validation: `just build` (pass).
 - Validation: `just run-tests` (pass).
 
