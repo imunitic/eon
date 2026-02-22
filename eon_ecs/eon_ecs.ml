@@ -71,9 +71,11 @@ module Loop = struct
     let tick = Progress.Default.tick
   end
 
+  module Default_buses = Loop_default_buses
+
   module Default = Make
       (Clock.Mtime)
       (Progress_adapter)
       (Noop_renderer)
-      (Loop_default_buses)
+      (Default_buses)
 end
