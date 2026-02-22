@@ -67,6 +67,10 @@ bench-compare name:
 snake_nonreactive:
     opam exec -- dune exec eon_ecs/examples/snake_nonreactive.exe
 
+# Run snake reactive example
+snake_reactive:
+    opam exec -- dune exec eon_ecs/examples/snake_reactive.exe
+
 # Clean build artifacts
 clean:
     opam exec -- dune clean
