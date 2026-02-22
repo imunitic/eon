@@ -30,6 +30,9 @@ let find_component world ~name =
 let add_data world key value =
   Resource_store.add_data world.resources key value
 
+let set_data world key value =
+  add_data world key value
+
 let get_data world key =
   Resource_store.get_data world.resources key
 

@@ -46,6 +46,12 @@ val find_component : t -> name:string -> 'a Component.component option
 (** Attach arbitrary data, keyed by an open polymorphic variant, to the world. *)
 val add_data : t -> [> ] -> 'a -> unit
 
+(** Set (insert or overwrite) arbitrary data keyed by an open polymorphic variant.
+
+    This is an alias for {!add_data} with naming that makes overwrite semantics
+    explicit. *)
+val set_data : t -> [> ] -> 'a -> unit
+
 (** Retrieve data by key. *)
 val get_data : t -> [> ] -> 'a option
 
