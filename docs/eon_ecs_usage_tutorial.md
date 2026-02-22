@@ -108,6 +108,13 @@ Default loop ordering per frame:
 3. `drain` Signals -> Commands -> Events
 4. render (no-op in `Loop.Default`)
 
+Practical messaging guidance:
+
+- Emit `Commands` directly when the system already knows the intended effect.
+- Use `Signals` when you want transient notifications or fan-out to multiple listeners.
+- Use `Events` when the reaction should follow the double-buffer next-frame delivery model.
+- Keep world mutation in command handlers even if systems emit commands directly.
+
 ## 6. Add a custom renderer
 
 Use `Eon_ecs.Loop.Make` with your own renderer module if you need frame outputs.
