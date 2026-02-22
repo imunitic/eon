@@ -111,14 +111,24 @@ end
 
     [Signals.emit] can be consumed by [Signals.collect] or [Signals.drain] in the
     same frame, depending on loop orchestration.
+
+    Use signals for transient notifications or fan-out where one or more systems
+    may react, rather than for directly describing a required mutation.
 *)
 module Signals = Single_bus
 (** Double-buffered bus for next-frame reactions.
 
     Emissions are staged and become visible after the next [collect]/[drain] cycle.
+
+    Use events when reactions should follow the double-buffer next-frame delivery
+    semantics.
 *)
 module Events = Double_bus
-(** Single-buffered bus for same-frame command handling. *)
+(** Single-buffered bus for same-frame command handling.
+
+    Commands are the preferred bus for describing intended effects when a system
+    already knows the mutation to apply. Keep world mutation in command handlers.
+ *)
 module Commands = Single_bus
 
 module System : sig
