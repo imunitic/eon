@@ -210,17 +210,9 @@ let build_game () =
               drain_input term !current_direction (is_paused world)
             in
             Query.iter2 world direction_component alive_component (fun entity _direction alive ->
-                if alive then Signals.emit signals (`Input_set_direction (entity, next_direction)));
-            Signals.emit signals (`Input_set_paused paused);
-            if quit_requested then Signals.emit signals `Input_request_quit)
-      ~on_signal:(fun _world -> function
-        | `Input_set_direction (entity, dir) ->
-            Commands.emit commands (`Set_direction (entity, dir))
-        | `Input_set_paused paused ->
-            Commands.emit commands (`Set_paused paused)
-        | `Input_request_quit ->
-            Commands.emit commands `Set_quit
-        | _ -> ())
+                if alive then Commands.emit commands (`Set_direction (entity, next_direction)));
+            Commands.emit commands (`Set_paused paused);
+            if quit_requested then Commands.emit commands `Set_quit)
       ~on_command:(fun world -> function
         | `Set_direction (entity, dir) ->
             World.set_component world entity ~name:direction_component dir
@@ -240,11 +232,7 @@ let build_game () =
         if not (is_paused world) then
           Query.iter3 world trail_component direction_component alive_component
             (fun entity _trail _direction alive ->
-              if alive then Signals.emit signals (`Gameplay_step (entity, food_entity))))
-      ~on_signal:(fun _world -> function
-        | `Gameplay_step (entity, food) ->
-            Commands.emit commands (`Apply_step (entity, food))
-        | _ -> ())
+              if alive then Commands.emit commands (`Apply_step (entity, food_entity))))
       ~on_command:(fun world -> function
         | `Apply_step (entity, food_entity) ->
             let segments = World.get_component world entity ~name:trail_component in
@@ -311,13 +299,10 @@ let build_game () =
 
   let alive_system =
     System.make_reactive
-      ~update:(fun _world _dt -> Signals.emit signals `Refresh_any_alive)
-      ~on_signal:(fun world -> function
-        | `Refresh_any_alive ->
-            let any_alive = ref false in
-            Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
-            Commands.emit commands (`Set_any_alive !any_alive)
-        | _ -> ())
+      ~update:(fun world _dt ->
+        let any_alive = ref false in
+        Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
+        Commands.emit commands (`Set_any_alive !any_alive))
       ~on_command:(fun world -> function
         | `Set_any_alive v -> World.add_data world any_alive_key v
         | _ -> ())
