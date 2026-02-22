@@ -242,6 +242,9 @@ module Loop : sig
     (** Delegate to {!Progress.Default.tick}. *)
     val tick : 'phase t -> world:world -> dt:float -> world
   end
+  (** Default bus collect/drain ordering (Signals -> Events -> Commands collect;
+      Signals -> Commands -> Events drain). *)
+  module Default_buses : BUSES with type world = World.t
   (** Renderer that performs no output. *)
   module Noop_renderer : RENDERER with type world = World.t and type result = unit
   (** Ready-to-use loop wired to defaults for the ECS core. *)
@@ -251,5 +254,5 @@ module Loop : sig
         (Clock.Mtime)
         (Progress_adapter)
         (Noop_renderer)
-        (Loop_default_buses)
+        (Default_buses)
 end
