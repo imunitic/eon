@@ -124,6 +124,9 @@ Style:
 - Imperative, concise, subsystem-focused subject.
 - Append TODO IDs at the end of the subject in parentheses.
 - Use lowercase `ecs-` IDs exactly as listed in `TASKS.org`.
+- If no `TASKS.org` item is directly applicable, omit the ID suffix and use:
+  - `[eon :: <area>] <summary>`
+  - `[eon] <summary>` (fallback)
 
 ## 9. Release checklist
 

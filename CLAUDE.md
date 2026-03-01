@@ -129,6 +129,9 @@ Style rules:
 - Append TODO IDs at the end of the subject in parentheses.
 - Use lowercase `ecs-` IDs exactly as listed in `TASKS.org`.
 - If one commit spans multiple areas, pick the dominant one or use `[eon]`.
+- If no `TASKS.org` item is directly applicable, omit the ID suffix and use:
+  - `[eon :: <area>] <summary>`
+  - `[eon] <summary>` (fallback)
 
 ## Adding a New Core Module
 
