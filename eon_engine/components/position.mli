@@ -1,0 +1,8 @@
+(** 2D position component for Eon Engine. *)
+
+type t = {
+  x : float;
+  y : float;
+}
+
+val component : t Component_descriptor.t
