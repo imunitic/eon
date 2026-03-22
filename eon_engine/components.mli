@@ -38,6 +38,18 @@ module Team : module type of Team
 (** Entity ownership component. *)
 module Owner : module type of Owner
 
+(** Sprite rendering component. *)
+module Sprite : module type of Sprite
+
+(** Sprite animation component. *)
+module Animation : module type of Animation
+
+(** Camera component. *)
+module Camera : module type of Camera
+
+(** Camera target component. *)
+module Camera_target : module type of Camera_target
+
 (** Engine component framework.
 
     This module provides built-in components and the foundation for component
@@ -68,7 +80,7 @@ module Engine_components : sig
   (** Register all engine components with automatically generated IDs.
       
       Registers Position, Velocity, Acceleration, Rotation, Scale, Health,
-      Mana, Team, and Owner components.
+      Mana, Team, Owner, Sprite, Animation, Camera, and Camera_target components.
   *)
   val register_all : Eon_ecs.World.t -> unit
 end
