@@ -3,7 +3,7 @@
 open Component_descriptor
 
 type t = {
-  remaining : float;
+  ttl : float;
 }
 
 let component : t component_descriptor = component "Lifetime"
