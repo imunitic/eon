@@ -3,7 +3,7 @@
 open Component_descriptor
 
 type t = {
-  name : string;
+  value : string;
 }
 
 let component : t component_descriptor = component "Tag"
