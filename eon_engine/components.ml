@@ -53,6 +53,15 @@ module Camera_target = Camera_target
 (** Collider component. *)
 module Collider = Collider
 
+(** Tag component. *)
+module Tag = Tag
+
+(** Lifetime component. *)
+module Lifetime = Lifetime
+
+(** Input component. *)
+module Input = Input
+
 (** Built-in engine components. *)
 module Engine_components = struct
   (** Register all engine components with automatically generated IDs. *)
@@ -70,5 +79,8 @@ module Engine_components = struct
     ignore (register world Animation.component);
     ignore (register world Camera.component);
     ignore (register world Camera_target.component);
-    ignore (register world Collider.component)
+    ignore (register world Collider.component);
+    ignore (register world Tag.component);
+    ignore (register world Lifetime.component);
+    ignore (register world Input.component)
 end

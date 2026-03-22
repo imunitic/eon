@@ -53,6 +53,15 @@ module Camera_target : module type of Camera_target
 (** Collider component. *)
 module Collider : module type of Collider
 
+(** Tag component. *)
+module Tag : module type of Tag
+
+(** Lifetime component. *)
+module Lifetime : module type of Lifetime
+
+(** Input component. *)
+module Input : module type of Input
+
 (** Engine component framework.
 
     This module provides built-in components and the foundation for component
@@ -83,7 +92,8 @@ module Engine_components : sig
   (** Register all engine components with automatically generated IDs.
       
       Registers Position, Velocity, Acceleration, Rotation, Scale, Health,
-      Mana, Team, Owner, Sprite, Animation, Camera, Camera_target, and Collider components.
+      Mana, Team, Owner, Sprite, Animation, Camera, Camera_target, Collider,
+      Tag, Lifetime, and Input components.
   *)
   val register_all : Eon_ecs.World.t -> unit
 end
