@@ -50,6 +50,9 @@ module Camera = Camera
 (** Camera target component. *)
 module Camera_target = Camera_target
 
+(** Collider component. *)
+module Collider = Collider
+
 (** Built-in engine components. *)
 module Engine_components = struct
   (** Register all engine components with automatically generated IDs. *)
@@ -66,5 +69,6 @@ module Engine_components = struct
     ignore (register world Sprite.component);
     ignore (register world Animation.component);
     ignore (register world Camera.component);
-    ignore (register world Camera_target.component)
+    ignore (register world Camera_target.component);
+    ignore (register world Collider.component)
 end
