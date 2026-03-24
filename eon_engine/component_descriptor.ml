@@ -45,37 +45,19 @@ module Id_counter = struct
     Atomic.fetch_and_add counter 1
 end
 
-(** Key for storing component registration state in world data plane. *)
-let registration_key = `Eon_engine_component_registry
-
-(** Get or create component registration hashtable in world data plane. *)
-let get_or_create_registry world : (string, int) Hashtbl.t =
-  match Eon_ecs.World.get_data world registration_key with
-  | Some registry -> registry
-  | None ->
-      let registry = Hashtbl.create 16 in
-      Eon_ecs.World.add_data world registration_key registry;
-      registry
-
 let name (comp : 'a t) : string =
   comp
 
 let is_registered world (comp : 'a t) : bool =
-  let registry = get_or_create_registry world in
-  Hashtbl.mem registry comp
+  match Eon_ecs.World.find_component world ~name:comp with
+  | Some _ -> true
+  | None -> false
 
 (** Register a component with an automatically generated global ID. *)
 let register world (comp : 'a t) : registration_result =
-  let registry = get_or_create_registry world in
-  
-  (* Check if this component name is already registered *)
-  match Hashtbl.find_opt registry comp with
-  | Some _existing_id ->
-      Already_registered
+  match Eon_ecs.World.find_component world ~name:comp with
+  | Some _ -> Already_registered
   | None ->
       let id = Id_counter.next () in
-      (* Register with Eon_ecs *)
       let _ = Eon_ecs.World.register_component world ~name:comp ~id in
-      (* Update registry *)
-      Hashtbl.add registry comp id;
       Registered
