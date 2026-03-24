@@ -41,55 +41,55 @@ val is_registered : Eon_ecs.World.t -> 'a t -> bool
 val name : 'a t -> string
 
 (** 2D position component. *)
-module Position : S
+module Position : S with type t = Position.t
 
 (** 2D velocity component. *)
-module Velocity : S
+module Velocity : S with type t = Velocity.t
 
 (** 2D acceleration component. *)
-module Acceleration : S
+module Acceleration : S with type t = Acceleration.t
 
 (** Rotation component (angle in radians). *)
-module Rotation : S
+module Rotation : S with type t = Rotation.t
 
 (** 2D scale component. *)
-module Scale : S
+module Scale : S with type t = Scale.t
 
 (** Health component. *)
-module Health : S
+module Health : S with type t = Health.t
 
 (** Mana component (magic/energy resource). *)
-module Mana : S
+module Mana : S with type t = Mana.t
 
 (** Team affiliation component. *)
-module Team : S
+module Team : S with type t = Team.t
 
 (** Entity ownership component. *)
-module Owner : S
+module Owner : S with type t = Owner.t
 
 (** Sprite rendering component. *)
-module Sprite : S
+module Sprite : S with type t = Sprite.t
 
 (** Sprite animation component. *)
-module Animation : S
+module Animation : S with type t = Animation.t
 
 (** Camera component. *)
-module Camera : S
+module Camera : S with type t = Camera.t
 
 (** Camera target component. *)
-module Camera_target : S
+module Camera_target : S with type t = Camera_target.t
 
 (** Collider component. *)
-module Collider : S
+module Collider : S with type t = Collider.t
 
 (** Tag component. *)
-module Tag : S
+module Tag : S with type t = Tag.t
 
 (** Lifetime component. *)
-module Lifetime : S
+module Lifetime : S with type t = Lifetime.t
 
 (** Input component. *)
-module Input : S
+module Input : S with type t = Input.t
 
 (** Engine component framework.
 
