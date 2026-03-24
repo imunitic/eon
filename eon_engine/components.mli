@@ -8,16 +8,8 @@
     are idempotent.
 *)
 
-(** Signature for a component module.
-    
-    All component modules must conform to this signature to ensure
-    consistent interface across the component system.
-*)
-module type S = sig
-  type t
-  val component : t Component_descriptor.t
-  val name : string
-end
+(** Re-export the component module signature. *)
+module type S = Component.S
 
 (** Component descriptor type for typed component registration. *)
 type 'a t = 'a Component_descriptor.t
