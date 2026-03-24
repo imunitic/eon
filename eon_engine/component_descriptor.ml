@@ -55,9 +55,9 @@ let is_registered world (comp : 'a t) : bool =
 
 (** Register a component with an automatically generated global ID. *)
 let register world (comp : 'a t) : registration_result =
-  match Eon_ecs.World.find_component world ~name:comp with
-  | Some _ -> Already_registered
-  | None ->
-      let id = Id_counter.next () in
-      let _ = Eon_ecs.World.register_component world ~name:comp ~id in
-      Registered
+  if is_registered world comp then
+    Already_registered
+  else
+    let id = Id_counter.next () in
+    let _ = Eon_ecs.World.register_component world ~name:comp ~id in
+    Registered
