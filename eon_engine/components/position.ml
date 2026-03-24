@@ -8,3 +8,5 @@ type t = {
 }
 
 let component : t component_descriptor = component "Position"
+
+let name = Component_descriptor.name component

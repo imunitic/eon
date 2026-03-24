@@ -9,3 +9,5 @@ type t = {
 }
 
 let component : t component_descriptor = component "Input"
+
+let name = Component_descriptor.name component

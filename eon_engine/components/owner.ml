@@ -7,3 +7,5 @@ type t = {
 }
 
 let component : t component_descriptor = component "Owner"
+
+let name = Component_descriptor.name component
