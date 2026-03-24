@@ -57,23 +57,23 @@ let test_engine_components () =
   
   (* Verify registration by checking that components with engine names exist *)
   Alcotest.(check bool) "Position component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Position"));
+    (Option.is_some (World.find_component world ~name:Components.Position.name));
   Alcotest.(check bool) "Velocity component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Velocity"));
+    (Option.is_some (World.find_component world ~name:Components.Velocity.name));
   Alcotest.(check bool) "Acceleration component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Acceleration"));
+    (Option.is_some (World.find_component world ~name:Components.Acceleration.name));
   Alcotest.(check bool) "Rotation component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Rotation"));
+    (Option.is_some (World.find_component world ~name:Components.Rotation.name));
   Alcotest.(check bool) "Scale component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Scale"));
+    (Option.is_some (World.find_component world ~name:Components.Scale.name));
   Alcotest.(check bool) "Health component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Health"));
+    (Option.is_some (World.find_component world ~name:Components.Health.name));
   Alcotest.(check bool) "Mana component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Mana"));
+    (Option.is_some (World.find_component world ~name:Components.Mana.name));
   Alcotest.(check bool) "Team component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Team"));
+    (Option.is_some (World.find_component world ~name:Components.Team.name));
   Alcotest.(check bool) "Owner component should be registered" true
-    (Option.is_some (World.find_component world ~name:"Owner"))
+    (Option.is_some (World.find_component world ~name:Components.Owner.name))
 
 let test_module_based_components () =
   (* Example of module-based component definition *)

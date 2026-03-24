@@ -16,3 +16,5 @@ type t = {
 }
 
 let component : t component_descriptor = component "Collider"
+
+let name = Component_descriptor.name component

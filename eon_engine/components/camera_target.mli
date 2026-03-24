@@ -7,3 +7,5 @@ type t = {
 }
 
 val component : t Component_descriptor.t
+
+val name : string

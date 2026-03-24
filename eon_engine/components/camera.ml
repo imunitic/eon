@@ -11,3 +11,5 @@ type t = {
 }
 
 let component : t component_descriptor = component "Camera"
+
+let name = Component_descriptor.name component
