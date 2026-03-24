@@ -103,14 +103,19 @@ The topological sort result is **cached** (`order_cache` field). It is computed 
 
 Primary format:
 
-```
-[eon :: <area>] <imperative summary> (ecs-<id>)
-```
+- For changes in `eon_engine`: `[eon_engine :: <area>] <imperative summary>`
+- For changes in `eon_ecs`: `[eon_ecs :: <area>] <imperative summary>`
+- For cross-cutting changes (e.g. tooling, CLAUDE.md, dune-project): `[eon :: <area>] <summary>`
+- When nothing applies, use the rule for cross-cutting changes.
 
-If one commit addresses multiple TODO items:
+If one commit addresses multiple areas:
 
 ```
-[eon :: <area>] <imperative summary> (ecs-<id1>, ecs-<id2>)
+[eon_engine :: <area>] <imperative summary>
+```
+or
+```
+[eon_ecs :: <area>] <imperative summary>
 ```
 
 Area tokens:
@@ -121,17 +126,10 @@ Area tokens:
 - `ecs` — cross-cutting ECS concerns, composition root, default stack wiring
 - `fix` — bug fixes (use alongside the primary area when one commit = one fix)
 
-Fallback for cross-cutting commits: `[eon] <summary> (ecs-<id>)`
-
 Style rules:
 - Imperative mood, sentence case, no trailing period.
 - Mention the primary subsystem; avoid generic summaries like "update files".
-- Append TODO IDs at the end of the subject in parentheses.
-- Use lowercase `ecs-` IDs exactly as listed in `TASKS.org`.
-- If one commit spans multiple areas, pick the dominant one or use `[eon]`.
-- If no `TASKS.org` item is directly applicable, omit the ID suffix and use:
-  - `[eon :: <area>] <summary>`
-  - `[eon] <summary>` (fallback)
+- If one commit spans multiple areas, pick the dominant one.
 
 ## Adding a New Core Module
 
