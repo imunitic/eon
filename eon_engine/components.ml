@@ -8,6 +8,20 @@
     are idempotent.
 *)
 
+(** Signature for a component module.
+    
+    All component modules must conform to this signature to ensure
+    consistent interface across the component system.
+    
+    The values in this signature are implemented by the individual
+    component modules, not by this module itself.
+*)
+module type S = sig
+  type t
+  val component : t Component_descriptor.t
+  val name : string
+end
+
 (** Component descriptor type for typed component registration. *)
 type 'a t = 'a Component_descriptor.t
 

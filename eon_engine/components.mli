@@ -8,6 +8,17 @@
     are idempotent.
 *)
 
+(** Signature for a component module.
+    
+    All component modules must conform to this signature to ensure
+    consistent interface across the component system.
+*)
+module type S = sig
+  type t
+  val component : t Component_descriptor.t
+  val name : string
+end
+
 (** Component descriptor type for typed component registration. *)
 type 'a t = 'a Component_descriptor.t
 
@@ -30,55 +41,55 @@ val is_registered : Eon_ecs.World.t -> 'a t -> bool
 val name : 'a t -> string
 
 (** 2D position component. *)
-module Position : module type of Position
+module Position : S
 
 (** 2D velocity component. *)
-module Velocity : module type of Velocity
+module Velocity : S
 
 (** 2D acceleration component. *)
-module Acceleration : module type of Acceleration
+module Acceleration : S
 
 (** Rotation component (angle in radians). *)
-module Rotation : module type of Rotation
+module Rotation : S
 
 (** 2D scale component. *)
-module Scale : module type of Scale
+module Scale : S
 
 (** Health component. *)
-module Health : module type of Health
+module Health : S
 
 (** Mana component (magic/energy resource). *)
-module Mana : module type of Mana
+module Mana : S
 
 (** Team affiliation component. *)
-module Team : module type of Team
+module Team : S
 
 (** Entity ownership component. *)
-module Owner : module type of Owner
+module Owner : S
 
 (** Sprite rendering component. *)
-module Sprite : module type of Sprite
+module Sprite : S
 
 (** Sprite animation component. *)
-module Animation : module type of Animation
+module Animation : S
 
 (** Camera component. *)
-module Camera : module type of Camera
+module Camera : S
 
 (** Camera target component. *)
-module Camera_target : module type of Camera_target
+module Camera_target : S
 
 (** Collider component. *)
-module Collider : module type of Collider
+module Collider : S
 
 (** Tag component. *)
-module Tag : module type of Tag
+module Tag : S
 
 (** Lifetime component. *)
-module Lifetime : module type of Lifetime
+module Lifetime : S
 
 (** Input component. *)
-module Input : module type of Input
+module Input : S
 
 (** Engine component framework.
 
