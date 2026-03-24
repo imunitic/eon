@@ -64,24 +64,6 @@ let is_registered world (comp : 'a t) : bool =
   let registry = get_or_create_registry world in
   Hashtbl.mem registry comp
 
-let register_component world (comp : 'a t) ~id : registration_result =
-  let registry = get_or_create_registry world in
-  
-  (* Check if this component name is already registered *)
-  match Hashtbl.find_opt registry comp with
-  | Some _existing_id ->
-      (* Component already registered with this name *)
-      Already_registered
-  
-  | None ->
-      (* Register with Eon_ecs *)
-      let _ = Eon_ecs.World.register_component world ~name:comp ~id in
-      
-      (* Update registry *)
-      Hashtbl.add registry comp id;
-      
-      Registered
-
 (** Register a component with an automatically generated global ID. *)
 let register world (comp : 'a t) : registration_result =
   let registry = get_or_create_registry world in

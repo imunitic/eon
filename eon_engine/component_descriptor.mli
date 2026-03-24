@@ -38,19 +38,11 @@ val name : 'a t -> string
 (** Check if a component descriptor is already registered in the world. *)
 val is_registered : Eon_ecs.World.t -> 'a t -> bool
 
-(** Register a component descriptor with a world using an explicit ID.
-    
-    Returns:
-    - [Registered] if the component was newly registered
-    - [Already_registered] if the component was already registered
-    
-    The operation is idempotent for the same component descriptor.
-*)
-val register_component : Eon_ecs.World.t -> 'a t -> id:int -> registration_result
 
-(** Register a component descriptor with a world using an automatically generated ID.
+
+(** Register a component descriptor with a world.
     
-    Uses a thread-safe global counter to generate unique IDs.
+    Uses a thread-safe global counter to generate unique IDs automatically.
     
     Returns:
     - [Registered] if the component was newly registered

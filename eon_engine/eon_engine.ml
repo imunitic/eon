@@ -6,6 +6,9 @@
 
 module Components = Components
 
+(** Check if a component is registered in the world. *)
+let is_registered = Components.is_registered
+
 (** Create a component descriptor with a given name.
 
     This is a convenience alias for [Components.component].
@@ -24,18 +27,7 @@ module Components = Components
 *)
 let component = Components.component
 
-(** Register a component descriptor with a world using an explicit ID.
-
-    This is a convenience alias for [Components.register_component].
-    
-    Example:
-    {[
-      Engine.register_component world Position.component ~id:0
-    ]}
-*)
-let register_component = Components.register_component
-
-(** Register a component descriptor with a world using an automatically generated ID.
+(** Register a component descriptor with a world.
 
     This is a convenience alias for [Components.register].
     

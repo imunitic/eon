@@ -8,8 +8,27 @@
     are idempotent.
 *)
 
-(** Re-export the component descriptor type and operations. *)
-include Component_descriptor
+(** Component descriptor type for typed component registration. *)
+type 'a t = 'a Component_descriptor.t
+
+(** Alias for component descriptor type. *)
+type 'a component_descriptor = 'a Component_descriptor.component_descriptor
+
+(** Registration result type. *)
+type registration_result = Component_descriptor.registration_result =
+  Registered | Already_registered
+
+(** Create a component descriptor with a given name. *)
+let component = Component_descriptor.component
+
+(** Register a component descriptor with a world. *)
+let register = Component_descriptor.register
+
+(** Check if a component is already registered in the world. *)
+let is_registered = Component_descriptor.is_registered
+
+(** Get the name of a component descriptor. *)
+let name = Component_descriptor.name
 
 (** 2D position component. *)
 module Position = Position
