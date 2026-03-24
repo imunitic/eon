@@ -8,8 +8,26 @@
     are idempotent.
 *)
 
-(** Re-export the component descriptor type and operations. *)
-include module type of Component_descriptor
+(** Component descriptor type for typed component registration. *)
+type 'a t = 'a Component_descriptor.t
+
+(** Alias for component descriptor type. *)
+type 'a component_descriptor = 'a Component_descriptor.component_descriptor
+
+(** Registration result type. *)
+type registration_result = Registered | Already_registered
+
+(** Create a component descriptor with a given name. *)
+val component : string -> 'a t
+
+(** Register a component descriptor with a world. *)
+val register : Eon_ecs.World.t -> 'a t -> registration_result
+
+(** Check if a component is already registered in the world. *)
+val is_registered : Eon_ecs.World.t -> 'a t -> bool
+
+(** Get the name of a component descriptor. *)
+val name : 'a t -> string
 
 (** 2D position component. *)
 module Position : module type of Position

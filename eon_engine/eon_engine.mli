@@ -7,6 +7,9 @@
 (** Module-based component registration API. *)
 module Components = Components
 
+(** Check if a component is registered in the world. *)
+val is_registered : Eon_ecs.World.t -> 'a Components.t -> bool
+
 (** Create a component descriptor with a given name.
 
     This is a convenience alias for [Components.component].
@@ -21,20 +24,9 @@ module Components = Components
 *)
 val component : string -> 'a Components.t
 
-(** Register a component descriptor with a world using an explicit ID.
+(** Register a component descriptor with a world.
 
-    This is a convenience alias for [Components.register_component].
-    
-    Example:
-    {[
-      Engine.register_component world Position.component ~id:0
-    ]}
-*)
-val register_component : Eon_ecs.World.t -> 'a Components.t -> id:int -> Components.registration_result
-
-(** Register a component descriptor with a world using an automatically generated ID.
-
-    This is a convenience alias for [Components.register].
+    Uses an automatically generated ID.
     
     Example:
     {[
