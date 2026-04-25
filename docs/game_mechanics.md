@@ -339,6 +339,38 @@ Higher world levels increase:
 
 ---
 
+### 🏃 Movement Speed Progression
+
+Eon has **no teleports of any kind.** The world is meant to be traversed, not skipped. Movement speed is a core stat that scales with level so players never feel like a slug waiting for the right boots drop.
+
+#### Formula
+
+`MovementSpeed(level) = BaseSpeed * (1 + level * 0.005)`
+
+- At level 1: baseline speed (0% bonus)
+- At level 60: +30% over baseline
+- At level 100: +50% over baseline
+
+Growth is linear and small enough that gear affixes remain meaningful, but large enough that progress always feels tangible.
+
+#### Gear Affixes
+
+Movement speed affixes on gear are **additive on top of the level baseline**. This means:
+- You are never hunting boots just to feel playable
+- You are hunting boots to feel *faster than already good*
+
+#### Interaction with CC
+
+Chill and slow CC effects reduce current movement speed — meaning they are always felt and never trivial, because movement speed is something the player has genuinely invested in through leveling.
+
+#### Design Philosophy
+
+- No teleports means map design must be worth walking through — this is an intentional constraint that pushes toward interesting environments over corridor spam.
+- Early game movement feels fluid by default; gear amplifies it.
+- A character should feel progressively faster as they level, without any single item being the difference between playable and frustrating.
+
+---
+
 ### 🎯 Philosophy Summary
 
 | Concept | Mechanic | Notes |
@@ -347,14 +379,16 @@ Higher world levels increase:
 | Leveling | Auto-stat curve | Consistent scaling without manual allocation |
 | Crafting | Core augment path | Determines specialization and build identity |
 | Defense | Increases naturally | Scales via same unified formula |
+| Movement | Level-scaling baseline | No teleports; traversal is intentional |
 | Endgame Difficulty | Player-chosen | Dynamic world level modifiers, not static modes |
 
 ---
 
 ### 💬 Design Note
 This model guarantees that:
-- Every build scales predictably without stat traps.  
-- Crafting remains the main customization axis.  
+- Every build scales predictably without stat traps.
+- Crafting remains the main customization axis.
 - “Difficulty” becomes a tool for player-driven challenge rather than a preset mode.
+- The world is worth exploring — movement feels good from level 1.
 
 > “You don’t pick a difficulty — you *become* the difficulty.”
