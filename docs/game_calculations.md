@@ -224,4 +224,145 @@ This framework is:
 
 ---
 
+## 11. Crowd Control Duration
+
+CC duration uses the same diminishing-returns family, outputting seconds instead of damage reduction.
+
+### Formula
+
+`CCDuration = max(Floor, MaxDuration * (1 - R / (R + K * L)))`
+
+**Where:**
+- `R` — Debuff Resistance rating
+- `L` — CC threat level (determined by mob type and rarity)
+- `K` — scaling constant per CC type
+- `MaxDuration` — upper bound for this CC type
+- `Floor` — minimum duration, always non-zero
+
+This is the *remaining damage* form of the core formula applied to time.
+
+### Design Principles
+
+- **Trash mobs** have low `L` → even modest Debuff Resistance reduces duration to near the floor.
+- **Elites** have moderate `L` → Debuff Resistance starts mattering on gear.
+- **Bosses** have high `L` → duration approaches `MaxDuration`; Debuff Resistance is a real build decision.
+- CC is **never completely negated** — the floor preserves the tactical signal that something hit you.
+
+### Per-CC-Type Parameters
+
+| CC Type | MaxDuration | Floor | Suggested K | Notes |
+|:--------|------------:|------:|:-----------:|:------|
+| Stun    | 1.5s        | 0.1s  | 1.2         | Brief flinch at high resistance |
+| Freeze  | 3.0s        | 0.2s  | 1.0         | Visually noticeable even when resisted |
+| Chill   | 5.0s        | 0.3s  | 0.8         | Long but less punishing; higher floor acceptable |
+| Shock   | 2.0s        | 0.1s  | 1.0         | Short with high resistance |
+
+### Example
+
+Character with `R = 400` Debuff Resistance hit by a boss freeze (`L = 600`, `K = 1.0`, `MaxDuration = 3.0s`, `Floor = 0.2s`):
+
+1. `Ratio = 400 / (400 + 1.0 * 600) = 0.4`
+2. `Raw = 3.0 * (1 - 0.4) = 1.8s`
+3. `Final = max(0.2, 1.8) = 1.8s`
+
+Same character hit by a trash mob freeze (`L = 80`):
+
+1. `Ratio = 400 / (400 + 80) = 0.833`
+2. `Raw = 3.0 * (1 - 0.833) = 0.5s`
+3. `Final = max(0.2, 0.5) = 0.5s`
+
+Stack more Debuff Resistance and the trash freeze collapses toward the 0.2s floor.
+
+### Block Recovery
+
+Block recovery is treated as a **self-imposed CC triggered by a successful block**. The same formula applies:
+
+`BlockRecoveryDuration = max(Floor, MaxDuration * (1 - R / (R + K * L)))`
+
+Where `L` is derived from the blocked hit's power — a light trash swing barely interrupts you, a heavy boss slam locks your shield arm for a meaningful moment.
+
+This means **no separate block recovery stat is needed**. Debuff Resistance naturally serves shield builds alongside its other roles:
+
+| Build | Why Debuff Resistance matters |
+|:------|:------------------------------|
+| Any build | Reduces CC duration from mob attacks |
+| Shield build | Also reduces block recovery lockout |
+| Endgame | Real optimization target vs boss CC and heavy hits |
+
+One stat, three coherent expressions of the same mechanic.
+
+### Endgame Hook
+
+Legendary affixes or endgame passives can reduce the `Floor` itself — a meaningful chase mechanic for CC-sensitive builds, without ever granting full immunity.
+
+---
+
+## 12. Block Mechanics
+
+Block is a defensive layer available to all weapon types, with effectiveness varying by weapon category. It is **not a binary on/off** — it has a chance to trigger and a mitigation mode that depends on build choices.
+
+### Block Chance
+
+Block chance follows the same rating formula:
+
+`BlockChance = B / (B + K * L)`
+
+**Where:**
+- `B` — Block Rating (from weapon type, gear affixes, Debuff Resistance investment)
+- `L` — Attacker threat level
+- `K` — scaling constant
+
+Block chance is **capped per weapon type**:
+
+| Weapon Type | Block Chance Cap | Notes |
+|:------------|:----------------:|:------|
+| Shield | 50% | Primary block identity |
+| Two-hander | 25% | Can block, lower ceiling |
+| Dual wield | 0% | No block; pure offense |
+
+### Standard Block
+
+On a successful block, the hit is **fully negated**. Cap is 50%.
+
+Shield builds lean on this — high block chance, full negation, recovery governed by Debuff Resistance.
+
+### Glancing Blows (Legendary Affix)
+
+A legendary affix can convert a build to **Glancing Blows** mode, changing the block paradigm entirely:
+
+- Block chance cap raises to **85%**
+- Successful blocks **no longer fully negate** — instead they reduce incoming damage by **60%**
+- The remaining 40% still passes through armor and resistance mitigation
+
+`DamageAfterGlancingBlock = HitDamage * 0.40 * (1 - ArmorMitigation) * (1 - ResistMitigation)`
+
+This is a **playstyle shift, not a strict upgrade**:
+
+| Scenario | Standard Block (50% chance, 100% negate) | Glancing Blows (85% chance, 60% reduce) |
+|:---------|:-----------------------------------------|:----------------------------------------|
+| Burst hit that would one-shot | Risky — 50% chance to die | Safer — 85% chance to survive with 40% bleed-through |
+| Sustained damage | Strong — every block is full negation | Weaker — damage bleeds through every block |
+| Synergy | Standalone | Stacks with armor/resistances on bleed-through |
+
+### Weapon Type and Block Identity
+
+| Weapon Type | Block Style | Natural Playstyle |
+|:------------|:------------|:------------------|
+| Shield | Standard or Glancing Blows | Tank, high survivability |
+| Two-hander | Standard only, low cap | Offensive with modest block upside |
+| Dual wield | No block | Pure offense, relies on evasion/armor/resistances |
+
+### Block Recovery
+
+All successful blocks trigger a short recovery window (see Section 11 — Block Recovery). Debuff Resistance reduces this lockout for all weapon types equally.
+
+### Design Philosophy
+
+- **50% standard cap** prevents block from trivializing content on its own.
+- **Glancing Blows** rewards build investment with consistency over gambling — neither mode is strictly better.
+- **Two-handers can block** — no build is hard-locked out, but the ceiling enforces identity.
+- Achieving near-maximum defenses across all five layers (life, block, resistances, evasion, armor) requires deep crafting investment and is intentional — a fully optimized character *should* feel powerful in normal content. The challenge ceiling scales upward through higher map tiers and uber bosses.
+
+---
+
 *End of document.*

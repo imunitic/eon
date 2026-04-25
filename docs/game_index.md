@@ -12,6 +12,7 @@ Quick index of documentation bundled with the repo.
 | [game_pinnacle_bosses.md](game_pinnacle_bosses.md) | Pinnacle encounter design, scaling, rewards, re-forging. |
 | [game_skills_crafting.md](game_skills_crafting.md) | Skills, crafting loop, affix slots, materials, item progression. |
 | [game_items_misc.md](game_items_misc.md) | Meta-humor drops and lore notes reinforcing the anti-RNG ethos. |
+| [game_player_experience.md](game_player_experience.md) | Core player experience principles: traversal, information, early game feel, power philosophy. |
 
 ## ECS / Engine / Tooling
 
