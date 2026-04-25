@@ -133,18 +133,13 @@ val name : 'a t -> string
 
 #### 3.2.3 Built-in Components
 
-Eon Engine includes 16 built-in components:
+Eon Engine includes 9 built-in components:
 
 **Core Components**:
 - `Position`: 2D position (x, y)
 - `Velocity`: 2D velocity (vx, vy)
-- `Acceleration`: 2D acceleration (ax, ay)
 - `Rotation`: Angle in radians
 - `Scale`: 2D scale (sx, sy)
-
-**Resource Components**:
-- `Health`: Health points
-- `Mana`: Magic/energy resource
 
 **Rendering Components**:
 - `Sprite`: Sprite rendering data
@@ -154,8 +149,6 @@ Eon Engine includes 16 built-in components:
 **Gameplay Components**:
 - `Collider`: Collision detection data
 - `Tag`: Generic tag/marker component
-- `Lifetime`: Entity lifetime management
-- `Input`: Input state and actions
 
 ### 3.3 API Structure
 
