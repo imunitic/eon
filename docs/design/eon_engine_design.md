@@ -145,14 +145,11 @@ Eon Engine includes 16 built-in components:
 **Resource Components**:
 - `Health`: Health points
 - `Mana`: Magic/energy resource
-- `Team`: Team affiliation
-- `Owner`: Entity ownership
 
 **Rendering Components**:
 - `Sprite`: Sprite rendering data
 - `Animation`: Sprite animation data
 - `Camera`: Camera configuration
-- `Camera_target`: Camera target entity
 
 **Gameplay Components**:
 - `Collider`: Collision detection data

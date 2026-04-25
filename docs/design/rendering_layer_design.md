@@ -121,15 +121,7 @@ let collect_sprites world graph =
 
 let collect_cameras world graph =
   Query.iter2 world "Position" "Camera" (fun _entity pos camera ->
-    let target =
-      match World.get_component world _entity "Camera_target" with
-      | Some target ->
-          (match World.get_component world target.target_entity_id "Position" with
-           | Some target_pos -> Some (target_pos.x, target_pos.y)
-           | None -> None)
-      | None -> None
-    in
-    Render_graph.add graph (`Set_camera { camera; target }))
+    Render_graph.add graph (`Set_camera { camera; target = None }))
 ```
 
 ## 4. RenderGraph
@@ -676,16 +668,6 @@ type t = {
 }
 ```
 
-**Camera_target Component** (`components/camera_target.mli`):
-```ocaml
-type t = {
-  priority : int;
-  offset_x : float;
-  offset_y : float;
-  target_entity_id : Eon_ecs.Entity_id.t;  (* Entity to follow *)
-}
-```
-
 ### 8.2 Query Patterns
 
 Collectors (attached to RenderPipeline phases) use the query system to find renderable entities and add rendering commands:
@@ -715,21 +697,8 @@ let collect_animated_sprites world graph =
 
 (* Cameras *)
 let collect_cameras world graph =
-  Query.iter1 world "Camera" (fun _entity camera ->
-    Render_graph.add graph (`Set_camera { camera; target = None }))
-
-(* Cameras with targets (extract target position, not entity reference) *)
-let collect_cameras_with_targets world graph =
   Query.iter2 world "Position" "Camera" (fun _entity pos camera ->
-    let target =
-      match World.get_component world _entity "Camera_target" with
-      | Some target ->
-          (match World.get_component world target.target_entity_id "Position" with
-           | Some target_pos -> Some (target_pos.x, target_pos.y)
-           | None -> None)
-      | None -> None
-    in
-    Render_graph.add graph (`Set_camera { camera; target }))
+    Render_graph.add graph (`Set_camera { camera; target = None }))
 ```
 
 ## 9. Design Goals
