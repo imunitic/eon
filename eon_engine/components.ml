@@ -36,21 +36,13 @@ let name = Component_descriptor.name
 (** 2D position component. *)
 module Position = Position
 module Velocity = Velocity
-module Acceleration = Acceleration
 module Rotation = Rotation
 module Scale = Scale
-module Health = Health
-module Mana = Mana
-module Team = Team
-module Owner = Owner
 module Sprite = Sprite
 module Animation = Animation
 module Camera = Camera
-module Camera_target = Camera_target
 module Collider = Collider
 module Tag = Tag
-module Lifetime = Lifetime
-module Input = Input
 
 (** Built-in engine components. *)
 module Engine_components = struct
@@ -59,21 +51,13 @@ module Engine_components = struct
     let components : (module S) list = [
       (module Position : S);
       (module Velocity : S);
-      (module Acceleration : S);
       (module Rotation : S);
       (module Scale : S);
-      (module Health : S);
-      (module Mana : S);
-      (module Team : S);
-      (module Owner : S);
       (module Sprite : S);
       (module Animation : S);
       (module Camera : S);
-      (module Camera_target : S);
       (module Collider : S);
       (module Tag : S);
-      (module Lifetime : S);
-      (module Input : S);
     ] in
     List.iter (fun (module Comp : S) ->
       ignore (register world Comp.component)

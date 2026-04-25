@@ -60,20 +60,16 @@ let test_engine_components () =
     (Option.is_some (World.find_component world ~name:Components.Position.name));
   Alcotest.(check bool) "Velocity component should be registered" true
     (Option.is_some (World.find_component world ~name:Components.Velocity.name));
-  Alcotest.(check bool) "Acceleration component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Acceleration.name));
   Alcotest.(check bool) "Rotation component should be registered" true
     (Option.is_some (World.find_component world ~name:Components.Rotation.name));
   Alcotest.(check bool) "Scale component should be registered" true
     (Option.is_some (World.find_component world ~name:Components.Scale.name));
-  Alcotest.(check bool) "Health component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Health.name));
-  Alcotest.(check bool) "Mana component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Mana.name));
-  Alcotest.(check bool) "Team component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Team.name));
-  Alcotest.(check bool) "Owner component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Owner.name))
+  Alcotest.(check bool) "Camera component should be registered" true
+    (Option.is_some (World.find_component world ~name:Components.Camera.name));
+  Alcotest.(check bool) "Collider component should be registered" true
+    (Option.is_some (World.find_component world ~name:Components.Collider.name));
+  Alcotest.(check bool) "Tag component should be registered" true
+    (Option.is_some (World.find_component world ~name:Components.Tag.name))
 
 let test_module_based_components () =
   (* Example of module-based component definition *)
