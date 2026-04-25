@@ -31,6 +31,25 @@ Rule:
 - If a module should be public, wire and document it in both files above.
 - Internal modules not re-exported from `eon_ecs/eon_ecs.mli` are private.
 
+## 2.5 Design Documentation
+
+The `docs/design/` directory contains the authoritative source of architecture and design decisions that are important to know and follow.
+
+Current design documents:
+- `eon_engine_design.md` - Eon Engine architecture and component registration system
+- `rendering_layer_design.md` - Backend-agnostic rendering layer design
+
+Key principles:
+- Design documents take precedence over implementation details
+- New architectural decisions should be documented here first
+- Changes to public API or architecture invariants must update relevant design docs
+- Reference these documents when reviewing code changes that affect architecture
+
+When making significant changes:
+1. Review relevant design documents
+2. Update design docs if the change affects architecture or design decisions
+3. Ensure implementation matches the documented design
+
 ## 3. Architecture invariants (do not break)
 
 Bus order invariants:
@@ -99,6 +118,7 @@ After code changes:
 2. `just run-tests`
 3. Run relevant benchmarks for performance-sensitive changes.
 4. Update `README.md` + `AGENTS.md` if public behavior/API changed.
+5. Review and update relevant design documents in `docs/design/` if architecture or design decisions changed.
 
 When adding a new core module:
 1. Add `<module>.ml` + `<module>.mli` in `eon_ecs/`.
