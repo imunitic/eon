@@ -38,34 +38,39 @@ module type S = sig
   val iter1 :
     world ->
     includes:string list ->
+    having:string list ->
     excludes:string list ->
-    (Entity_id.t -> 'a -> unit) ->
+    (Eon_ecs.Entity_id.t -> 'a -> unit) ->
     unit
 
   val iter2 :
     world ->
     includes:string list ->
+    having:string list ->
     excludes:string list ->
-    (Entity_id.t -> 'a -> 'b -> unit) ->
+    (Eon_ecs.Entity_id.t -> 'a -> 'b -> unit) ->
     unit
 
   val iter3 :
     world ->
     includes:string list ->
+    having:string list ->
     excludes:string list ->
-    (Entity_id.t -> 'a -> 'b -> 'c -> unit) ->
+    (Eon_ecs.Entity_id.t -> 'a -> 'b -> 'c -> unit) ->
     unit
 
   val iter4 :
     world ->
     includes:string list ->
+    having:string list ->
     excludes:string list ->
-    (Entity_id.t -> 'a -> 'b -> 'c -> 'd -> unit) ->
+    (Eon_ecs.Entity_id.t -> 'a -> 'b -> 'c -> 'd -> unit) ->
     unit
 
   val count :
     world ->
     includes:string list ->
+    having:string list ->
     excludes:string list ->
     int
 end
@@ -78,16 +83,16 @@ a `Storage_backend.S` / `World.Make` story where the world type itself is plugga
 
 ## 2. Shipped Backends
 
-### `Sparse_set_backend`
+### `Sparse_set_backend` *(implemented — ecs-016 complete)*
 
-File: `eon_engine/query_backend_sparse.ml`
+Files: `eon_engine/sparse_set_backend.ml` / `sparse_set_backend.mli`
 
 - `type world = Eon_ecs.World.t`
 - Delegates directly to `Eon_ecs.Query.iter1`/`iter2`/`iter3`/`iter4`
-- Applies `excludes` as a per-entity membership check inside the loop
-- This is the **default backend** — zero new logic, thin wrapper
+- Applies `having` and `excludes` as per-entity membership post-filters inside the loop
+- This is the **default backend** — thin wrapper, no new storage logic
 
-### `Archetype_backend`
+### `Archetype_backend` *(planned — ecs-016, not yet implemented)*
 
 File: `eon_engine/query_backend_archetype.ml`
 
@@ -99,7 +104,7 @@ File: `eon_engine/query_backend_archetype.ml`
   acceleration cache**, NOT a replacement storage — sparse sets remain authoritative)
 - `excludes` are resolved cheaply by skipping archetype tables that contain excluded components
 
-### `Fallback` functor
+### `Fallback` functor *(planned — ecs-016, not yet implemented)*
 
 File: `eon_engine/query_backend_fallback.ml`
 
