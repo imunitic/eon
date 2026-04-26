@@ -126,6 +126,14 @@ When adding a new core module:
 3. Add tests and register suites in `test_main.ml`.
 4. Add a benchmark if performance-relevant.
 
+## 7.5 Planning process
+
+When working on a new task or complex change:
+1. **Plan first**: Do not start implementing until the plan is approved
+2. **Update task file**: Write the implementation plan in the org-roam task file (in `~/Roam`)
+3. **Get approval**: Wait for explicit "green light" to start implementing before making any code changes
+4. **Task files are NOT code**: Task files live in `~/Roam` and are never committed to git
+
 ## 8. Commit message convention
 
 Primary format:
