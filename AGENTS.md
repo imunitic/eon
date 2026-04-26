@@ -1,6 +1,6 @@
 # AGENTS — Eon ECS Guide for Automation
 
-This file is the agent-oriented map of the repository. Keep it short, factual, and aligned with the public API.
+This file is the **canonical reference** for all agents working in this repository. CLAUDE.md defers to this file; on any conflict, this file governs.
 
 ## 1. Project at a glance
 
@@ -31,46 +31,47 @@ Rule:
 - If a module should be public, wire and document it in both files above.
 - Internal modules not re-exported from `eon_ecs/eon_ecs.mli` are private.
 
-## 2.5 Design Documentation
+## 3. Design documentation
 
-The `docs/design/` directory contains the authoritative source of architecture and design decisions that are important to know and follow.
+The `docs/design/` directory contains the authoritative source of architecture and design decisions.
 
 Current design documents:
-- `eon_engine_design.md` - Eon Engine architecture and component registration system
-- `rendering_layer_design.md` - Backend-agnostic rendering layer design
+- `eon_engine_design.md` — Eon Engine architecture and component registration system
+- `eon_engine_query_design.md` — Query builder design for `eon_engine`
+- `rendering_layer_design.md` — Backend-agnostic rendering layer design
 
 Key principles:
-- Design documents take precedence over implementation details
-- New architectural decisions should be documented here first
-- Changes to public API or architecture invariants must update relevant design docs
-- Reference these documents when reviewing code changes that affect architecture
+- Design documents take precedence over implementation details.
+- New architectural decisions must be documented here **before** implementation begins.
+- Changes to public API or architecture invariants must update the relevant design doc.
 
 When making significant changes:
-1. Review relevant design documents
-2. Update design docs if the change affects architecture or design decisions
-3. Ensure implementation matches the documented design
+1. Review the relevant design document(s) first.
+2. If the implementation diverges from a design doc, **stop and ask the user** before proceeding — do not silently leave them out of sync.
+3. After approved changes, update the design doc to match.
 
-## 3. Architecture invariants (do not break)
+## 4. Architecture invariants (do not break)
 
 Bus order invariants:
-1. Collect: `Signals -> Events -> Commands`
+1. Collect: `Signals`, then `Events`, then `Commands`
 2. Tick: `Progress.tick`
-3. Drain: `Signals -> Commands -> Events`
+3. Drain: `Signals`, then `Commands`, then `Events`
 4. Render/read-only work after drains
 
-Semantics:
-- Commands: same-frame effects via handlers.
-- Events: queued, become visible on the double-buffer schedule.
-- Signals: transient notifications.
+Bus semantics:
+- **Signals** (`Single_bus`): `drain = collect`; dispatches emitted messages to subscribers immediately. Same-frame: emitted during a frame are dispatched during `drain` at end of that frame.
+- **Events** (`Double_bus`): `emit` → `next` queue; `drain` runs `collect` on `current`, then swaps `next → current`. Previous-frame emissions become visible the next frame.
+- **Commands** (`Single_bus`): same drain=collect semantics as Signals; intended for world-mutating operations. Handlers run synchronously during `drain`.
 
 Component rules:
-- Register component names before `add_component`/`set_component`.
-- `World.get_component`, `set_component`, `remove_component` raise on unknown component names.
+- Register component names before `add_component` or `set_component`.
+- `World.get_component` returns `Some v` if the component is present on the entity, `None` if absent — **but raises** if the component name was never registered. Do not use the exception for control flow.
+- `World.set_component` and `World.remove_component` also raise on unregistered component names.
 
 Pipeline:
-- Topological phase order is cached and invalidated only when phases/edges change (`add_phase`, `before`, `after`).
+- **Never add phases or ordering edges after the simulation loop starts** — the topological sort is cached and will not re-run. The cache invalidates only on `add_phase`, `before`, or `after` calls; it does not invalidate when systems are added.
 
-## 4. Default stack aliases
+## 5. Default stack aliases
 
 Use the default stack unless customization is required:
 - `Eon_ecs.World`
@@ -82,9 +83,9 @@ Use the default stack unless customization is required:
 
 For custom scheduling kinds, use `System.Make_with_kinds` and `Progress.Make_with_kind`.
 
-## 5. Build, test, benchmark
+## 6. Build, test, benchmark
 
-Use `just` tasks:
+Use `just` tasks only. Never call `opam exec` or `dune` directly.
 
 ```sh
 just tasks
@@ -99,64 +100,81 @@ just bench-compare world
 just clean
 ```
 
-## 6. Testing and benchmark layout
+## 7. Testing and benchmark layout
 
 Tests:
 - `eon_ecs/test/`
 - Entrypoint: `eon_ecs/test/test_main.ml`
-- Frameworks: `Alcotest`, `QCheck2` via `qcheck-alcotest`
+- Frameworks: `Alcotest` (unit), `QCheck2` via `qcheck-alcotest` (property)
+- Property test file naming: `test_prop_<area>.ml`
 
 Benchmarks:
 - `eon_ecs/bench/`
 - Shared helpers: `eon_ecs/bench/benchmark_helpers.ml`
-- Framework: `Bechamel` with staged tests
+- Framework: `Bechamel` with `Staged` benchmarks
+- Config: `Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) ()`
+- Metrics: `monotonic_clock`, `minor_allocated`, `major_allocated`
 
-## 7. Contribution checklist
+## 8. Contribution checklist
 
 After code changes:
 1. `just build`
 2. `just run-tests`
 3. Run relevant benchmarks for performance-sensitive changes.
-4. Update `README.md` + `AGENTS.md` if public behavior/API changed.
-5. Review and update relevant design documents in `docs/design/` if architecture or design decisions changed.
+4. Update `AGENTS.md` if public behavior or API changed.
+5. Update the relevant design document(s) in `docs/design/` if architecture or design decisions changed.
 
 When adding a new core module:
 1. Add `<module>.ml` + `<module>.mli` in `eon_ecs/`.
 2. Decide whether it is public; if yes, re-export in `eon_ecs/eon_ecs.mli` and wire in `eon_ecs/eon_ecs.ml`.
-3. Add tests and register suites in `test_main.ml`.
-4. Add a benchmark if performance-relevant.
+3. Add unit tests in `eon_ecs/test/test_<module>.ml`; property tests in `test_prop_<module>.ml`.
+4. Register suites in `eon_ecs/test/test_main.ml`.
+5. Add a benchmark in `eon_ecs/bench/bench_<module>.ml` if performance-relevant.
+6. Update `AGENTS.md` and relevant `docs/design/` documents.
 
-## 7.5 Planning process
+## 9. Planning process
 
 When working on a new task or complex change:
-1. **Plan first**: Do not start implementing until the plan is approved
-2. **Update task file**: Write the implementation plan in the org-roam task file (in `~/Roam`)
-3. **Get approval**: Wait for explicit "green light" to start implementing before making any code changes
-4. **Task files are NOT code**: Task files live in `~/Roam` and are never committed to git
+1. **Plan first**: Do not start implementing until the plan is approved.
+2. **Update task file**: Write the implementation plan in the org-roam task file (in `~/Roam`).
+3. **Get approval**: Wait for an explicit "green light" before making any code changes.
+4. **Task files are NOT code**: Task files live in `~/Roam` and are never committed to git.
 
-## 8. Commit message convention
+**What counts as a complex change** (plan first):
+- Adds or modifies a public API in `eon_ecs.mli`.
+- Touches more than one module boundary.
+- Requires a design decision not already covered in `docs/design/`.
+- Introduces a new module, functor, or bus type.
 
-Primary format:
-- `[eon :: <area>] <summary> (ecs-<id>)`
+Simple changes (a single-module bug fix, a documentation update, a test addition) do not require a plan.
 
-If one commit addresses multiple TODO items:
-- `[eon :: <area>] <summary> (ecs-<id1>, ecs-<id2>)`
+## 10. Commit message convention
 
-Area tokens in current history:
-- `docs`, `bench`, `core`, `tooling`, `ecs`, `fix`
+**Format by package:**
+- Changes in `eon_ecs` only: `[eon_ecs :: <area>] <summary>`
+- Changes in `eon_engine` only: `[eon_engine :: <area>] <summary>`
+- Changes spanning both packages: `[eon_ecs, eon_engine :: <area>] <summary>`
+- Cross-cutting changes (tooling, docs, dune-project, AGENTS.md): `[eon :: <area>] <summary>`
 
-Fallback:
-- `[eon] <summary> (ecs-<id>)`
+**Append task ID when a task file applies:**
+- `[eon_ecs :: <area>] <summary> (ecs-<id>)`
+- Multiple items: `[eon_ecs :: <area>] <summary> (ecs-<id1>, ecs-<id2>)`
+- Omit the ID suffix when no org-roam task item is directly applicable.
 
-Style:
-- Imperative, concise, subsystem-focused subject.
-- Append TODO IDs at the end of the subject in parentheses.
-- Use lowercase `ecs-` IDs exactly as listed in org-roam task files.
-- If no org-roam task file item is directly applicable, omit the ID suffix and use:
-  - `[eon :: <area>] <summary>`
-  - `[eon] <summary>` (fallback)
+**Area tokens:**
+- `docs` — documentation, comments, .mli doc strings
+- `bench` — benchmarks, benchmark helpers
+- `core` — runtime logic (query, world, pipeline, progress, loop)
+- `tooling` — build files, Justfile, dune, CI, warning flags, missing interfaces
+- `ecs` — cross-cutting ECS concerns, composition root, default stack wiring
+- `fix` — bug fixes (use alongside the primary area: `core :: fix`, `ecs :: fix`)
 
-## 9. Release checklist
+**Style:**
+- Imperative mood, sentence case, no trailing period.
+- Mention the primary subsystem; avoid generic summaries like "update files".
+- If one commit spans multiple areas, pick the dominant one.
+
+## 11. Release checklist
 
 Before tagging:
 1. `just build`
@@ -165,36 +183,35 @@ Before tagging:
 4. Ensure docs and API wiring are in sync.
 5. Confirm dune/opam metadata still resolves.
 
-## 10. Tasks
+## 12. Tasks
 
-**Primary source of truth:** All tasks (completed, in-progress, and future) are tracked in Org (org-roam) files located in `~/Roam`.
+**Primary source of truth:** All tasks (completed, in-progress, and future) are tracked in Org (org-roam) files in `~/Roam`.
 
-When asked about tasks—whether to show what was worked on last, list pending work, or check status—always consult the `~/Roam` directory and parse the org-roam files.
+When asked about tasks — what was worked on last, pending work, or status — always consult `~/Roam` and parse the org-roam files.
 
-**Task file pattern:** Files are named like `YYYYMMDDHHMMSS-ecs_XXX_description.org` and contain:
+**Task file pattern:** Files are named `YYYYMMDDHHMMSS-ecs_XXX_description.org` and contain:
 - `:TASK-ID:` property (e.g., `ecs-001`)
 - `:LAST_UPDATED:` property (ISO timestamp, e.g., `2026-04-26 14:36`)
 - A `** Tasks` checkbox section (unchecked items = in-progress)
 - A `** Notes` section with implementation summaries
 
 **Status management:**
-- **NEVER mark TODO items as DONE** unless explicitly told to do so by the user
-- When work is completed, update status to **REVIEW** instead
-- Mark as DONE only when user explicitly requests it after reviewing the work
-- Update `:LAST_UPDATED:` timestamp whenever task status changes
+- **NEVER mark TODO items as DONE** unless explicitly told to do so by the user.
+- When work is completed, update status to **REVIEW** instead.
+- Mark as DONE only when the user explicitly requests it after reviewing the work.
+- Update `:LAST_UPDATED:` timestamp whenever task status changes.
 
 **Git commit and push rules:**
-- **PROHIBITED:** Agents are prohibited from committing and pushing to git
-- **REQUIRED:** Every commit and push requires explicit user permission
-- Even if previously granted permission, ask again for each commit/push
-- Never assume permission based on previous authorization
+- **PROHIBITED:** Agents are prohibited from committing and pushing to git.
+- **REQUIRED:** Every commit and push requires explicit user permission.
+- Even if previously granted permission, ask again for each commit/push.
+- Never assume permission based on previous authorization.
 
 **Task file version control:**
-- **IMPORTANT:** Task files are stored in `~/Roam` and are **NOT** under git version control
-- **NEVER** attempt to add, commit, or modify task files via git commands
-- Task files are managed separately from the codebase and tracked in the `~/Roam` directory
+- Task files are stored in `~/Roam` and are **NOT** under git version control.
+- **NEVER** attempt to add, commit, or modify task files via git commands.
 
 **Example queries:**
-- "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp
-- "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings
-- "Show me the status of ecs-001" → Parse `~/Roam/*ecs_001*.org` and report task state and notes
+- "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp.
+- "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings.
+- "Show me the status of ecs-001" → Parse `~/Roam/*ecs_001*.org` and report task state and notes.
