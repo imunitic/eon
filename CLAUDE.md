@@ -171,6 +171,12 @@ When asked about tasks—whether to show what was worked on last, list pending w
 - Mark as DONE only when user explicitly requests it after reviewing the work
 - Update `:LAST_UPDATED:` timestamp whenever task status changes
 
+**Git commit and push rules:**
+- **PROHIBITED:** Agents are prohibited from committing and pushing to git
+- **REQUIRED:** Every commit and push requires explicit user permission
+- Even if previously granted permission, ask again for each commit/push
+- Never assume permission based on previous authorization
+
 **Example queries:**
 - "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp
 - "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings
