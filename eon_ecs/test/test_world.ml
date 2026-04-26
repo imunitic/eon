@@ -21,6 +21,24 @@ let test_entity_lifecycle () =
   check bool "entity dead" false (World.is_alive world e);
   check int "entity count after destroy" 0 (World.count_entities world)
 
+let test_destroy_removes_components () =
+  let world = World.create () in
+  register_default_components world;
+  let e = World.create_entity world in
+  World.add_component world e ~name:"Position" (1, 1);
+  World.add_component world e ~name:"Velocity" (2, 2);
+  
+  (* Verify components are registered *)
+  check int "position count = 1" 1 (Query.count world [ "Position" ]);
+  check int "velocity count = 1" 1 (Query.count world [ "Velocity" ]);
+  
+  (* Destroy entity - components should be removed *)
+  World.destroy_entity world e;
+  
+  (* Verify components are removed from sparse sets *)
+  check int "position count = 0 after destroy" 0 (Query.count world [ "Position" ]);
+  check int "velocity count = 0 after destroy" 0 (Query.count world [ "Velocity" ])
+
 let test_component_crud () =
   let world = World.create () in
   register_default_components world;
@@ -96,6 +114,7 @@ let test_services () =
 let tests =
   [
     test_case "entity lifecycle" `Quick test_entity_lifecycle;
+    test_case "destroy removes components" `Quick test_destroy_removes_components;
     test_case "component CRUD" `Quick test_component_crud;
     test_case "remove_all_components" `Quick test_remove_all_components;
     test_case "data store operations" `Quick test_data_store;

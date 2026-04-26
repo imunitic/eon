@@ -11,13 +11,6 @@ let create () =
     resources = Resource_store.create ();
   }
 
-(* ----- Entity API ----- *)
-let create_entity world = Entity_manager.create_entity world.entities
-let destroy_entity world e = Entity_manager.destroy_entity world.entities e
-let count_entities world = Entity_manager.count world.entities
-let is_alive world e = Entity_manager.is_alive world.entities e
-let generation_at world id = Entity_manager.generation_at world.entities id
-
 (* ---- Component API ---- *)
 let register_component world ~name ~id =
   Component_registry.register world.components ~name ~id
@@ -25,30 +18,12 @@ let register_component world ~name ~id =
 let find_component world ~name =
   Component_registry.find world.components ~name
 
-(* ----- Resource API ----- *)
-(* data-plane *)
-let add_data world key value =
-  Resource_store.add_data world.resources key value
+let remove_all_components world e =
+  Component_registry.iter
+    (fun (Component.Component c) ->
+      Sparse_set.remove c.Component.data e)
+    world.components
 
-let set_data world key value =
-  add_data world key value
-
-let get_data world key =
-  Resource_store.get_data world.resources key
-
-let count_data world =
-  Resource_store.count_data world.resources
-
-(* service-plane *)
-let add_service world name value =
-  Resource_store.add_service world.resources name value
-
-let get_service world name =
-  Resource_store.get_service world.resources name
-
-let list_services world =
-  Resource_store.list_services world.resources
-  
 let add_component world entity ~name value =
   match Component_registry.find world.components ~name with
   | Some comp ->
@@ -78,8 +53,35 @@ let remove_component world entity ~name =
   | None ->
      failwith ("Unknown component: " ^ name)
 
-let remove_all_components world e =
-  Component_registry.iter
-    (fun (Component.Component c) ->
-      Sparse_set.remove c.Component.data e)
-    world.components
+(* ----- Resource API ----- *)
+(* data-plane *)
+let add_data world key value =
+  Resource_store.add_data world.resources key value
+
+let set_data world key value =
+  add_data world key value
+
+let get_data world key =
+  Resource_store.get_data world.resources key
+
+let count_data world =
+  Resource_store.count_data world.resources
+
+(* service-plane *)
+let add_service world name value =
+  Resource_store.add_service world.resources name value
+
+let get_service world name =
+  Resource_store.get_service world.resources name
+
+let list_services world =
+  Resource_store.list_services world.resources
+
+(* ----- Entity API ----- *)
+let create_entity world = Entity_manager.create_entity world.entities
+let destroy_entity world e =
+  remove_all_components world e;
+  Entity_manager.destroy_entity world.entities e
+let count_entities world = Entity_manager.count world.entities
+let is_alive world e = Entity_manager.is_alive world.entities e
+let generation_at world id = Entity_manager.generation_at world.entities id
