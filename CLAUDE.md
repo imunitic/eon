@@ -165,6 +165,12 @@ When asked about tasks—whether to show what was worked on last, list pending w
 - A `** Tasks` checkbox section (unchecked items = in-progress)
 - A `** Notes` section with implementation summaries
 
+**Status management:**
+- **NEVER mark TODO items as DONE** unless explicitly told to do so by the user
+- When work is completed, update status to **REVIEW** instead
+- Mark as DONE only when user explicitly requests it after reviewing the work
+- Update `:LAST_UPDATED:` timestamp whenever task status changes
+
 **Example queries:**
 - "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp
 - "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings

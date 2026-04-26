@@ -5,6 +5,9 @@
 *)
 
 module Components = Components
+module Query_backend = Query_backend
+module Sparse_set_backend = Sparse_set_backend
+module Query = Query
 
 (** Check if a component is registered in the world. *)
 let is_registered = Components.is_registered
