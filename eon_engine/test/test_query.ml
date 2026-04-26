@@ -416,17 +416,20 @@ let test_iter4 () =
       Alcotest.(check bool) "frozen.value" true frozen.value
   | _ -> Alcotest.fail "Expected exactly 1 result"
 
-(** Test entity lifecycle: created and alive *)
-let test_entity_lifecycle_basic () =
+(** Test destroyed entities don't appear in queries *)
+let test_destroyed_entity_removal () =
   let world = create_world_with_components () in
   
-  (* Just verify basic query works with alive entities *)
+  (* Create entity with Position and destroy it *)
   let e1 = World.create_entity world in
   World.add_component world e1 ~name:"Position" { x = 1.0; y = 2.0 };
+  World.destroy_entity world e1;
   
+  (* Create second entity with Position (should be at same index if freed) *)
   let e2 = World.create_entity world in
   World.add_component world e2 ~name:"Position" { x = 3.0; y = 4.0 };
   
+  (* Query for entities with Position - should only find e2 *)
   let results = ref [] in
   Query.from world
   |> Query.with_component "Position"
@@ -434,7 +437,16 @@ let test_entity_lifecycle_basic () =
     results := (entity, pos) :: !results
   );
   
-  Alcotest.(check int) "finds 2 alive entities" 2 (List.length !results)
+  (* Should find exactly 1 entity (e2), not the destroyed e1 *)
+  Alcotest.(check int) "destroyed entity removed from sparse set" 1 (List.length !results);
+  
+  (* Verify the result is e2 *)
+  match !results with
+  | [(entity, pos)] ->
+      Alcotest.(check bool) "result should be e2" true (Entity_id.equal entity e2);
+      Alcotest.(check (float 0.001)) "pos.x" 3.0 pos.x
+  | _ -> Alcotest.fail "Expected exactly 1 result"
+
 
 
 (** Test suite *)
@@ -453,5 +465,5 @@ let tests =
     Alcotest.test_case "not_having_any filter" `Quick test_not_having_any;
     Alcotest.test_case "iter3 basic" `Quick test_iter3;
     Alcotest.test_case "iter4 basic" `Quick test_iter4;
-    Alcotest.test_case "entity lifecycle basic" `Quick test_entity_lifecycle_basic;
+    Alcotest.test_case "destroyed entity removal" `Quick test_destroyed_entity_removal;
   ]
