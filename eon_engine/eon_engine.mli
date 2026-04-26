@@ -7,6 +7,15 @@
 (** Module-based component registration API. *)
 module Components = Components
 
+(** Query backend signature for pluggable query execution. *)
+module Query_backend = Query_backend
+
+(** Default sparse set backend. *)
+module Sparse_set_backend = Sparse_set_backend
+
+(** Query builder for efficient entity iteration. *)
+module Query = Query
+
 (** Check if a component is registered in the world. *)
 val is_registered : Eon_ecs.World.t -> 'a Components.t -> bool
 

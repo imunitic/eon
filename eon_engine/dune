@@ -3,4 +3,5 @@
 (library
  (name eon_engine)
  (public_name eon-engine)
- (libraries eon-ecs))
+ (libraries eon-ecs)
+ (modules_without_implementation query_backend))
