@@ -408,7 +408,7 @@ module type S = sig
       @param graph The populated render graph
       @return Result containing errors and metadata about the rendering process
   *)
-  val render : command Render_graph.t -> Rendering_result.t
+  val render : command Render_graph.t -> dt:float -> Rendering_result.t
 end
 ```
 
@@ -449,7 +449,7 @@ module Terminal_backend = struct
   (* No backend-specific collectors needed for base commands *)
   let collectors = []
 
-  let render graph =
+  let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
       let sprite_count = ref 0 in
@@ -492,7 +492,7 @@ module Custom_backend = struct
 
   let collectors = [ collect_particles ]
 
-  let render graph =
+  let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
       Render_graph.iter graph (function
@@ -604,9 +604,9 @@ RenderSystem.update world dt:
 4. Return unit
    (graph remains in data plane until next frame overwrites it)
 
-Loop.RENDERER.render world:                 (* called in Render slot, after Drain *)
+Loop.RENDERER.render world ~dt:             (* called in Render slot, after Drain *)
 1. graph = World.get_resource world `RenderGraph
-2. result = Backend.render graph
+2. result = Backend.render graph ~dt
 3. Log errors; store metadata
 ```
 
@@ -828,7 +828,7 @@ module My_backend = struct
 
   let collectors = [ collect_shaders ]
 
-  let render graph =
+  let render graph ~dt:_ =
     let result = Rendering_result.empty in
     (* ... process commands (base + custom) ... *)
     result
@@ -880,7 +880,7 @@ module Custom_backend = struct
   let collectors = []
 
   (* render is called by Loop.RENDERER in the Render slot, after Drain *)
-  let render graph =
+  let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
       let sprite_count = ref 0 in
