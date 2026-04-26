@@ -153,6 +153,14 @@ Style rules:
 - Metrics: `monotonic_clock`, `minor_allocated`, `major_allocated`
 - Helpers in `eon_ecs/bench/benchmark_helpers.ml`
 
+## Planning Process
+
+When working on a new task or complex change:
+1. **Plan first**: Do not start implementing until the plan is approved
+2. **Update task file**: Write the implementation plan in the org-roam task file (in `~/Roam`)
+3. **Get approval**: Wait for explicit "green light" to start implementing before making any code changes
+4. **Task files are NOT code**: Task files live in `~/Roam` and are never committed to git
+
 ## Tasks
 
 **Primary source of truth:** All tasks (completed, in-progress, and future) are tracked in Org (org-roam) files located in `~/Roam`.
