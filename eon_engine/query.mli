@@ -2,6 +2,30 @@
 
     Builder pattern for constructing and executing queries over entities.
     Uses a pluggable backend via functor application.
+    
+    {1 Usage Example}
+    
+    {[
+      (* Choose your backend at compile time *)
+      module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
+      
+      (* Query entities with Position and Velocity, but not Frozen *)
+      let results = ref [] in
+      Query.from world
+      |> Query.with_component "Position"
+      |> Query.with_component "Velocity"
+      |> Query.not_having "Frozen"
+      |> Query.iter2 (fun entity pos vel ->
+        results := (entity, pos.x, vel.dx) :: !results
+      )
+      
+      (* Count entities with Position that have Health *)
+      let count =
+        Query.from world
+        |> Query.with_component "Position"
+        |> Query.having "Health"
+        |> Query.count
+    ]}
 *)
 
 module Make (B : Query_backend.S) : sig
