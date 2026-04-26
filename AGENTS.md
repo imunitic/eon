@@ -181,6 +181,11 @@ When asked about tasks—whether to show what was worked on last, list pending w
 - Even if previously granted permission, ask again for each commit/push
 - Never assume permission based on previous authorization
 
+**Task file version control:**
+- **IMPORTANT:** Task files are stored in `~/Roam` and are **NOT** under git version control
+- **NEVER** attempt to add, commit, or modify task files via git commands
+- Task files are managed separately from the codebase and tracked in the `~/Roam` directory
+
 **Example queries:**
 - "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp
 - "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings
