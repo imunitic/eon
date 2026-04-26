@@ -1,10 +1,12 @@
 (** Default sparse set backend for query execution.
-
+    
     This is the default backend that wraps Eon_ecs.Query directly.
-    It provides zero new logic - just a thin wrapper around the existing
-    sparse set iteration functions, with additional filtering for [having] and [excludes].
+    Applies having/excludes filters as post-filters inside the callback.
+    
+    Use with Query.Make:
+    {[
+      module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
+    ]}
 *)
 
-type world = Eon_ecs.World.t
-
-include Query_backend.S with type world := world
+include Query_backend.S with type world = Eon_ecs.World.t
