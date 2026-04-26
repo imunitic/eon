@@ -155,4 +155,17 @@ Style rules:
 
 ## Tasks
 
-Tasks live in Org (org-roam) files in ~/Roam. Check these files when asked about tasks that were done or are to be done.
+**Primary source of truth:** All tasks (completed, in-progress, and future) are tracked in Org (org-roam) files located in `~/Roam`.
+
+When asked about tasks—whether to show what was worked on last, list pending work, or check status—always consult the `~/Roam` directory and parse the org-roam files.
+
+**Task file pattern:** Files are named like `YYYYMMDDHHMMSS-ecs_XXX_description.org` and contain:
+- `:TASK-ID:` property (e.g., `ecs-001`)
+- `:LAST_UPDATED:` property (ISO timestamp, e.g., `2026-04-26 14:36`)
+- A `** Tasks` checkbox section (unchecked items = in-progress)
+- A `** Notes` section with implementation summaries
+
+**Example queries:**
+- "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp
+- "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings
+- "Show me the status of ecs-001" → Parse `~/Roam/*ecs_001*.org` and report task state and notes
