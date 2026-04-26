@@ -152,3 +152,7 @@ Style rules:
 - Config: `Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) ()`
 - Metrics: `monotonic_clock`, `minor_allocated`, `major_allocated`
 - Helpers in `eon_ecs/bench/benchmark_helpers.ml`
+
+## Tasks
+
+Tasks live in Org (org-roam) files in ~/Roam. Check these files when asked about tasks that were done or are to be done.

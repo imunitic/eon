@@ -143,8 +143,8 @@ Fallback:
 Style:
 - Imperative, concise, subsystem-focused subject.
 - Append TODO IDs at the end of the subject in parentheses.
-- Use lowercase `ecs-` IDs exactly as listed in `TASKS.org`.
-- If no `TASKS.org` item is directly applicable, omit the ID suffix and use:
+- Use lowercase `ecs-` IDs exactly as listed in org-roam task files.
+- If no org-roam task file item is directly applicable, omit the ID suffix and use:
   - `[eon :: <area>] <summary>`
   - `[eon] <summary>` (fallback)
 
@@ -156,3 +156,7 @@ Before tagging:
 3. Run relevant benchmark tasks.
 4. Ensure docs and API wiring are in sync.
 5. Confirm dune/opam metadata still resolves.
+
+## 10. Tasks
+
+Tasks live in Org (org-roam) files in ~/Roam. Check these files when asked about tasks that were done or are to be done.
