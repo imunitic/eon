@@ -116,6 +116,8 @@ Area tokens: `docs`, `bench`, `core`, `tooling`, `ecs`, `fix`
 
 Style: imperative mood, sentence case, no trailing period.
 
+**Never add `Co-Authored-By` trailers to commit messages.**
+
 ## Adding a New Core Module
 
 1. `eon_ecs/<module>.ml` + `<module>.mli`

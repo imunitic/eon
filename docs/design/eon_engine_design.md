@@ -28,6 +28,13 @@ Eon ECS is a **minimal, deterministic, backend-agnostic entity-component-system 
 - Bus ordering invariants guarantee predictable execution order
 - Component registration is deterministic (automatic ID generation)
 
+**Sensible defaults, open ceiling**
+- Every layer provides a working default that covers most games with no configuration
+- Defaults are never walls — complexity is always opt-in, not forced
+- A simple game uses `World.create ()`, registers components, adds systems, runs the loop — nothing more needed
+- A complex game with mixed tick rates, multi-world architecture, dedicated render worlds, or custom query backends can build that on the same primitives without fighting the engine
+- This principle governs every future API decision: does this provide a sensible default while leaving the door open for complete optimization and scaling?
+
 ### 1.3 Bus Ordering Invariants
 
 The ECS runtime enforces strict bus ordering:
