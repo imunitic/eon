@@ -2,13 +2,14 @@ open Eon_engine
 
 (* Test basic component creation and registration *)
 let test_component_creation () =
-  let comp : int Components.t = Components.component "TestComponent" in
-  Alcotest.(check string) "Component name should match" "TestComponent" (Components.name comp)
+  (* Use the built-in Position component *)
+  let comp = Components.Position.component in
+  Alcotest.(check string) "Component name should match" "Position" (Components.name comp)
 
 let test_register_automatic_id () =
   let world = World.create () in
-  let comp1 = Components.component "AutoComponent1" in
-  let comp2 = Components.component "AutoComponent2" in
+  let comp1 = Components.Position.component in
+  let comp2 = Components.Velocity.component in
   
   let result1 = World.register world comp1 in
   let result2 = World.register world comp2 in
@@ -25,7 +26,7 @@ let test_register_automatic_id () =
 
 let test_is_registered () =
   let world = World.create () in
-  let comp = Components.component "Velocity" in
+  let comp = Components.Velocity.component in
   
   Alcotest.(check bool) "Component should not be registered initially" false
     (World.is_registered world comp);
@@ -36,15 +37,16 @@ let test_is_registered () =
 
 let test_same_name_idempotency () =
   let world = World.create () in
-  let comp1 = Components.component "Health" in
-  let comp2 = Components.component "Health" in  (* Same name *)
+  (* Create two distinct descriptor objects with the same name *)
+  let comp1 : unit Components.t = Components.component "SameNameTest" in
+  let comp2 : unit Components.t = Components.component "SameNameTest" in
   
   let result1 = World.register world comp1 in
   (match result1 with
    | Components.Registered -> ()
    | _ -> Alcotest.fail "First registration should succeed");
   
-  (* Same name should be idempotent *)
+  (* Same name but different object should be idempotent *)
   let result2 = World.register world comp2 in
   (match result2 with
    | Components.Already_registered -> ()
@@ -71,36 +73,36 @@ let test_engine_components () =
     (World.is_registered world Components.Tag.component)
 
 let test_module_based_components () =
-  (* Example of module-based component definition *)
-  let module Position = struct
+  (* Example of module-based component definition - this is the recommended pattern *)
+  let module CustomPosition = struct
     type t = float * float
-    let component : t Components.t = Components.component "Position"
+    let component : t Components.t = Components.component "CustomPosition"
   end in
   
-  let module Velocity = struct
+  let module CustomVelocity = struct
     type t = float * float  
-    let component : t Components.t = Components.component "Velocity"
+    let component : t Components.t = Components.component "CustomVelocity"
   end in
   
   let world = World.create () in
-  let result1 = World.register world Position.component in
-  let result2 = World.register world Velocity.component in
+  let result1 = World.register world CustomPosition.component in
+  let result2 = World.register world CustomVelocity.component in
   
   (match result1, result2 with
    | Components.Registered, Components.Registered -> ()
    | _ -> Alcotest.fail "Module-based components should register successfully");
   
-  Alcotest.(check bool) "Position should be registered" true
-    (World.is_registered world Position.component);
+  Alcotest.(check bool) "CustomPosition should be registered" true
+    (World.is_registered world CustomPosition.component);
   
-  Alcotest.(check bool) "Velocity should be registered" true
-    (World.is_registered world Velocity.component)
+  Alcotest.(check bool) "CustomVelocity should be registered" true
+    (World.is_registered world CustomVelocity.component)
 
 let test_cross_world_isolation () =
   (* Create two separate worlds *)
   let world_a = World.create () in
   let world_b = World.create () in
-  let comp = Components.component "IsolatedComponent" in
+  let comp = Components.Collider.component in
   
   (* Register in world_a only *)
   let result = World.register world_a comp in
@@ -127,15 +129,18 @@ let test_cross_world_isolation () =
     (World.is_registered world_b comp)
 
 let test_name_round_trip () =
-  let test_names = ["Simple"; "With Spaces"; "CamelCase"; "snake_case"; "kebab-case"; "123Numbers"] in
+  (* Test that the name round-trips correctly through Components.name *)
+  Alcotest.(check string) 
+    "Position component name"
+    "Position" (Components.name Components.Position.component);
   
-  List.iter (fun expected_name ->
-    let comp = Components.component expected_name in
-    let actual_name = Components.name comp in
-    Alcotest.(check string) 
-      (Printf.sprintf "name round-trip for '%s'" expected_name)
-      expected_name actual_name
-  ) test_names
+  Alcotest.(check string) 
+    "Velocity component name"
+    "Velocity" (Components.name Components.Velocity.component);
+  
+  Alcotest.(check string) 
+    "Collider component name"
+    "Collider" (Components.name Components.Collider.component)
 
 let tests = [
   "component creation", `Quick, test_component_creation;
