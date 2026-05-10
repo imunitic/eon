@@ -1,10 +1,18 @@
 open Eon_engine
 
-(* Test basic component creation and registration *)
+(* ============================================================================ *)
+(* Test Components                                                              *)
+(* ============================================================================ *)
+
+(* ============================================================================ *)
+(* Tests                                                                        *)
+(* ============================================================================ *)
+
 let test_component_creation () =
   (* Use the built-in Position component *)
   let comp = Components.Position.component in
   Alcotest.(check string) "Component name should match" "Position" (Components.name comp)
+
 
 let test_register_automatic_id () =
   let world = World.create () in
@@ -24,6 +32,7 @@ let test_register_automatic_id () =
    | Components.Already_registered -> ()
    | _ -> Alcotest.fail "Re-registration should be idempotent")
 
+
 let test_is_registered () =
   let world = World.create () in
   let comp = Components.Velocity.component in
@@ -35,8 +44,10 @@ let test_is_registered () =
   Alcotest.(check bool) "Component should be registered after registration" true
     (World.is_registered world comp)
 
+
 let test_same_name_idempotency () =
   let world = World.create () in
+  
   (* Create two distinct descriptor objects with the same name *)
   let comp1 : unit Components.t = Components.component "SameNameTest" in
   let comp2 : unit Components.t = Components.component "SameNameTest" in
@@ -51,6 +62,7 @@ let test_same_name_idempotency () =
   (match result2 with
    | Components.Already_registered -> ()
    | _ -> Alcotest.fail "Same name should be idempotent")
+
 
 let test_engine_components () =
   let world = World.create () in
@@ -71,6 +83,7 @@ let test_engine_components () =
     (World.is_registered world Components.Collider.component);
   Alcotest.(check bool) "Tag component should be registered" true
     (World.is_registered world Components.Tag.component)
+
 
 let test_module_based_components () =
   (* Example of module-based component definition - this is the recommended pattern *)
@@ -97,6 +110,7 @@ let test_module_based_components () =
   
   Alcotest.(check bool) "CustomVelocity should be registered" true
     (World.is_registered world CustomVelocity.component)
+
 
 let test_cross_world_isolation () =
   (* Create two separate worlds *)
@@ -128,6 +142,7 @@ let test_cross_world_isolation () =
   Alcotest.(check bool) "Component should now be registered in world_b" true
     (World.is_registered world_b comp)
 
+
 let test_name_round_trip () =
   (* Test that the name round-trips correctly through Components.name *)
   Alcotest.(check string) 
@@ -141,6 +156,11 @@ let test_name_round_trip () =
   Alcotest.(check string) 
     "Collider component name"
     "Collider" (Components.name Components.Collider.component)
+
+
+(* ============================================================================ *)
+(* Test Suite Registration                                                      *)
+(* ============================================================================ *)
 
 let tests = [
   "component creation", `Quick, test_component_creation;
