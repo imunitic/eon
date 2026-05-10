@@ -9,4 +9,4 @@
     ]}
 *)
 
-include Query_backend.S with type world = Eon_ecs.World.t
+include Query_backend.S with type world = World.t

@@ -24,12 +24,6 @@ type registration_result = Component_descriptor.registration_result =
 (** Create a component descriptor with a given name. *)
 let component = Component_descriptor.component
 
-(** Register a component descriptor with a world. *)
-let register = Component_descriptor.register
-
-(** Check if a component is already registered in the world. *)
-let is_registered = Component_descriptor.is_registered
-
 (** Get the name of a component descriptor. *)
 let name = Component_descriptor.name
 
@@ -60,7 +54,6 @@ module Engine_components = struct
       (module Tag : S);
     ] in
     List.iter (fun (module Comp : S) ->
-      ignore (register world Comp.component)
+      ignore (World.register world Comp.component)
     ) components
 end
-

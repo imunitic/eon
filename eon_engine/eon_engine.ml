@@ -4,13 +4,14 @@
     It provides a higher-level, typed component registration API on top of Eon ECS.
 *)
 
+module World = World
 module Components = Components
 module Query_backend = Query_backend
 module Sparse_set_backend = Sparse_set_backend
 module Query = Query
 
-(** Check if a component is registered in the world. *)
-let is_registered = Components.is_registered
+(** Entity identifier type. *)
+type entity_id = Eon_ecs.Entity_id.t
 
 (** Create a component descriptor with a given name.
 
@@ -30,13 +31,9 @@ let is_registered = Components.is_registered
 *)
 let component = Components.component
 
-(** Register a component descriptor with a world.
-
-    This is a convenience alias for [Components.register].
-    
-    Example:
-    {[
-      Engine.register world Position.component
-    ]}
-*)
-let register = Components.register
+(** Extension API for backend implementors. *)
+module Backend = struct
+  module World = struct
+    let to_raw = World.to_raw
+  end
+end

@@ -221,31 +221,76 @@ module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
 
 **Goal**: Wrap `Eon_ecs.World` in `Eon_engine.World` with higher-level component registration.
 
-**Design**:
-- Thin wrapper that forwards calls to `Eon_ecs.World`
-- Integrates with automatic component ID generation
-- Provides convenience methods for entity creation with components
-
-**API**:
+**Module Structure**:
 ```ocaml
+(* eon_engine.mli - Public API *)
 module World : sig
-  type t = Eon_ecs.World.t
+  type t = World.t  (* Opaque wrapper, concrete type is { raw : Eon_ecs.World.t } *)
 
   val create : unit -> t
-  val create_entity : t -> Entity_id.t
-
-  (* Higher-level component operations *)
-  val add_component : t -> Entity_id.t -> 'a Components.t -> 'a -> unit
-  val set_component : t -> Entity_id.t -> 'a Components.t -> 'a -> unit
-  val get_component : t -> Entity_id.t -> 'a Components.t -> 'a option
-  val remove_component : t -> Entity_id.t -> 'a Components.t -> unit
-
-  (* Forward to Eon_ecs.World *)
-  val register_component : t -> name:string -> id:int -> unit
-  val find_component : t -> name:string -> int option
+  val create_entity : t -> Eon_ecs.Entity_id.t
+  val register : t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
+  val is_registered : t -> 'a Component_descriptor.t -> bool
+  val add_component : t -> Eon_ecs.Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
+  val count_entities : t -> int
+  val is_alive : t -> Eon_ecs.Entity_id.t -> bool
   (* ... other operations ... *)
 end
+
+module Backend : sig
+  module World : sig
+    val to_raw : World.t -> Eon_ecs.World.t
+  end
+end
+
+module Components : sig
+  val component : string -> 'a Component_descriptor.t
+  val name : 'a Component_descriptor.t -> string
+  val register_all : World.t -> unit
+end
 ```
+
+**Key Design Decisions**:
+
+1. **World.t is opaque**: `type t` in `world.mli`, `type t = { raw : Eon_ecs.World.t }` in `world.ml`
+2. **to_raw NOT in public API**: Excluded from `Eon_engine.World` module signature
+3. **Backend module for implementors**: `Backend.World.to_raw` provides extension point for backends
+4. **All world operations through World module**: Registration, entity operations, and queries
+5. **World.ml accesses raw world directly**: No `Backend` involvement inside `world.ml`
+
+**Dependency Management**:
+- `World.mli` uses `Component_descriptor.registration_result` (not `Components.registration_result`) to avoid circular dependency
+- `Components.mli` uses `World.t` for registration functions, but `world.mli` does NOT depend back on `Components`
+- Result: No circular dependencies ✅
+
+**Type Safety**:
+- Entity operations use `'a Component_descriptor.t` (phantom-typed string)
+- Compile-time type checking prevents mismatched component/value types
+- Component descriptors are typed references to component types
+
+**API Consistency**:
+- `Eon_engine.World.create()` - creates world
+- `Eon_engine.World.register world component` - registers component (all through World)
+- `Eon_engine.World.is_registered world component` - checks registration
+- `Eon_engine.World.add_component world entity component value` - type-safe entity operations
+- `Eon_engine.Backend.World.to_raw world` - extension point for backend implementors
+
+**Module Naming**:
+- **Backend** (not Internal): Signals that this is an intentional extension point for backend authors
+- **Not "Internal"**: Because it's not just implementation details - it's a deliberate API for a specific audience
+- **User guidance**: The Backend module docstring says "If you're building a game with eon_engine, you don't need this module"
+
+**User Experience**:
+- Users perform all operations on the World object
+- No need to call functions on other modules for typical operations
+- Component registration via `World.register`, not top-level `Engine.register`
+- Backend implementors have a clearly marked extension point via `Backend`
+
+**Implementation Details**:
+- `world.ml` accesses `world.raw` directly (no Backend wrapper needed)
+- `Backend` module exists only for *external* modules that need raw access
+- `Components.register_all` stays on Components module (component group operation)
+- `Components.registration_result` type stays in components.mli (no cycle there)
 
 ### 4.2 Future Roadmap
 
