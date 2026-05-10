@@ -18,16 +18,11 @@ type 'a t = 'a Component_descriptor.t
 type 'a component_descriptor = 'a Component_descriptor.component_descriptor
 
 (** Registration result type. *)
-type registration_result = Registered | Already_registered
+type registration_result = Component_descriptor.registration_result =
+  Registered | Already_registered
 
 (** Create a component descriptor with a given name. *)
 val component : string -> 'a t
-
-(** Register a component descriptor with a world. *)
-val register : Eon_ecs.World.t -> 'a t -> registration_result
-
-(** Check if a component is already registered in the world. *)
-val is_registered : Eon_ecs.World.t -> 'a t -> bool
 
 (** Get the name of a component descriptor. *)
 val name : 'a t -> string
@@ -78,7 +73,7 @@ module Tag : S with type t = Tag.t
 
         let register_all world =
           Engine_components.register_all world;
-          Engine.register world health
+          World.register world health
       end
     ]}
 *)
@@ -88,5 +83,5 @@ module Engine_components : sig
       Registers Position, Velocity, Rotation, Scale, Sprite, Animation,
       Camera, Collider, and Tag components.
   *)
-  val register_all : Eon_ecs.World.t -> unit
+  val register_all : World.t -> unit
 end

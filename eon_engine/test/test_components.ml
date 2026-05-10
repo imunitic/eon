@@ -1,4 +1,3 @@
-open Eon_ecs
 open Eon_engine
 
 (* Test basic component creation and registration *)
@@ -11,15 +10,15 @@ let test_register_automatic_id () =
   let comp1 = Components.component "AutoComponent1" in
   let comp2 = Components.component "AutoComponent2" in
   
-  let result1 = register world comp1 in
-  let result2 = register world comp2 in
+  let result1 = World.register world comp1 in
+  let result2 = World.register world comp2 in
   
   (match result1, result2 with
    | Components.Registered, Components.Registered -> ()
    | _ -> Alcotest.fail "Automatic registration should succeed");
   
   (* Try to register same component again *)
-  let result3 = register world comp1 in
+  let result3 = World.register world comp1 in
   (match result3 with
    | Components.Already_registered -> ()
    | _ -> Alcotest.fail "Re-registration should be idempotent")
@@ -29,24 +28,24 @@ let test_is_registered () =
   let comp = Components.component "Velocity" in
   
   Alcotest.(check bool) "Component should not be registered initially" false
-    (Components.is_registered world comp);
+    (World.is_registered world comp);
   
-  let _ = register world comp in
+  let _ = World.register world comp in
   Alcotest.(check bool) "Component should be registered after registration" true
-    (Components.is_registered world comp)
+    (World.is_registered world comp)
 
 let test_same_name_idempotency () =
   let world = World.create () in
   let comp1 = Components.component "Health" in
   let comp2 = Components.component "Health" in  (* Same name *)
   
-  let result1 = register world comp1 in
+  let result1 = World.register world comp1 in
   (match result1 with
    | Components.Registered -> ()
    | _ -> Alcotest.fail "First registration should succeed");
   
   (* Same name should be idempotent *)
-  let result2 = register world comp2 in
+  let result2 = World.register world comp2 in
   (match result2 with
    | Components.Already_registered -> ()
    | _ -> Alcotest.fail "Same name should be idempotent")
@@ -57,19 +56,19 @@ let test_engine_components () =
   
   (* Verify registration by checking that components with engine names exist *)
   Alcotest.(check bool) "Position component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Position.name));
+    (World.is_registered world Components.Position.component);
   Alcotest.(check bool) "Velocity component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Velocity.name));
+    (World.is_registered world Components.Velocity.component);
   Alcotest.(check bool) "Rotation component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Rotation.name));
+    (World.is_registered world Components.Rotation.component);
   Alcotest.(check bool) "Scale component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Scale.name));
+    (World.is_registered world Components.Scale.component);
   Alcotest.(check bool) "Camera component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Camera.name));
+    (World.is_registered world Components.Camera.component);
   Alcotest.(check bool) "Collider component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Collider.name));
+    (World.is_registered world Components.Collider.component);
   Alcotest.(check bool) "Tag component should be registered" true
-    (Option.is_some (World.find_component world ~name:Components.Tag.name))
+    (World.is_registered world Components.Tag.component)
 
 let test_module_based_components () =
   (* Example of module-based component definition *)
@@ -84,18 +83,18 @@ let test_module_based_components () =
   end in
   
   let world = World.create () in
-  let result1 = register world Position.component in
-  let result2 = register world Velocity.component in
+  let result1 = World.register world Position.component in
+  let result2 = World.register world Velocity.component in
   
   (match result1, result2 with
    | Components.Registered, Components.Registered -> ()
    | _ -> Alcotest.fail "Module-based components should register successfully");
   
   Alcotest.(check bool) "Position should be registered" true
-    (Components.is_registered world Position.component);
+    (World.is_registered world Position.component);
   
   Alcotest.(check bool) "Velocity should be registered" true
-    (Components.is_registered world Velocity.component)
+    (World.is_registered world Velocity.component)
 
 let test_cross_world_isolation () =
   (* Create two separate worlds *)
@@ -104,28 +103,28 @@ let test_cross_world_isolation () =
   let comp = Components.component "IsolatedComponent" in
   
   (* Register in world_a only *)
-  let result = register world_a comp in
+  let result = World.register world_a comp in
   (match result with
    | Components.Registered -> ()
    | _ -> Alcotest.fail "Registration in world_a should succeed");
   
   (* Verify component is registered in world_a *)
   Alcotest.(check bool) "Component should be registered in world_a" true
-    (Components.is_registered world_a comp);
+    (World.is_registered world_a comp);
   
   (* Verify component is NOT registered in world_b *)
   Alcotest.(check bool) "Component should NOT be registered in world_b" false
-    (Components.is_registered world_b comp);
+    (World.is_registered world_b comp);
   
   (* Try to register same component in world_b - should succeed *)
-  let result_b = register world_b comp in
+  let result_b = World.register world_b comp in
   (match result_b with
    | Components.Registered -> ()
    | _ -> Alcotest.fail "Registration in world_b should succeed as separate world");
   
   (* Now both worlds should have the component registered *)
   Alcotest.(check bool) "Component should now be registered in world_b" true
-    (Components.is_registered world_b comp)
+    (World.is_registered world_b comp)
 
 let test_name_round_trip () =
   let test_names = ["Simple"; "With Spaces"; "CamelCase"; "snake_case"; "kebab-case"; "123Numbers"] in
