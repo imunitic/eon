@@ -48,3 +48,24 @@ let count_entities world =
 
 let is_alive world entity =
   Eon_ecs.World.is_alive world.raw entity
+
+let add_data world key value =
+  Eon_ecs.World.add_data world.raw key value
+
+let set_data world key value =
+  Eon_ecs.World.set_data world.raw key value
+
+let get_data world key =
+  Eon_ecs.World.get_data world.raw key
+
+let count_data world =
+  Eon_ecs.World.count_data world.raw
+
+let add_service world key value =
+  Eon_ecs.World.add_service world.raw key value
+
+let get_service world key =
+  Eon_ecs.World.get_service world.raw key
+
+let list_services world =
+  Eon_ecs.World.list_services world.raw
