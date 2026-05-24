@@ -87,22 +87,22 @@ a `Storage_backend.S` / `World.Make` story where the world type itself is plugga
 
 Files: `eon_engine/sparse_set_backend.ml` / `sparse_set_backend.mli`
 
-- `type world = Eon_ecs.World.t`
+- `type world = Eon_engine.World.Default.t` (post ecs-019 consolidation; delegates to `world.raw`)
 - Delegates directly to `Eon_ecs.Query.iter1`/`iter2`/`iter3`/`iter4`
 - Applies `having` and `excludes` as per-entity membership post-filters inside the loop
 - This is the **default backend** — thin wrapper, no new storage logic
 
 ### `Archetype_backend` *(planned — ecs-016, not yet implemented)*
 
-File: `eon_engine/query_backend_archetype.ml`
+> **See [archetype_backend_design.md](archetype_backend_design.md) for the authoritative design.**
+> The summary below is kept for orientation only.
 
-- `type world = Eon_ecs.World.t`
-- Reads the archetype index from `World.get_service world `Archetypes``
-- If the archetype service is not registered → raises a clear error
-- Uses the index to skip entire archetype tables that don't match includes/excludes
+- `type world = Eon_engine.World.Tracked.t` (post ecs-019 consolidation)
+- Uses a dirty-flag tracking functor (`World.Make(Dirty_flag)`) to know when to rebuild the index
+- Archetype service is lazily initialised on first query — no explicit registration needed
+- Uses the index to skip entity groups that cannot match includes/excludes
 - Falls back to sparse set reads for component values (archetypes are a **query
   acceleration cache**, NOT a replacement storage — sparse sets remain authoritative)
-- `excludes` are resolved cheaply by skipping archetype tables that contain excluded components
 
 ### `Fallback` functor *(planned — ecs-016, not yet implemented)*
 
@@ -194,20 +194,25 @@ The backend receives all three lists. What it does with them:
 Users choose their backend **once** via functor application. No runtime switching.
 
 ```ocaml
-(* Default — sparse sets only *)
-module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
+(* Default — sparse sets, no overhead *)
+module World = Eon_engine.World.Default
+module Query = Eon_engine.Query.Default
 
-(* With archetype acceleration cache *)
-module Query = Eon_engine.Query.Make(Eon_engine.Archetype_backend)
+(* With archetype acceleration cache — one module swap *)
+module World = Eon_engine.World.Tracked
+module Query = Eon_engine.Query.Archetype
 
 (* Explicit fallback — user's choice, user's responsibility *)
+module World = Eon_engine.World.Tracked
 module Query = Eon_engine.Query.Make(
-  Eon_engine.Fallback(Eon_engine.Archetype_backend)(Eon_engine.Sparse_set_backend)
+  Eon_engine.Query_backend_fallback.Make
+    (Eon_engine.Archetype_backend.Default)
+    (Eon_engine.Sparse_set_backend.Default)
 )
 
-(* Roll your own *)
+(* Roll your own backend *)
 module My_backend : Eon_engine.Query_backend.S = struct
-  type world = Eon_ecs.World.t
+  type world = Eon_engine.World.Default.t
   ...
 end
 module Query = Eon_engine.Query.Make(My_backend)
@@ -303,8 +308,8 @@ computation — they exist only to satisfy the core's `register_component` signa
 
 | Core module | Engine usage |
 |---|---|
-| `World.t` | Passed as `B.world` in `Sparse_set_backend` |
+| `World.t` | Accessed via `world.raw` inside `Eon_engine.World.Make` |
 | `Query.iter1`–`iter4` | Called by `Sparse_set_backend` |
 | `World.register_component` | Called by engine's `register_component` wrapper |
-| `World.get_service` | Used by `Archetype_backend` to locate the archetype index |
+| `World.get_service` | Used by `Archetype_backend` to locate the lazily-created archetype index |
 | `Component.component` | Unchanged, core concern only |
