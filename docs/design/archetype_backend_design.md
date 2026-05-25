@@ -419,7 +419,7 @@ any other module when the time comes.
 
 ---
 
-## 6. Mutation Signals
+## 6. Mutation Signals *(out of scope for ecs-016)*
 
 Independently of the dirty flag, `eon_engine.World` mutation wrappers emit
 signals on structural changes as a general extensibility hook:
