@@ -298,7 +298,7 @@ signature. The snapshot is held in an `Atomic.t` for safe swap-on-rebuild.
 ### Data types
 
 ```ocaml
-type entry = { signature : Bitset.t; entities : Entity_id.t list }
+type entry = { signature : Bitset.t; entities : int list }  (* slot indices; generation reconstructed at query time *)
 type snapshot = entry list
 
 type t = {
@@ -333,7 +333,8 @@ registered component, the caller provides:
    - Stores `name → pos` in `name_to_pos` (the dense ordinal comes from the
      world's `registered_components`).
    - Calls the `entity_ids` function to enumerate entities that own this
-     component, accumulating `Bitset.set` per entity.
+     component (yielding bare slot indices, not `Entity_id.t`), accumulating
+     `Bitset.set` per entity.
 3. Group entities by signature into `entry list`.
 4. `Atomic.set t.index new_snapshot` — atomic swap. Readers see either the old
    or the new snapshot, never a partial state.
@@ -349,8 +350,10 @@ registered component, the caller provides:
    `Bitset.subset ~of_:entry.signature includes_mask`
    `Bitset.disjoint entry.signature excludes_mask`
    `Bitset.subset ~of_:entry.signature having_mask`
-4. For matching entries, iterate `entry.entities`. Read component values via
-   `Eon_ecs.World.get_component`. Call `callback` with each entity.
+4. For matching entries, iterate `entry.entities` (slot indices). Reconstruct
+   `Entity_id.t` via `Entity_id.make slot (World.generation_at raw slot)`.
+   Read component values via `Eon_ecs.World.get_component`. Call `callback`
+   with each entity.
 
 ### Stale entries
 
@@ -397,7 +400,8 @@ module Make (W : World.S) : Query_backend.S with type world = W.t = struct
       Archetype_index.rebuild arch (fun consumer ->
         List.iter (fun (name, pos) ->
           consumer ~name ~pos ~entity_ids:(fun f ->
-            Eon_ecs.Query.iter1 raw name (fun eid _ -> f eid)))
+            Eon_ecs.Query.iter1 raw name (fun eid _ ->
+              f (Eon_ecs.Entity_id.index eid))))
           (W.registered_components world))
 
   let get_arch world =
@@ -652,17 +656,23 @@ and not specific to the archetype backend.
 
 ### Bitset filtering scope (clarity)
 
-The entry-level bitset check skips entire groups that fail `includes`, `having`, or
-`excludes` masks. However, individual entities within a matching entry might still
-fail `having` or `excludes` filters (the entry signature is an aggregate; an entity
-might have lost a `having` component since the last rebuild). Entity-level
-post-filtering via `get_component` presence checks is still needed within matching
-entries.
+**Entries are exact-signature groups.** The index groups entities by their
+precise component signature. In both the lazy path (`ensure_current` runs
+immediately before iteration) and the `install` path (rebuild runs before
+tick; no structural mutations during tick per §10), the index is current at
+iteration time. Entries are exact — no per-entity re-check is needed.
 
 The archetype backend is most effective for selective queries (many excludes/having
 filters that prune most entities). For broad queries that match most entities, the
 per-entity `get_component` hash lookups may negate the filtering gains compared to
 `Sparse_set_backend`'s direct array reads.
+
+**If defensive correctness is desired** (e.g., for a future parallel iteration
+path where the index might be slightly stale), a complete re-check is required:
+`having` components must be present AND `excludes` components must be absent.
+A `get_component` presence check alone (for `includes`) is insufficient — it
+catches entities that lost an `includes` component but misses entities that
+gained an `excludes` component or lost a `having` component.
 
 ### `Query.iter1` overhead during rebuild (performance)
 
