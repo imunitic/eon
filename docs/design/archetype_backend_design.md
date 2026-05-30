@@ -1,4 +1,4 @@
-# Eon Engine — Archetype Backend Design
+# Eon Engine — Archetype Backend Design (v2)
 
 ## Context
 
@@ -9,16 +9,20 @@ The `Archetype_backend` sections of `eon_engine_query_design.md` are superseded
 by this document. The rest of that document (query builder, `Sparse_set_backend`,
 `Fallback` functor) remains authoritative.
 
+**v2 changes:** Bitmask signatures (`Int64.t array`), simplified `TRACKING.mark`
+(unit, no mutation context), optional `install`, thread safety as documented user
+responsibility.
+
 ---
 
 ## What the Archetype Backend Is (and Is Not)
 
 `Archetype_backend` is a **query acceleration cache** layered on top of the
 existing sparse set storage. Sparse sets remain the authoritative component
-store. The archetype index groups entities by their component signature (the set
-of components they own), allowing queries with `excludes` and `having` filters
-to skip entire groups of non-matching entities rather than checking every entity
-individually.
+store. The archetype index groups entities by their component signature (a
+bitmask of component bit positions), allowing queries with `excludes` and
+`having` filters to skip entire groups of non-matching entities rather than
+checking every entity individually.
 
 This is **not** a full archetype storage backend. `eon_ecs` is frozen; its
 sparse set storage will not change.
@@ -52,37 +56,49 @@ Query.Make(B : Query_backend.S)               ← unchanged from query design do
 
 ---
 
-## 1. `TRACKING` Signature and Implementations
+## 1. Bitset — Signature Representation
+
+File: `eon_engine/bitset.ml`
+
+Component signatures are represented as bitmasks using a dynamic `Int64.t array`.
+Each component type gets a unique bit position (assigned during index rebuild).
+Set operations become bitwise — `includes ⊆ signature` is a single AND+compare.
+
+```ocaml
+type t = Int64.t array
+
+val empty : t
+val set : t -> int -> t               (* grow if pos >= length * 64 *)
+val test : t -> int -> bool
+val subset : of_:t -> t -> bool       (* (of_ & mask) = mask *)
+val disjoint : t -> t -> bool         (* (a & b) = 0 *)
+val of_list : int list -> t
+```
+
+Bit `n` lives in word `n / 64`, bit position `n mod 64`. No hard cap on
+component count. `set` is pure — returns a new array, growing if needed.
+
+For worlds with ≤64 components (the common case), this degenerates to a
+single-word operation with identical performance to a bare `Int64.t`.
+
+---
+
+## 2. `TRACKING` Signature and Implementations
 
 File: `eon_engine/world_tracking.ml`
 
 ```ocaml
-type mutation_kind =
-  | Add     of string  (** component name added to entity *)
-  | Remove  of string  (** component name removed from entity *)
-  | Destroy            (** entity destroyed — all components implicitly removed *)
-
 module type TRACKING = sig
   type t
   val create : unit -> t
-
-  (** Called on every structural world mutation.
-      Receives the entity and full mutation context so that implementations
-      can choose between recording a delta or simply setting a dirty flag.
-      [No_tracking] and [Dirty_flag] ignore [entity] and [kind]. *)
-  val mark : t -> Entity_id.t -> mutation_kind -> unit
-
-  (** Called by the backend before each query.
-      [`Clean]   — index is current, no action needed.
-      [`Rebuild] — index is stale, perform a full O(E) scan.
-      [`Delta]   — index is stale, apply the provided mutation log O(M). *)
-  val check_and_clear : t -> [ `Clean | `Rebuild | `Delta of (Entity_id.t * mutation_kind) list ]
+  val mark : t -> unit
+  val check_and_clear : t -> [ `Clean | `Rebuild ]
 end
 ```
 
-`mark` always receives the full mutation context. Implementations that do not
-need it (the common case) simply ignore the extra arguments — the native
-compiler eliminates the dead parameter passing entirely.
+`mark` receives no context — the dirty flag does not care which entity was
+mutated or what kind of mutation occurred. Only the fact that a structural
+change happened matters.
 
 ### `No_tracking` — default, zero overhead
 
@@ -90,13 +106,13 @@ compiler eliminates the dead parameter passing entirely.
 module No_tracking : TRACKING = struct
   type t = unit
   let create () = ()
-  let mark _ _ _ = ()
+  let mark _ = ()
   let check_and_clear _ = `Clean
 end
 ```
 
 `mark` is a no-op. The native compiler inlines and dead-code-eliminates it at
-every call site. `t = unit` occupies one word in the record; the cost ends there.
+every call site.
 
 ### `Dirty_flag` — archetype users
 
@@ -104,15 +120,16 @@ every call site. `t = unit` occupies one word in the record; the cost ends there
 module Dirty_flag : TRACKING = struct
   type t = bool Atomic.t
   let create () = Atomic.make true
-  let mark t _ _ = Atomic.set t true
+  let mark t = Atomic.set t true
   let check_and_clear t =
     if Atomic.compare_and_set t true false then `Rebuild else `Clean
 end
 ```
 
-`Atomic.bool` is consistent with the existing `Atomic` usage in `Component_id`.
-`compare_and_set` prevents the lost-update race: if a mutation arrives during
-`check_and_clear`, the flag stays `true` and the next query triggers a rebuild.
+`Atomic.bool` is consistent with the existing `Atomic` usage in
+`Component_descriptor`. `compare_and_set` prevents the lost-update race: if a
+mutation arrives during `check_and_clear`, the flag stays `true` and the next
+query triggers a rebuild.
 
 The flag is initialised to `true` so the first query always performs a full
 rebuild. This handles the pre-loop setup gap — entities created before the loop
@@ -121,7 +138,7 @@ empty index.
 
 ---
 
-## 2. `World.Make` Functor
+## 3. `World.Make` Functor
 
 File: `eon_engine/world.ml`
 
@@ -139,20 +156,20 @@ module Make (T : TRACKING) = struct
   let add_component world entity comp value =
     let name = Component_descriptor.name comp in
     Eon_ecs.World.add_component world.raw entity ~name value;
-    T.mark world.tracking entity (Add name)
+    T.mark world.tracking
 
   let remove_component world entity comp =
     let name = Component_descriptor.name comp in
     Eon_ecs.World.remove_component world.raw entity ~name;
-    T.mark world.tracking entity (Remove name)
+    T.mark world.tracking
 
   let remove_all_components world entity =
     Eon_ecs.World.remove_all_components world.raw entity;
-    T.mark world.tracking entity Destroy
+    T.mark world.tracking
 
   let destroy_entity world entity =
     Eon_ecs.World.destroy_entity world.raw entity;
-    T.mark world.tracking entity Destroy
+    T.mark world.tracking
 
   (* Value mutation — does NOT change component signature, no mark needed *)
   let set_component world entity comp value =
@@ -160,6 +177,7 @@ module Make (T : TRACKING) = struct
       ~name:(Component_descriptor.name comp) value
 
   (* Extension API for backends *)
+  let to_raw world = world.raw
   let check_and_clear world = T.check_and_clear world.tracking
 
   (* ... remaining delegations (get_component, create_entity, etc.) ... *)
@@ -174,7 +192,7 @@ which components the entity owns — its archetype signature is unchanged.
 
 ---
 
-## 3. `WORLD.S` — Uniform World Signature
+## 4. `WORLD.S` — Uniform World Signature
 
 Both `World.Default` and `World.Tracked` satisfy this signature. Backends
 depend only on `WORLD.S`; they do not care which tracking strategy is active.
@@ -208,7 +226,7 @@ module type S = sig
   val list_services : t -> int list
 
   (** Extension API for backends only — not for game code *)
-  val check_and_clear : t -> [ `Clean | `Rebuild | `Delta of (Entity_id.t * mutation_kind) list ]
+  val check_and_clear : t -> [ `Clean | `Rebuild ]
 end
 ```
 
@@ -231,7 +249,68 @@ Backends need the full interface.
 
 ---
 
-## 4. `Archetype_backend.Make`
+## 5. Archetype Index
+
+File: `eon_engine/archetype_index.ml`
+
+The index stores an immutable snapshot of entities grouped by their bitmask
+signature. The snapshot is held in an `Atomic.t` for safe swap-on-rebuild.
+
+### Data types
+
+```ocaml
+type entry = { signature : Bitset.t; entities : Entity_id.t list }
+type snapshot = entry list
+
+type t = {
+  name_to_pos : (string, int) Hashtbl.t;  (* component name → bit position *)
+  index       : snapshot Atomic.t;
+}
+```
+
+### Rebuild
+
+`rebuild t raw_world` performs a full scan:
+
+1. Clear `name_to_pos`. Call `Eon_ecs.World.iter_registered` to assign bit
+   positions 0, 1, 2, … to each registered component.
+2. For each registered component, call `Eon_ecs.World.find_component` to get its
+   sparse set. Use `Sparse_set.iter` to accumulate `Bitset.set` per entity.
+3. Group entities by signature into `entry list`.
+4. `Atomic.set t.index new_snapshot` — atomic swap. Readers see either the old
+   or the new snapshot, never a partial state.
+
+### Query
+
+`query t raw_world ~includes ~having ~excludes callback`:
+
+1. Look up bit positions from `name_to_pos`. Build `includes_mask`, `having_mask`,
+   `excludes_mask` via `Bitset.of_list`.
+2. `Atomic.get t.index` — get current snapshot.
+3. For each entry: check
+   `Bitset.subset ~of_:entry.signature includes_mask`
+   `Bitset.disjoint entry.signature excludes_mask`
+   `Bitset.subset ~of_:entry.signature having_mask`
+4. For matching entries, iterate `entry.entities`. Read component values from
+   sparse sets. Call `callback` with each entity.
+
+### Stale entries
+
+If the index is slightly behind (an entity moved to a different archetype since
+the last rebuild), the sparse set read returns `None` and the backend skips that
+entity. Correctness is always guaranteed by the sparse sets; the index only
+affects performance.
+
+### Rebuild cadence
+
+`ensure_current` is called once per `iter*`/`count` invocation. The rebuild
+runs at most once per dirty cycle — the flag is cleared before
+`Archetype_index.rebuild` returns, so subsequent queries in the same frame find
+it `` `Clean `` and skip the rebuild immediately.
+
+---
+
+## 6. `Archetype_backend.Make`
 
 File: `eon_engine/archetype_backend.ml`
 
@@ -250,8 +329,7 @@ module Make (W : World.S) : Query_backend.S with type world = W.t = struct
   let ensure_current world =
     match W.check_and_clear world with
     | `Clean        -> ()
-    | `Rebuild      -> Archetype_index.rebuild      (get_or_create_arch world) world
-    | `Delta log    -> Archetype_index.apply_delta  (get_or_create_arch world) log
+    | `Rebuild      -> Archetype_index.rebuild (get_or_create_arch world) (W.to_raw world)
 
   let get_arch world =
     match W.get_service world `Archetypes with
@@ -266,8 +344,8 @@ module Make (W : World.S) : Query_backend.S with type world = W.t = struct
   let iter1 world ~includes ~having ~excludes f =
     ensure_current world;
     let arch = get_arch world in
-    (* use arch to find candidates, read values from sparse sets *)
-    ...
+    Archetype_index.query arch (W.to_raw world) ~includes ~having ~excludes
+      (fun eid -> (* read values from sparse sets, call f *) ...)
 
   (* iter2, iter3, iter4, count follow the same pattern *)
 end
@@ -275,8 +353,7 @@ end
 module Default = Make(World.Tracked)
 ```
 
-`Archetype_backend` also exposes an `install` function for games that want a
-dedicated rebuild phase (see section 7 and section 8):
+### `install` — optional helper for parallel games
 
 ```ocaml
 (** Register a dedicated [Archetype_rebuild] phase in [pipeline] that runs
@@ -309,140 +386,33 @@ immediately — the check becomes a single branch with no rebuild work.
 
 ---
 
-## 5. Archetype Index
+## 7. `eon_ecs` Addition
 
-The index is an internal concern of `Archetype_index`. It maintains:
-
-- A forward map: component signature (sorted `string list`) → entity list
-- An inverted map: component name → set of signatures containing it
-
-For a query `includes=["Position","Velocity"] excludes=["Frozen"]`:
-
-1. Use the inverted map to find signatures containing both `Position` and `Velocity`
-2. Discard signatures that also contain `Frozen`
-3. Iterate the entity lists of surviving signatures
-4. Read component values from sparse sets (authoritative)
-
-### Signature representation and sorting overhead
-
-Component signatures are sorted `string list` values — sorted so that
-`["Position"; "Velocity"]` and `["Velocity"; "Position"]` hash to the same key.
-Sorting is O(K log K) per entity where K is the number of components that entity
-owns. This cost is paid during `rebuild` and `apply_delta`, not during queries.
-
-For typical entities with 5–20 components this is negligible. If profiling shows
-signature computation is a bottleneck (large worlds with many components per
-entity), the natural upgrade is a **bitmask representation**: assign each
-registered component a stable bit position (already available via the engine's
-`Component_id` counter); an entity's signature is an integer bitmask, union is
-bitwise OR, intersection is AND, comparison is integer equality — no sorting,
-O(1) operations. This is a localised change to `Archetype_index` internals and does
-not affect the `TRACKING` signature or `World.Make`.
-
-**Stale entries are handled gracefully.** If the index is slightly behind (an
-entity moved to a different archetype since the last rebuild), the sparse set
-read returns `None` and the backend skips that entity. Correctness is always
-guaranteed by the sparse sets; the index only affects performance.
-
-**Expected staleness window:** `check_and_clear` is called on every `iter*`/`count`
-invocation. In a normal game loop with at least one query per frame, the index
-is rebuilt at the start of that frame and is at most one frame stale. "Severely
-out of sync" only occurs if no queries run for many frames — in which case the
-archetype backend provides no benefit anyway, and the staleness is irrelevant.
-If a system runs queries only occasionally (e.g. every N frames), the index may
-be up to N frames stale between those queries; stale entries are still handled
-correctly via sparse set fallback, just with reduced acceleration until the next
-rebuild.
-
-### Rebuild cost and upgrade path
-
-`Archetype_index.rebuild` is a full scan of all entities. It is O(E) where E is the
-number of entities, and runs at most once per dirty cycle — amortised across all
-queries in that frame.
-
-**This is acceptable when** structural mutations are infrequent or the world is
-small-to-medium (up to ~50K entities). **It becomes a bottleneck when** entities
-gain or lose components every frame at high volume (e.g. status effects, AI state
-transitions in a large world with 100K+ entities).
-
-**When not to worry:** `set_component` never marks dirty. Worlds that mutate
-component *values* but rarely change component *signatures* pay zero rebuild cost
-regardless of entity count.
-
-**The upgrade path is `Incremental_tracking`.** The `TRACKING` functor is the
-exact extension point. Because `mark` already receives the full mutation context
-(entity id and `mutation_kind`), an incremental implementation requires no
-changes to `World.Make`, backends, query layer, or game code:
+One new function needed for `rebuild` to iterate registered components:
 
 ```ocaml
-(* When the log exceeds this threshold, fall back to a full rebuild rather than
-   applying a large delta — avoids unbounded memory growth and keeps apply_delta
-   fast. Tune based on profiling. *)
-let max_delta_size = 1024
-
-module Incremental_tracking : TRACKING = struct
-  type t = {
-    mutable dirty : bool;
-    mutable log   : (Entity_id.t * mutation_kind) list;
-    mutable size  : int;
-  }
-  let create () = { dirty = true; log = []; size = 0 }
-  let mark t entity kind =
-    t.dirty <- true;
-    t.log  <- (entity, kind) :: t.log;
-    t.size <- t.size + 1
-  let check_and_clear t =
-    if not t.dirty then `Clean
-    else begin
-      let log = t.log and size = t.size in
-      t.dirty <- false; t.log <- []; t.size <- 0;
-      if size > max_delta_size
-      then `Rebuild        (* delta too large — full rebuild is cheaper *)
-      else `Delta log
-    end
-end
-
-(* One module swap — everything else unchanged *)
-module World   = Eon_engine.World.Make(Incremental_tracking)
-module Query   = Eon_engine.Query.Make(Eon_engine.Archetype_backend.Make(World))
+(* eon_ecs/world.mli *)
+val iter_registered : (name:string -> id:int -> unit) -> t -> unit
 ```
 
-**Memory bound:** the log is capped at `max_delta_size` entries. Once exceeded,
-`check_and_clear` discards the log and returns `` `Rebuild ``, degrading gracefully
-to full-rebuild semantics. This bounds memory use to O(max_delta_size) regardless
-of how many frames pass without a query.
-
-`Archetype_index.apply_delta` (the O(M) counterpart to `Archetype_index.rebuild`) is **not
-implemented yet**. Do not implement it prematurely — profile first. The signature
-enrichment already in place means the implementation can be added without touching
-any other module when the time comes.
+This is the minimal surface — no `Component.any_component` or
+`Component_registry` exposed. The archetype index gets names and IDs for bitset
+position assignment.
 
 ---
 
-## 6. Mutation Signals *(out of scope for ecs-016)*
+## 8. Mutation Signals *(out of scope for ecs-016)*
 
-Independently of the dirty flag, `eon_engine.World` mutation wrappers emit
-signals on structural changes as a general extensibility hook:
-
-```ocaml
-type mutation_event =
-  | Component_added    of Entity_id.t * string
-  | Component_removed  of Entity_id.t * string
-  | Entity_destroyed   of Entity_id.t
-```
-
-Emission is best-effort: skipped if the Signals bus is not registered in the
-service plane. All world variants (`Default`, `Tracked`, custom) emit the same
-signals — this is independent of tracking strategy.
+Independently of the dirty flag, `eon_engine.World` mutation wrappers will
+emit signals on structural changes as a general extensibility hook. This is
+a separate concern from the archetype backend and is deferred.
 
 Other interested parties (reactive UI, debug tooling, editor inspectors) can
-subscribe to these signals without depending on the archetype backend. The dirty
-flag and mutation signals are separate concerns that happen to be set at the
-same call sites.
+subscribe to these signals without depending on the archetype backend.
 
 ---
 
-## 7. User Wiring
+## 9. User Wiring
 
 ### Default — sparse sets, no archetype acceleration
 
@@ -454,7 +424,7 @@ let world = World.create ()
 (* No further setup. *)
 ```
 
-### Archetype acceleration — one module swap
+### Archetype acceleration — two module swaps
 
 ```ocaml
 module World = Eon_engine.World.Tracked
@@ -464,11 +434,11 @@ let world = World.create ()
 (* No further setup. Archetypes service created lazily on first query. *)
 ```
 
-### Archetype acceleration with parallel tick — dedicated rebuild phase
+### Archetype acceleration with parallel tick — optional install
 
 For games that run systems in parallel within a phase, call `install` once after
 creating the world and pipeline. This registers an `Archetype_rebuild` phase
-ordered before all other phases, eliminating Race 2 (see section 8):
+ordered before all other phases:
 
 ```ocaml
 module World = Eon_engine.World.Tracked
@@ -477,7 +447,7 @@ module Query = Eon_engine.Query.Archetype
 let world    = World.create ()
 let pipeline = Pipeline.Default.create ()
 
-(* Register the rebuild phase — must be called before the loop starts *)
+(* Optional — registers a dedicated rebuild phase before all others *)
 Eon_engine.Archetype_backend.install world pipeline
 
 (* Systems added to any phase after this point are safe to run in parallel —
@@ -493,8 +463,8 @@ single-threaded use.
 module My_tracking : Eon_engine.World.TRACKING = struct
   type t = ...
   let create () = ...
-  let mark t entity kind = ...   (* entity and kind available for incremental use *)
-  let check_and_clear t = ...    (* return `Clean | `Rebuild | `Delta log *)
+  let mark t = ...              (* just set dirty *)
+  let check_and_clear t = ...   (* return `Clean | `Rebuild *)
 end
 
 module World   = Eon_engine.World.Make(My_tracking)
@@ -504,76 +474,50 @@ module Query   = Eon_engine.Query.Make(Backend)
 
 ---
 
-## 8. Parallelism Contract
+## 10. Thread Safety Contract
 
-The engine does not enforce isolation between parallel pipeline phases. This
-applies to all shared world state — components, resources, services, the
-archetype index — not just the dirty flag.
+### Pipeline execution model
 
-**The contract:** phases that execute concurrently must not share mutable state.
-A phase that reads components and a phase that writes the same components must
-not run in parallel. Violation is undefined behaviour; the engine provides no
-detection or recovery.
+`Pipeline.t` runs phases sequentially via topological sort and `List.fold_left`.
+Systems within a phase also run sequentially today. This will not change in
+`eon_ecs` — the pipeline remains a sequential execution engine.
 
-`Dirty_flag` uses `Atomic.bool` because it is engine infrastructure that is
-shared by construction. Game-level shared state is the user's responsibility.
-This boundary — engine infrastructure is safe, game state is your problem —
-should be documented clearly wherever parallelism is mentioned.
+A future engine-level design will introduce read/write phase markers and
+intra-phase parallelism (parallel readers within a phase, never readers and
+writers mixed). That design will be documented separately in `docs/design/` and
+will reference this document for the archetype index's atomic guarantees.
 
-### The archetype index is not thread-safe
+### Archetype index guarantees
 
-The `Atomic.bool` in `Dirty_flag` protects only the flag itself.
-The `Archetype_index` (stored in the service plane under `` `Archetypes ``) is a
-mutable structure with no internal synchronisation. `compare_and_set` ensures
-that at most one thread wins the rebuild race, but the winning thread mutates
-the index while other threads may be reading it — a data race.
+The archetype index is safe for concurrent reads:
 
-**Two phases that both use `Archetype_backend` are sharing the archetype index
-via the service plane.** They are therefore NOT independent and must not execute
-concurrently. This is a specific application of the general independence contract,
-not an additional constraint.
+- The snapshot is held in an `Atomic.t`. `Atomic.set` and `Atomic.get` ensure
+  readers see a consistent snapshot (old or new, never partial).
+- `ensure_current` uses `Atomic.compare_and_set` on the dirty flag — at most
+  one system triggers a rebuild per dirty cycle.
+- During rebuild, the old snapshot remains immutable and readable. The new
+  snapshot is published via a single `Atomic.set`.
 
-### Two distinct races
+### `install` is optional
 
-It is worth distinguishing the two parallel hazards, as they have different
-remedies:
+`install` registers a dedicated `Archetype_rebuild` phase before all other
+phases. This avoids redundant `check_and_clear` calls when multiple systems
+query in the same frame. It is an optimisation, not a correctness requirement.
 
-**Race 1 — concurrent mutation and query.** One thread writes component data
-while another reads it. This occurs in a non-reactive game where mutations and
-queries both happen during tick. Phase separation (reactive style: mutations in
-drain, queries in tick) eliminates this race entirely — the two phases are
-sequential.
+Without `install`, the lazy rebuild inside `iter*` is correct for sequential
+execution and for future parallel readers within a phase.
 
-**Race 2 — rebuild during parallel tick.** The rebuild is triggered lazily
-inside each `iter*` call via `ensure_current`. If two systems in the same tick
-phase run in parallel, both call `ensure_current`: one wins the `compare_and_set`
-and starts rebuilding (writing the index) while the other already received
-`` `Clean `` and starts reading it. This race exists even in the reactive style,
-because phase separation only isolates mutations from queries — it does not
-prevent two query-only systems from racing on the rebuild.
+### User contract
 
-**Resolving Race 2** is straightforward: call `Archetype_backend.install world
-pipeline` once before the loop starts. This registers a dedicated
-`Archetype_rebuild` phase ordered before all other phases. The rebuild runs
-single-threaded in that phase; all subsequent parallel phases find the flag
-`` `Clean `` and only read the index — no race:
+When intra-phase parallelism is added in the future:
 
-```
-collect → Archetype_rebuild phase (single-threaded) → parallel tick (read-only) → drain → render
-```
-
-`install` is optional. Single-threaded games can rely on the lazy rebuild inside
-`iter*` and never call it. Parallel games call it once at startup; the overhead
-is zero for frames where nothing is dirty.
-
-If parallel query execution without a dedicated rebuild phase is needed in the
-future (e.g. mid-frame dynamic world creation), the index would require a
-reader-writer lock or an immutable/copy-on-write representation. Neither is
-implemented. Profile before designing a solution.
+- Readers within a phase can run in parallel safely (the index handles this).
+- Do not mix readers and writers in the same phase — this is the user's
+  responsibility to enforce via phase design.
 
 ---
 
-## 9. What NOT to Do
+## 11. What NOT to Do
 
 - **Do not mark dirty from `set_component`** — value changes leave the component
   signature unchanged; marking would cause unnecessary rebuilds every frame for
@@ -592,3 +536,5 @@ implemented. Profile before designing a solution.
   stays absent. `get_arch` detects this and raises `Invalid_argument` with
   an actionable message on the first query. Silent empty results are worse than
   a clear error. Do not add fallback logic to mask this misconfiguration.
+- **Do not add external opam dependencies** unless strictly necessary and not
+  achievable with stdlib alone.
