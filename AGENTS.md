@@ -100,6 +100,10 @@ just bench-compare world
 just clean
 ```
 
+**Preferred tools:** Always use `rg` (ripgrep) instead of `grep`, `find`, or similar search commands. Use `rg` for all content and file searches.
+
+**External dependencies:** Do not add opam dependencies unless strictly necessary and not achievable with stdlib alone. Every non-stdlib dependency must be justified.
+
 ## 7. Testing and benchmark layout
 
 Tests:
