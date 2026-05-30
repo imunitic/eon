@@ -623,3 +623,87 @@ When intra-phase parallelism is added in the future:
   a clear error. Do not add fallback logic to mask this misconfiguration.
 - **Do not add external opam dependencies** unless strictly necessary and not
   achievable with stdlib alone.
+
+---
+
+## 12. Open Design Observations
+
+Issues identified during self-review. Not blockers for ecs-016 implementation, but
+worth addressing either in the implementation or as follow-up design notes.
+
+### Entity ID generation mismatch (correctness)
+
+During rebuild, `Eon_ecs.Query.iter1` yields `Entity_id.t` (slot + generation).
+The `component_iter` callback extracts `Entity_id.index` to get the bare slot
+index for the bitset. `entry.entities` therefore stores slot indices (`int`), not
+`Entity_id.t`.
+
+During query, the backend must reconstruct `Entity_id.t` from the stored slot
+index. This is done via `Entity_id.make slot (World.generation_at raw slot)`,
+which is correct at query time — `generation_at` returns the live generation for
+the slot. If an entity was destroyed and a new one allocated at the same slot
+between rebuild and query, `get_component` returns `None` for the recycled entity
+(it has different components), and the backend skips it. The `Entity_id.t` passed
+to the callback has the correct generation at that moment.
+
+**Risk:** If a callback stashes the `Entity_id.t` for use in a later frame, the
+generation might be stale by then. This is a general ECS concern (stale handles)
+and not specific to the archetype backend.
+
+### Bitset filtering scope (clarity)
+
+The entry-level bitset check skips entire groups that fail `includes`, `having`, or
+`excludes` masks. However, individual entities within a matching entry might still
+fail `having` or `excludes` filters (the entry signature is an aggregate; an entity
+might have lost a `having` component since the last rebuild). Entity-level
+post-filtering via `get_component` presence checks is still needed within matching
+entries.
+
+The archetype backend is most effective for selective queries (many excludes/having
+filters that prune most entities). For broad queries that match most entities, the
+per-entity `get_component` hash lookups may negate the filtering gains compared to
+`Sparse_set_backend`'s direct array reads.
+
+### `Query.iter1` overhead during rebuild (performance)
+
+`Query.iter1` reconstructs `Entity_id.t` with generation (via `World.generation_at`)
+and yields component values. The rebuild callback discards both — only
+`Entity_id.index` is used. This wastes one `generation_at` call and one component
+value read per entity per component per rebuild. For a world with 100K entities and
+10 components, that is 1M wasted calls.
+
+This is acceptable because rebuilds are rare (once per dirty cycle). A future
+optimization could add a bare-indices iteration primitive to `eon_ecs`, but this
+requires a core change and is not justified yet.
+
+### `name_to_pos` rebuilt every cycle (performance)
+
+Every rebuild clears and re-populates `name_to_pos` from `registered_components`.
+Component registrations happen at init time, so `name_to_pos` is identical across
+rebuilds. Separating the name→position table (build once, reuse) from the
+entity→bitset scan (re-run every rebuild) would avoid redundant hash table
+operations. Low priority since the table is small.
+
+### `Bitset.of_list` not cached (performance)
+
+Query masks (`includes_mask`, `having_mask`, `excludes_mask`) are rebuilt from
+scratch via `Bitset.of_list` on every `iter*`/`count` call. For a query with 3
+includes, 2 having, 1 exclude, that is 6 array allocations per frame. Caching
+masks per query configuration would eliminate this. Low priority since allocation
+is cheap and queries typically have few components.
+
+### `registered_components` iteration order (cosmetic)
+
+`register` prepends to the list (`(name, id) :: world.components`), so
+`registered_components` returns components in reverse registration order (most
+recent first). This does not affect correctness — bit positions are explicit in
+the `id` field — but the doc's "registration order" phrasing is technically
+incorrect.
+
+### Supersedes `eon_engine_query_design.md` §8
+
+The component ID generation approach described in `eon_engine_query_design.md` §8
+(global `Atomic` counter in `component_id.ml`) is superseded by the per-world
+`World.Make.register` approach (§3). This is not a conflict — the archetype
+backend design v2 intentionally redesigns ID generation to be per-world. The
+query design document should be updated to reflect this.
