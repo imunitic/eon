@@ -9,9 +9,10 @@ The `Archetype_backend` sections of `eon_engine_query_design.md` are superseded
 by this document. The rest of that document (query builder, `Sparse_set_backend`,
 `Fallback` functor) remains authoritative.
 
-**v2 changes:** Bitmask signatures (`Int64.t array`), simplified `TRACKING.mark`
-(unit, no mutation context), optional `install`, thread safety as documented user
-responsibility.
+**v2 changes:** Bitmask signatures (`Int64.t array`), per-world dense bit
+position and component ID assignment, `Component_descriptor` simplified to pure
+name wrapper, simplified `TRACKING.mark` (unit, no mutation context), optional
+`install`, thread safety as documented user responsibility.
 
 ---
 
@@ -61,8 +62,9 @@ Query.Make(B : Query_backend.S)               ← unchanged from query design do
 File: `eon_engine/bitset.ml`
 
 Component signatures are represented as bitmasks using a dynamic `Int64.t array`.
-Each component type gets a unique bit position (assigned during index rebuild).
-Set operations become bitwise — `includes ⊆ signature` is a single AND+compare.
+Each component type gets a unique bit position (assigned per-world during
+registration). Set operations become bitwise — `includes ⊆ signature` is a
+single AND+compare.
 
 ```ocaml
 type t = Int64.t array
@@ -126,10 +128,9 @@ module Dirty_flag : TRACKING = struct
 end
 ```
 
-`Atomic.bool` is consistent with the existing `Atomic` usage in
-`Component_descriptor`. `compare_and_set` prevents the lost-update race: if a
-mutation arrives during `check_and_clear`, the flag stays `true` and the next
-query triggers a rebuild.
+`Atomic.bool` provides lock-free dirty flag management. `compare_and_set`
+prevents the lost-update race: if a mutation arrives during `check_and_clear`,
+the flag stays `true` and the next query triggers a rebuild.
 
 The flag is initialised to `true` so the first query always performs a full
 rebuild. This handles the pre-loop setup gap — entities created before the loop
@@ -145,12 +146,29 @@ File: `eon_engine/world.ml`
 ```ocaml
 module Make (T : TRACKING) = struct
   type t = {
-    raw      : Eon_ecs.World.t;
-    tracking : T.t;
+    raw        : Eon_ecs.World.t;
+    tracking   : T.t;
+    mutable components : (string * int) list;  (* (name, id) — registration order; id = bit position *)
+    mutable next_id    : int;                   (* next per-world component ID / bit position *)
   }
 
   let create () =
-    { raw = Eon_ecs.World.create (); tracking = T.create () }
+    { raw = Eon_ecs.World.create ();
+      tracking = T.create ();
+      components = [];
+      next_id = 0 }
+
+  let register world comp =
+    let name = Component_descriptor.name comp in
+    if Component_descriptor.is_registered world.raw comp then
+      Component_descriptor.Already_registered
+    else begin
+      let id = world.next_id in
+      world.next_id <- id + 1;
+      let _ = Eon_ecs.World.register_component world.raw ~name ~id in
+      world.components <- (name, id) :: world.components;
+      Component_descriptor.Registered
+    end
 
   (* Structural mutations — change the entity's component signature *)
   let add_component world entity comp value =
@@ -179,6 +197,7 @@ module Make (T : TRACKING) = struct
   (* Extension API for backends *)
   let to_raw world = world.raw
   let check_and_clear world = T.check_and_clear world.tracking
+  let registered_components world = world.components
 
   (* ... remaining delegations (get_component, create_entity, etc.) ... *)
 end
@@ -189,6 +208,21 @@ module Tracked  = Make(Dirty_flag)
 
 `set_component` does **not** mark dirty. It changes a component's value but not
 which components the entity owns — its archetype signature is unchanged.
+
+`register` owns the full component registration lifecycle. The per-world ID
+doubles as the bit position — both are the same dense 0, 1, 2, … sequence. The
+`Id_counter` module previously lived in `Component_descriptor` as a global
+`Atomic` counter; it is now a simple mutable field in the world record. Each
+world gets its own dense sequence regardless of how many components exist in
+other worlds.
+
+`Component_descriptor` is a pure name wrapper after this change: `component`
+(constructor), `name` (accessor), `is_registered` (checks via `find_component`),
+and the `registration_result` type (`Registered | Already_registered`, returned
+by `register`). It does not generate IDs or hold mutable state.
+
+`registered_components` returns the `(name, id)` pairs in registration order,
+where `id` is both the eon_ecs component ID and the archetype bit position.
 
 ---
 
@@ -227,6 +261,11 @@ module type S = sig
 
   (** Extension API for backends only — not for game code *)
   val check_and_clear : t -> [ `Clean | `Rebuild ]
+
+  (** Component names and their per-world IDs (which double as bit positions),
+      in registration order. Used by [Archetype_index] to build bitsets.
+      Each world maintains its own dense 0, 1, 2, … sequence. *)
+  val registered_components : t -> (string * int) list
 end
 ```
 
@@ -268,14 +307,33 @@ type t = {
 }
 ```
 
+### Component iteration callback
+
+`Archetype_index` does not know how to discover registered components — that is
+the world's responsibility. Instead, `rebuild` accepts a callback:
+
+```ocaml
+type component_iter =
+  (name:string -> pos:int -> entity_ids:((int -> unit) -> unit) -> unit) -> unit
+```
+
+The callback is called by `rebuild` with a consumer function. For each
+registered component, the caller provides:
+- `name` — the component name (used for `name_to_pos` and query mask building).
+- `pos` — the dense bit position assigned by the world (0, 1, 2, …).
+- `entity_ids` — a function that, given a callback `f`, calls `f` with each
+  entity ID that owns this component (typically via `Eon_ecs.Query.iter1`).
+
 ### Rebuild
 
-`rebuild t raw_world` performs a full scan:
+`rebuild t (iter : component_iter)` performs a full scan:
 
-1. Clear `name_to_pos`. Call `Eon_ecs.World.iter_registered` to assign bit
-   positions 0, 1, 2, … to each registered component.
-2. For each registered component, call `Eon_ecs.World.find_component` to get its
-   sparse set. Use `Sparse_set.iter` to accumulate `Bitset.set` per entity.
+1. Clear `name_to_pos`.
+2. Call `iter` with a consumer that, for each component:
+   - Stores `name → pos` in `name_to_pos` (the dense ordinal comes from the
+     world's `registered_components`).
+   - Calls the `entity_ids` function to enumerate entities that own this
+     component, accumulating `Bitset.set` per entity.
 3. Group entities by signature into `entry list`.
 4. `Atomic.set t.index new_snapshot` — atomic swap. Readers see either the old
    or the new snapshot, never a partial state.
@@ -291,14 +349,14 @@ type t = {
    `Bitset.subset ~of_:entry.signature includes_mask`
    `Bitset.disjoint entry.signature excludes_mask`
    `Bitset.subset ~of_:entry.signature having_mask`
-4. For matching entries, iterate `entry.entities`. Read component values from
-   sparse sets. Call `callback` with each entity.
+4. For matching entries, iterate `entry.entities`. Read component values via
+   `Eon_ecs.World.get_component`. Call `callback` with each entity.
 
 ### Stale entries
 
 If the index is slightly behind (an entity moved to a different archetype since
-the last rebuild), the sparse set read returns `None` and the backend skips that
-entity. Correctness is always guaranteed by the sparse sets; the index only
+the last rebuild), `get_component` returns `None` and the backend skips that
+entity. Correctness is always guaranteed by the component store; the index only
 affects performance.
 
 ### Rebuild cadence
@@ -307,6 +365,10 @@ affects performance.
 runs at most once per dirty cycle — the flag is cleared before
 `Archetype_index.rebuild` returns, so subsequent queries in the same frame find
 it `` `Clean `` and skip the rebuild immediately.
+
+When `install` is used, `ensure_current` runs once in the dedicated phase before
+tick begins. All `iter*` calls during tick find the flag `` `Clean `` and return
+immediately — the check becomes a single branch with no rebuild work.
 
 ---
 
@@ -328,8 +390,15 @@ module Make (W : World.S) : Query_backend.S with type world = W.t = struct
 
   let ensure_current world =
     match W.check_and_clear world with
-    | `Clean        -> ()
-    | `Rebuild      -> Archetype_index.rebuild (get_or_create_arch world) (W.to_raw world)
+    | `Clean   -> ()
+    | `Rebuild ->
+      let arch = get_or_create_arch world in
+      let raw = W.to_raw world in
+      Archetype_index.rebuild arch (fun consumer ->
+        List.iter (fun (name, pos) ->
+          consumer ~name ~pos ~entity_ids:(fun f ->
+            Eon_ecs.Query.iter1 raw name (fun eid _ -> f eid)))
+          (W.registered_components world))
 
   let get_arch world =
     match W.get_service world `Archetypes with
@@ -345,7 +414,7 @@ module Make (W : World.S) : Query_backend.S with type world = W.t = struct
     ensure_current world;
     let arch = get_arch world in
     Archetype_index.query arch (W.to_raw world) ~includes ~having ~excludes
-      (fun eid -> (* read values from sparse sets, call f *) ...)
+      (fun eid -> (* read values via get_component, call f *) ...)
 
   (* iter2, iter3, iter4, count follow the same pattern *)
 end
@@ -373,31 +442,41 @@ finds it absent — whether that call comes from inside `iter*` (lazy path) or
 from the dedicated rebuild phase (via `install`). No explicit registration is
 required in either case.
 
-### Rebuild cadence
-
-`ensure_current` is called once per `iter*`/`count` invocation. The rebuild
-runs at most once per dirty cycle — the flag is cleared before
-`Archetype_index.rebuild` returns, so subsequent queries in the same frame find
-it `` `Clean `` and skip the rebuild immediately.
-
-When `install` is used, `ensure_current` runs once in the dedicated phase before
-tick begins. All `iter*` calls during tick find the flag `` `Clean `` and return
-immediately — the check becomes a single branch with no rebuild work.
-
 ---
 
-## 7. `eon_ecs` Addition
+## 7. Component Discovery
 
-One new function needed for `rebuild` to iterate registered components:
+No changes to `eon_ecs` are needed. Component discovery uses two existing
+surfaces:
 
-```ocaml
-(* eon_ecs/world.mli *)
-val iter_registered : (name:string -> id:int -> unit) -> t -> unit
-```
+1. **`WORLD.S.registered_components`** (§4) — returns `(name, id)` pairs in
+   registration order, where `id` is both the eon_ecs component ID and the
+   archetype bit position. Each `World.Make` instance tracks its own dense
+   0, 1, 2, … sequence, assigned in the `register` wrapper (§3).
 
-This is the minimal surface — no `Component.any_component` or
-`Component_registry` exposed. The archetype index gets names and IDs for bitset
-position assignment.
+2. **`Eon_ecs.Query.iter1`** — iterates all entities that own a named component,
+   yielding each entity ID and component value to a callback. Used during
+   rebuild to enumerate entity IDs per component.
+
+The `component_iter` callback (§5) bridges these two surfaces: the backend
+calls `registered_components` to get the name/position pairs, then
+`Query.iter1` to enumerate entity IDs, and yields `(name, pos, entity_ids)`
+triples to `Archetype_index.rebuild`.
+
+### `Component_descriptor` — pure name wrapper
+
+After the per-world `Id_counter` migration (§3), `Component_descriptor` contains
+only:
+
+- `component : string -> 'a t` — constructor (phantom-typed string).
+- `name : 'a t -> string` — accessor.
+- `is_registered : Eon_ecs.World.t -> 'a t -> bool` — checks via
+  `find_component`.
+- `type registration_result = Registered | Already_registered` — returned by
+  `World.Make.register` (§3).
+
+It does not generate component IDs or hold mutable state. Registration and ID
+generation live in `World.Make.register` (§3).
 
 ---
 
@@ -497,6 +576,12 @@ The archetype index is safe for concurrent reads:
   one system triggers a rebuild per dirty cycle.
 - During rebuild, the old snapshot remains immutable and readable. The new
   snapshot is published via a single `Atomic.set`.
+
+The first lazy `ensure_current` is a structural writer — it calls
+`get_or_create_arch`, which invokes `add_service` on the world to create the
+`Archetypes` service. In the no-install parallel path, the loser of the CAS
+races against this write. Use `install` for parallel games to front-load this
+write into a single-threaded phase.
 
 ### `install` is optional
 
