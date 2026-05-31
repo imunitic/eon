@@ -1,3 +1,5 @@
+(dirs :standard \ examples)
+
 (library
  (name eon_ecs)
  (public_name eon-ecs)
