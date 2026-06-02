@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: opam install . --deps-only --with-test -y
 
+      - name: Install bisect_ppx
+        run: opam install bisect_ppx -y
+
       - name: Run coverage
         run: just coverage
 

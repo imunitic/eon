@@ -10,7 +10,6 @@ depends: [
   "mtime" {with-test}
   "qcheck" {with-test}
   "qcheck-alcotest" {with-test}
-  "bisect_ppx" {with-test}
   "odoc" {with-doc}
 ]
 build: [
