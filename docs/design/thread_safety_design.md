@@ -4,7 +4,7 @@
 
 **DRAFT — not finished.** Proposed / design notes. Captures the concurrency philosophy and the
 engine-layer parallel pipeline model. Interacts with
-[archetype_backend_design.md](archetype_backend_design.md) (lazy index rebuild)
+[world_module_design.md](world_module_design.md) (lazy index rebuild)
 and [query_view_design.md](query_view_design.md) (read access via the view).
 
 ---

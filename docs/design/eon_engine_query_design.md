@@ -94,7 +94,7 @@ Files: `eon_engine/sparse_set_backend.ml` / `sparse_set_backend.mli`
 
 ### `Archetype_backend` *(planned — ecs-016, not yet implemented)*
 
-> **See [archetype_backend_design.md](archetype_backend_design.md) for the authoritative design.**
+> **See [world_module_design.md](world_module_design.md) for the authoritative design.**
 > The summary below is kept for orientation only.
 
 - `type world = Eon_engine.World.Tracked.t` (post ecs-019 consolidation)
