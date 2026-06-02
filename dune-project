@@ -13,7 +13,8 @@
   (bechamel :with-test)
   (mtime :with-test)
   (qcheck :with-test)
-  (qcheck-alcotest :with-test)))
+  (qcheck-alcotest :with-test)
+  (bisect_ppx :with-test)))
 
  (package
   (name eon-engine)
