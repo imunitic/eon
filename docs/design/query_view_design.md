@@ -5,7 +5,7 @@
 **DRAFT — not finished.** Proposed. Supersedes the `iterN` terminator design in
 [eon_engine_query_design.md](eon_engine_query_design.md) (§3 execution
 functions, §6 three-list/arity semantics, and the §7 "write your own iter5"
-rule). Composes cleanly with [archetype_backend_design.md](archetype_backend_design.md)
+rule). Composes cleanly with [world_module_design.md](world_module_design.md)
 — see §8.
 
 ---
@@ -302,7 +302,7 @@ Query.from world
 ## 8. Relationship to the Archetype Backend
 
 This aligns with the direction already settled in
-[archetype_backend_design.md](archetype_backend_design.md): the archetype
+[world_module_design.md](world_module_design.md): the archetype
 backend's job is to answer **"which entities match,"** never **"hand me the
 values"** (values always come from the authoritative sparse sets via
 `get_component`). The new `iter_entities` backend method *is* that contract.
