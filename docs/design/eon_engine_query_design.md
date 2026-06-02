@@ -87,9 +87,10 @@ a `Storage_backend.S` / `World.Make` story where the world type itself is plugga
 
 Files: `eon_engine/sparse_set_backend.ml` / `sparse_set_backend.mli`
 
-- `type world = Eon_engine.World.Default.t` (post ecs-019 consolidation; delegates to `world.raw`)
-- Delegates directly to `Eon_ecs.Query.iter1`/`iter2`/`iter3`/`iter4`
-- Applies `having` and `excludes` as per-entity membership post-filters inside the loop
+- `type world = W.t` where `W : World.S` — the backend is a functor `Make(W : World.S)`
+- Delegates to `W.iter_entities` for smallest-set-first entity iteration
+- Applies `excludes` as a per-entity post-filter via `W.has_component`
+- No reference to `Eon_ecs.World.t` or `Eon_ecs.Query` — works entirely through `World.S`
 - This is the **default backend** — thin wrapper, no new storage logic
 
 ### `Archetype_backend` *(planned — ecs-016, not yet implemented)*
@@ -308,8 +309,8 @@ computation — they exist only to satisfy the core's `register_component` signa
 
 | Core module | Engine usage |
 |---|---|
-| `World.t` | Accessed via `world.raw` inside `Eon_engine.World.Make` |
-| `Query.iter1`–`iter4` | Called by `Sparse_set_backend` |
+| `World.t` | Stored as `world.core` inside `Eon_engine.World.t`; accessed only through `World.S` delegation |
+| `World.iter_entities` | Called by `Eon_engine.World` to satisfy `World.S`; in turn called by `Sparse_set_backend` |
 | `World.register_component` | Called by engine's `register_component` wrapper |
 | `World.get_service` | Used by `Archetype_backend` to locate the lazily-created archetype index |
 | `Component.component` | Unchanged, core concern only |

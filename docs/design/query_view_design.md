@@ -244,13 +244,13 @@ simpler and a cleaner seam for the archetype backend (§8).
 ### `Sparse_set_backend`
 
 - Combine `includes @ having` into the required AND-set.
-- Call `Eon_ecs.Query.iter_entities raw required`.
-- Inside the callback, apply `excludes` as a per-entity post-filter: skip the
-  entity if `World.get_component world e ~name:x` is `Some _` for any `x` in
-  `excludes`. (Excluded components are real registered `COMPONENT` modules, so
-  `get_component` will not raise; `Some` ⇒ present ⇒ skip.)
+- Call `W.iter_entities world required`.
+- Inside the callback, apply `excludes` as a per-entity post-filter via
+  `W.has_component world entity name` — returns `false` for unregistered or
+  absent components, so no raise risk on excluded names.
 
-This needs only the public `eon_ecs` surface — `iter_entities` + `get_component`.
+This needs only the `World.S` surface — `iter_entities` + `has_component`.
+No reference to `Eon_ecs.World.t` or `Eon_ecs.Query` anywhere in the backend.
 
 ---
 

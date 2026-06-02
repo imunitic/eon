@@ -68,15 +68,25 @@ module type S = sig
   val get_service : t -> ([> ] as 'k) -> 'a option
   val list_services : t -> int list
 
-  (** Extension API for backends — not for game code. *)
-  val to_raw : t -> Eon_ecs.World.t
+  (** Backend query primitives — not for game code. *)
+
+  val iter_entities : t -> string list -> (Entity_id.t -> unit) -> unit
+  (** Iterate every alive entity that has all of the named components, using the
+      smallest sparse set as the iteration base. Raises if any name was never
+      registered — consistent with [get_component] / [add_component]. *)
+
+  val has_component : t -> Entity_id.t -> string -> bool
+  (** Return [true] if the entity currently holds the named component.
+      Returns [false] if the component is not registered or is absent on the
+      entity. Used by backends to apply excludes post-filters by string name. *)
 end
 ```
 
-`to_raw` exposes the underlying `Eon_ecs.World.t` so that backends
-(`Sparse_set_backend`, future backends) can call `Eon_ecs.Query` directly
-without the engine world needing to re-expose every query primitive. Game code
-never calls this.
+`World.S` has no reference to `Eon_ecs.World.t`. Backends depend only on this
+signature; they work with `W.t` throughout and call `W.iter_entities` /
+`W.has_component` for query operations. Any module that satisfies `World.S`
+can back a backend — including `Eon_ecs.World` itself (where `iter_entities` is
+the native implementation and `has_component` is a direct presence check).
 
 ---
 
@@ -86,45 +96,52 @@ File: `eon_engine/world.ml`
 
 ```ocaml
 type t = {
-  raw                    : Eon_ecs.World.t;
+  core                   : Eon_ecs.World.t;
   mutable[@atomic] next_id : int;   (* per-world dense component id allocator *)
 }
 
 let create () =
-  { raw     = Eon_ecs.World.create ();
+  { core    = Eon_ecs.World.create ();
     next_id = 0 }
-
-let to_raw world = world.raw
 
 let register world comp =
   let name = Component_descriptor.name comp in
-  if Component_descriptor.is_registered world.raw comp then
+  if Component_descriptor.is_registered world.core comp then
     Component_descriptor.Already_registered
   else begin
     let id = Atomic.Loc.fetch_and_add [%atomic.loc world.next_id] 1 in
-    Eon_ecs.World.register_component world.raw ~name ~id;
+    Eon_ecs.World.register_component world.core ~name ~id;
     Component_descriptor.Registered
   end
 
 (* Structural mutations *)
 let add_component world entity comp value =
-  Eon_ecs.World.add_component world.raw entity
+  Eon_ecs.World.add_component world.core entity
     ~name:(Component_descriptor.name comp) value
 
 let remove_component world entity comp =
-  Eon_ecs.World.remove_component world.raw entity
+  Eon_ecs.World.remove_component world.core entity
     ~name:(Component_descriptor.name comp)
 
 let remove_all_components world entity =
-  Eon_ecs.World.remove_all_components world.raw entity
+  Eon_ecs.World.remove_all_components world.core entity
 
 let destroy_entity world entity =
-  Eon_ecs.World.destroy_entity world.raw entity
+  Eon_ecs.World.destroy_entity world.core entity
 
 (* Value mutation — does NOT change component signature *)
 let set_component world entity comp value =
-  Eon_ecs.World.set_component world.raw entity
+  Eon_ecs.World.set_component world.core entity
     ~name:(Component_descriptor.name comp) value
+
+(* Backend query primitives *)
+let iter_entities world names f =
+  Eon_ecs.World.iter_entities world.core names f
+
+let has_component world entity name =
+  match Eon_ecs.World.find_component world.core ~name with
+  | None   -> false
+  | Some _ -> Option.is_some (Eon_ecs.World.get_component world.core entity ~name)
 
 (* ... remaining delegations (get_component, create_entity, etc.) ... *)
 ```
@@ -154,22 +171,28 @@ File: `eon_engine/sparse_set_backend.ml`
 module Make (W : World.S) : Query_backend.S with type world = W.t = struct
   type world = W.t
 
-  let iter1 world ~includes ~having ~excludes f =
-    let raw = W.to_raw world in
-    Eon_ecs.Query.iter1 raw ~includes ~having ~excludes f
+  let iter_entities world ~includes ~having ~excludes f =
+    let required = includes @ having in
+    W.iter_entities world required (fun entity ->
+      if not (List.exists (W.has_component world entity) excludes) then
+        f entity)
 
-  let iter2 world ~includes ~having ~excludes f =
-    let raw = W.to_raw world in
-    Eon_ecs.Query.iter2 raw ~includes ~having ~excludes f
-
-  (* iter3, iter4, count — same pattern *)
+  let count world ~includes ~having ~excludes =
+    let n = ref 0 in
+    iter_entities world ~includes ~having ~excludes (fun _ -> incr n);
+    !n
 end
 
 module Default = Make(World)
 ```
 
-`W.to_raw` is called once per query execution, not per entity. The cost is a
-single record field access. Everything else delegates directly to `Eon_ecs.Query`.
+The backend works entirely through `W : World.S` — no reference to
+`Eon_ecs.World.t` or `Eon_ecs.Query` anywhere. `iter_entities` merges
+`includes` and `having` into the required intersection set (both mean "must be
+present"), delegates to `W.iter_entities` for smallest-set-first entity
+iteration, then applies the excludes list as a per-entity post-filter using
+`W.has_component`. `count` reuses `iter_entities` rather than duplicating
+intersection logic.
 
 The functor lets the world type change — e.g. if a `World.Make(T : TRACKING)`
 functor is added later — without touching the backend at all. Existing code that
@@ -235,5 +258,10 @@ let world = Eon_engine.World.create ()
   advances inside the `register` wrapper; bypassing it produces duplicate ids.
 - **Do not assume component ids are globally unique** — they are dense per world;
   `"Position"` is id `0` in every world that registers it first.
+- **Do not add `to_raw` back to `World.S` or any world module** — `World.S` is
+  intentionally free of any reference to `Eon_ecs.World.t`. Backends access
+  everything they need through `W.iter_entities` and `W.has_component`. If a
+  backend seems to need raw access, the right fix is to add the missing primitive
+  to `World.S`, not to punch a hole through the abstraction.
 - **Do not add external opam dependencies** unless strictly necessary and not
   achievable with stdlib alone.
