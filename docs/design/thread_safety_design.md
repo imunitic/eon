@@ -7,6 +7,11 @@ engine-layer parallel pipeline model. Interacts with
 [world_module_design.md](world_module_design.md) and
 [query_view_design.md](query_view_design.md) (read access via the view).
 
+The concrete implementation specification — module shapes, functor signatures,
+`Executor.S` interface, and bus merge protocol — lives in
+[parallel_pipeline_execution.md](parallel_pipeline_execution.md). This document
+is the philosophy and invariants; that document is the how.
+
 ---
 
 ## 1. Philosophy
@@ -53,40 +58,38 @@ Sequential primitives      ← Pipeline/System, strictly sequential (eon_ecs, un
 ## 3. The sequential-phase invariant (the backbone)
 
 **Phases are always sequential.** This is load-bearing: each phase boundary is a
-guaranteed sync point. Everything below — the index rebuild, the bus merge, the
-dirty-flag settling — anchors to phase boundaries. The *only* concurrency is
-*within* a phase, among its systems.
+guaranteed sync point. Everything below — the bus merge, the dirty-flag settling
+— anchors to phase boundaries. The *only* concurrency is *within* a phase,
+among its systems' `update` calls.
 
 ```
 Phases: strictly sequential  → they ARE the barriers
-Systems within a Read_only phase: parallel → the only concurrency
+System updates within a phase: parallel → the only concurrency
 ```
-
-If phases could overlap there would be no well-defined moment where "all writes
-are done and reads may begin," and none of the mechanisms below would have an
-anchor. The read/write phase separation is only meaningful because a write phase
-cannot run concurrently with a read phase.
 
 ---
 
-## 4. Phase tags: `Read_only` / `Read_write`
+## 4. No phase tags — `World_cap` does the job
 
-- A **`Read_only`** phase's systems only read world state → they may be run in
-  parallel (multiple readers, no writer).
-- A **`Read_write`** phase's systems may mutate → they run sequentially.
-- Phases themselves always run sequentially regardless of tag.
+Earlier designs proposed `Read_only` / `Read_write` phase tags to distinguish
+parallel-safe from parallel-unsafe phases. **These are dropped.**
 
-### The unchecked invariant
+The parallel pipeline only accepts **reactive systems**, whose `update` always
+takes `World_cap.ro World_cap.t`. Since all updates are read-only by the type
+system, every phase's updates are safe to run in parallel — no per-phase tag
+is needed to make that determination. `World_cap` enforces the invariant at
+compile time; a phase tag would only document a promise the compiler already
+checks.
 
-In OCaml there is no borrow checker. A system in a `Read_only` phase *can* still
-call `World.set_component` — the compiler will not stop it by default. So the
-safety of parallelizing a `Read_only` phase rests on the user **honestly
-tagging** (and honestly keeping `update` write-free). The parallel runner
-*trusts* the tag; it cannot verify it. This is consistent with "concurrency is
-the user's responsibility," but it must be documented as the load-bearing
-invariant, not buried.
+```
+update    : World_cap.ro World_cap.t → float → unit   (* all phases, parallel *)
+on_signal : World_cap.rw World_cap.t → 's → unit      (* always sequential *)
+on_event  : World_cap.rw World_cap.t → 'e → unit      (* always sequential *)
+on_command: World_cap.rw World_cap.t → 'c → unit      (* always sequential *)
+```
 
-§7 describes an optional way to turn this promise into a compile-time guarantee.
+Phases still exist for **ordering** — controlling which groups of systems run
+before others. That job is independent of parallel/sequential dispatch.
 
 ---
 
@@ -98,15 +101,12 @@ From [loop.ml](../../eon_ecs/loop.ml), each frame is:
 Buses.collect   →   Progress.tick   →   Buses.drain   →   Renderer.render
 ```
 
-- **`Progress.tick`** runs system `update` functions → the **read phase**
-  (queries). This is where parallel `Read_only` systems run.
+- **`Progress.tick`** runs system `update` functions → all parallel, all `ro`.
 - **`Buses.collect`** (frame start) and **`Buses.drain`** (frame end) are where
-  `on_*` handlers fire → the **write phase**. Both sit *outside* `tick`.
+  `on_*` handlers fire → always sequential, always `rw`. Both sit *outside* `tick`.
 
-A well-structured reactive Eon game keeps this split clean: **`update` only
-reads; `on_*` handlers only write.** Given that discipline, reads and writes
-never interleave within a frame, and the parallel read phase has no active
-writer.
+The frame order enforces the split structurally: reads and writes never
+interleave within a frame, and the parallel `tick` window has no active writer.
 
 ---
 
@@ -145,58 +145,151 @@ needs nothing.
 
 ---
 
-## 7. Optional enforcement: typed `RO` / `RW` world views
+## 7. Enforcement: typed `RO` / `RW` world views
 
-The §4 invariant can be promoted from a documented promise to a **compile-time
+**Decided: ship with the first parallel pipeline.**
+
+The §4 invariant is promoted from a documented promise to a **compile-time
 guarantee** using **phantom capability types** — OCaml's idiom for read/write
 capabilities, essentially a hand-rolled `&World` vs `&mut World`.
 
-### Shape
+### Optional — parallel pipeline only
+
+`World_cap` is only used when the parallel pipeline is used. The two stacks
+are fully independent:
+
+| Stack | World type | When to use |
+|---|---|---|
+| Sequential | `Eon_engine.World.t` | `Eon_ecs.Pipeline` or sequential `Eon_engine.Pipeline` |
+| Parallel | `World_cap.ro/rw World_cap.t` | `Eon_engine.Pipeline` (parallel) |
+
+A game that never needs parallelism never sees `World_cap`. The parallel
+pipeline is the only code that calls `World_cap.wrap` and `World_cap.readonly`.
+
+### Shape — Option A (decided)
+
+`ro` and `rw` are type aliases for polymorphic variants. This keeps the API
+readable while making a future upgrade to full phantom contravariance (Option B)
+a one-line change with zero call-site impact:
 
 ```ocaml
-type 'perm t   (* phantom — 'perm has no runtime representation *)
-
-val get_component : [> `R ] t -> ...    (* readers need at least R *)
-val set_component : [> `W ] t -> ...    (* writers need W          *)
+type ro = [ `R ]
+type rw = [ `R | `W ]
 ```
 
-- Read-only world: `[ `R ] t`. Read-write: `[ `R | `W ] t`.
-- `get` accepts both; `set` accepts only `[ `R | `W ]` — calling it on a
-  `[ `R ] t` fails to typecheck (no `W` tag).
-- `update : [ `R ] t -> dt -> unit`; `on_command : [ `R | `W ] t -> ... -> unit`.
-- Mark the phantom **contravariant** (`type -'perm t`) so a read-write world
-  coerces down to read-only where `update` expects it.
+- `update : ro World_cap.t -> float -> unit` — systems only read.
+- `on_command : rw World_cap.t -> ... -> unit` — handlers may write.
 
-A simpler first cut (while ramping on OCaml): two abstract types `ro` / `rw` with
-a one-way `readonly : rw -> ro` downgrade and separate read/write function sets.
-Less elegant, trivial to reason about, upgradeable to the phantom encoding later.
+### Option B (deferred — upgrade path)
 
-### Where it lives — engine layer, not core
+Full phantom contravariance — mark `type -'perm t` and use `[> `R ]` /
+`[> `R | `W ]` constraints directly. `rw t` coerces to `ro t` automatically,
+no explicit `readonly` call needed. Because `ro` and `rw` are already aliases
+for the variant types, switching is a one-line change; call sites are unaffected.
 
-Do **not** phantom-type the core `Eon_ecs.World.t`: adding `'perm` is not
-additive, it changes an existing public type and ripples the parameter through
-`Query`, `System`, `Loop`. Instead, the engine wraps the raw world:
+### Full `World_cap` interface
 
 ```ocaml
-type 'perm t = { raw : Eon_ecs.World.t }   (* phantom 'perm; core stays unparametrized *)
+(* eon_engine/world_cap.mli *)
+
+(* ================================================================ *)
+(* Capability types                                                   *)
+(* ================================================================ *)
+
+type ro = [ `R ]
+type rw = [ `R | `W ]
+
+(* ================================================================ *)
+(* Capability-wrapped world                                           *)
+(* ================================================================ *)
+
+type 'perm t  (* phantom — 'perm has no runtime representation *)
+
+(* ================================================================ *)
+(* Construction — parallel pipeline internal; game code never calls  *)
+(* ================================================================ *)
+
+val wrap     : World.t -> rw t   (* pipeline wraps before dispatch *)
+val readonly : rw t -> ro t      (* pipeline calls before Read_only phase *)
+
+(* ================================================================ *)
+(* Read operations — both perms                                       *)
+(* ================================================================ *)
+
+val get_component         : _ t -> Entity_id.t -> 'a Component_descriptor.t -> 'a option
+val is_alive              : _ t -> Entity_id.t -> bool
+val count_entities        : _ t -> int
+val is_registered         : _ t -> 'a Component_descriptor.t -> bool
+val get_data              : _ t -> [> ] -> 'a option
+val get_service           : _ t -> [> ] -> 'a option
+val list_services         : _ t -> int list
+val iter_entities         : _ t -> string list -> (Entity_id.t -> unit) -> unit
+val has_component         : _ t -> Entity_id.t -> string -> bool
+
+(* ================================================================ *)
+(* Write operations — rw only                                         *)
+(* ================================================================ *)
+
+val create_entity         : rw t -> Entity_id.t
+val destroy_entity        : rw t -> Entity_id.t -> unit
+val add_component         : rw t -> Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
+val set_component         : rw t -> Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
+val remove_component      : rw t -> Entity_id.t -> 'a Component_descriptor.t -> unit
+val remove_all_components : rw t -> Entity_id.t -> unit
+val register              : rw t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
+val add_data              : rw t -> [> ] -> 'a -> unit
+val set_data              : rw t -> [> ] -> 'a -> unit
+val add_service           : rw t -> [> ] -> 'a -> unit
 ```
 
-and exposes capability-constrained read/write ops delegating to the plain core.
-Core stays simple and unparametrized; capability typing lives where the parallel
-pipeline does.
+The implementation is pure delegation to `World` with zero runtime overhead:
+
+```ocaml
+(* eon_engine/world_cap.ml *)
+
+type ro = [ `R ]
+type rw = [ `R | `W ]
+
+type 'perm t = { raw : World.t }
+
+let wrap w     = { raw = w }
+let readonly w = { raw = w.raw }
+
+(* reads — accept any perm *)
+let get_component w e c        = World.get_component w.raw e c
+let is_alive w e               = World.is_alive w.raw e
+let count_entities w           = World.count_entities w.raw
+let is_registered w c          = World.is_registered w.raw c
+let get_data w k               = World.get_data w.raw k
+let get_service w k            = World.get_service w.raw k
+let list_services w            = World.list_services w.raw
+let iter_entities w names f    = World.iter_entities w.raw names f
+let has_component w e name     = World.has_component w.raw e name
+
+(* writes — rw only; type system rejects ro at call site *)
+let create_entity w            = World.create_entity w.raw
+let destroy_entity w e         = World.destroy_entity w.raw e
+let add_component w e c v      = World.add_component w.raw e c v
+let set_component w e c v      = World.set_component w.raw e c v
+let remove_component w e c     = World.remove_component w.raw e c
+let remove_all_components w e  = World.remove_all_components w.raw e
+let register w c               = World.register w.raw c
+let add_data w k v             = World.add_data w.raw k v
+let set_data w k v             = World.set_data w.raw k v
+let add_service w k v          = World.add_service w.raw k v
+```
 
 ### Limits (what "enforced" means)
 
 1. **Guards the world API, not mutation reachable through it.** If `update`
-   fetches a service/resource (service plane) whose value is mutable (`ref`,
-   `Hashtbl`, `Atomic`), it can mutate *through* it; the phantom cannot see that.
-   So `RO` proves "no component/entity mutation via the world API," not "no side
-   effects." **Rust has the same escape hatch** (`Res<Mutex<T>>` interior
-   mutability) — it lands cleanly on the philosophy: enforced for the direct
-   path, user's responsibility beyond it.
-2. **Closures can launder capabilities** — a handler could capture an `rw` world
-   and stash it where an `update` later reaches it. Rare, but untracked by the
-   phantom.
+   fetches a service/resource whose value is mutable (`ref`, `Hashtbl`,
+   `Atomic`), it can mutate *through* it; the phantom cannot see that. `RO`
+   proves "no component/entity mutation via the world API," not "no side
+   effects." Rust has the same escape hatch (`Res<Mutex<T>>` interior
+   mutability) — enforced for the direct path, user's responsibility beyond it.
+2. **Closures can launder capabilities** — a handler could capture an `rw`
+   world and stash it where an `update` later reaches it. Rare, but untracked
+   by the phantom.
 
 ### `WO` (write-only) handlers?
 
@@ -243,19 +336,18 @@ you lose reproducibility (replays, deterministic netcode, debugging). Parallel
 
 ## 9. Invariants Summary
 
-The parallel read phase is safe **iff** all of these hold:
+The parallel `tick` is safe **iff** all of these hold:
 
 1. **Phases run sequentially** (§3) — the barriers exist.
-2. **`Read_only` phases contain no writers** (§4) — by tag honesty, or enforced
-   by `RO` world views (§7).
+2. **All system `update` functions are read-only** (§4) — enforced at compile
+   time by `World_cap.ro World_cap.t` (§7).
 3. **No structural mutations (`add_component`, `remove_component`,
    `destroy_entity`) are in flight during `tick`** — they are confined to
-   `on_*` handlers in `collect`/`drain`, outside the parallel phase (§6).
-4. **Bus `emit` is per-worker-buffered; dispatch stays sequential; merge is
-   deterministic at the phase barrier** (§8).
+   `on_*` handlers in `collect`/`drain`, outside the parallel window (§6).
+4. **Bus `emit` is `Mutex`-protected; dispatch stays sequential** (§8).
 
-In OCaml, (2) is a promise unless §7 is adopted; (1), (3), (4) are structural
-guarantees the engine pipeline provides.
+Invariants (1), (3), and (4) are structural guarantees from the pipeline and
+frame order. Invariant (2) is a compile-time guarantee enforced by `World_cap`.
 
 ---
 
@@ -263,16 +355,15 @@ guarantees the engine pipeline provides.
 
 - **Do not add locks/atomics/thread-safe structures to `eon_ecs` core "for
   safety."** Concurrency is a seam, not an imposed core feature.
-- **Do not run subscriber/handler callbacks concurrently.** Only `emit`
-  (buffer append) and `Read_only` system `update` run in parallel; everything
-  that can mutate stays sequential at a barrier.
-- **Do not call `add_component`, `remove_component`, or `destroy_entity` inside a
-  `Read_only` phase's `update`.** Structural mutations must stay in `on_*`
-  handlers that fire during `collect`/`drain`, never during the parallel `tick`.
-- **Do not phantom-type the core `World.t`.** If `RO`/`RW` views are adopted,
-  they live in `eon_engine` over `world.raw`.
-- **Do not assume a non-deterministic merge is acceptable.** Determinism is a
-  requirement, not a nice-to-have.
+- **Do not run subscriber/handler callbacks concurrently.** Only system
+  `update` runs in parallel; everything that can mutate stays sequential at a
+  barrier.
+- **Do not call `add_component`, `remove_component`, or `destroy_entity` inside
+  `update`.** Structural mutations must stay in `on_*` handlers that fire during
+  `collect`/`drain`, never during the parallel `tick`. `World_cap.ro` enforces
+  this at the type level.
+- **Do not phantom-type the core `World.t`.** `World_cap` lives in `eon_engine`
+  and wraps `World.t`; the core stays unparametrized.
 
 ---
 
@@ -323,12 +414,16 @@ over the core pipeline, and entirely engine-side (`eon_ecs` untouched).
 
 ## 12. Open Decisions
 
-1. **Ship `RO`/`RW` world views?** Phantom-capability enforcement (§7) is a real
-   upgrade but adds API surface; decide whether it's in-scope for the first
-   parallel pipeline or a later hardening pass.
+1. **Ship `RO`/`RW` world views?** Decided: yes, with the first parallel
+   pipeline. Option A (`ro`/`rw` aliases + explicit `readonly` downgrade) — see
+   §7 for the full design.
 2. **Concrete executor(s).** The `Executor` functor parameter (§11) is the
    threading-substrate seam: ship `Sequential` (default, core-equivalent) plus at
    least one parallel executor. Which first — Domains (OCaml 5), a thread pool? —
    and is a user-supplied executor a documented extension point from day one?
-3. **Parallel-bus spec.** Finalize per-worker buffer ownership, the merge API,
-   and the deterministic ordering rule (§8).
+3. **Parallel-bus spec.** The per-worker buffer approach was rejected (cannot
+   be contained in the Executor without touching World, bus, or system
+   interface). The agreed fix is a `Mutex` on `emit` only. The remaining open
+   question — whether to hard-code `Mutex` in the bus or use an injectable
+   `LOCK` functor to keep `eon_ecs` mutex-free — is tracked in
+   [parallel_pipeline_execution.md §7.5](parallel_pipeline_execution.md).
