@@ -48,8 +48,31 @@ Eon’s itemization is deliberately minimalist — focusing on **player agency**
 - All item advancement is done through **crafting and materials**.
 - **Crafting is nearly free**, designed to encourage experimentation rather than hoarding.
 - There is no currency or vendor RNG; **materials** act as the universal resource.
-- Players can **salvage** unwanted items for materials or extract affixes.
-- Affixes are **modular**, attachable, removable, and rerollable.
+- Players can **salvage** unwanted items for materials or extract regular affixes.
+- Regular affixes are **modular**, attachable, removable, and rerollable.
+- **Legendary affixes are permanent once committed.** They cannot be extracted —
+  only replaced (which destroys the old legendary affix). Salvaging a piece with
+  a legendary affix yields materials only; the legendary affix is consumed.
+- **Regular affixes have numerical ranges** (e.g. `+15–25 armor`); players craft
+  toward better tiers and rolls. **Legendary affixes have no ranges** — they are
+  flat, binary paradigm shifts. There is no "good roll" or "bad roll" on a
+  legendary affix; two copies of the same legendary affix are identical.
+- Legendary affixes are not rarity-gated and not level-dependent — expected to
+  drop at normal play pace. The commitment is the cost, not the acquisition.
+
+### ⚠️ What "Legendary" Means in Eon
+
+In most ARPGs "legendary" means "extremely rare." **In Eon it does not.**
+
+"Legendary" refers to the *significance* of the effect — a build-defining
+paradigm shift — not the drop rate. A player will almost certainly find multiple
+copies of the same legendary affix material through a normal playthrough. The
+word describes what the affix *does*, not how hard it is to find.
+
+This is intentional and load-bearing: if legendary affixes were ultra rare,
+permanent commitment would be devastating. Because they drop at normal pace, the
+commitment is just a decision. You chose MoM. Later you found another MoM
+material. That is expected and by design.
 
 ### 💎 Slot Occupancy Indicators
 
@@ -94,10 +117,40 @@ Color is derived at runtime from how many `prefixes`/`suffixes` are populated an
 
 ## ⚗️ Crafting System Behavior
 
-- Crafting operations are deterministic and reversible:
-  - **Imbue**: Adds or rerolls an affix using materials.
-  - **Extract**: Removes an affix and converts it to a material essence.
-  - **Fuse**: Combines two affixes into a hybrid (potential legendary).
+Crafting operations happen inside **the Forge** — the primary crafting UI.
+
+### Forge Operations
+
+- **Imbue**: Adds or rerolls a regular affix in an empty or occupied slot using
+  affix materials. The roll within the affix's range is determined by affix
+  tier, item level, and character level (see §Affix Ranges below).
+- **Replace**: Overwrites any affix slot with a new affix. The displaced affix
+  material is destroyed and not recovered.
+  - **Regular → Regular**: one slot in, one slot out.
+  - **Legendary → Regular**: legendary is destroyed (never recovered); regular
+    goes into one of the two slots the legendary occupied; the other becomes
+    free. Net: **+1 slot recovered.**
+  - **Regular → Legendary**: consumes the occupied slot plus one additional slot
+    of the opposite type. Net: **−1 slot.**
+- **Unsocket** (material reclaim): Removes all regular affixes from an item and
+  returns materials at a partial ratio (exact ratio TBD — similar to Last Epoch).
+  - **The base item is destroyed.** The item shell does not survive unsocketing.
+    This is a deliberate base item and material sink — if you want to recraft,
+    you need a new base.
+  - **Legendary affix materials are never returned**, regardless of unsocket or
+    salvage. The legendary material is consumed permanently on imbue.
+- **Fuse**: Combines two regular affixes into a hybrid (potential legendary).
+- **Salvage**: Destroys the item entirely in exchange for base materials.
+  Legendary affix materials are not recovered.
+
+### Affix Ranges
+
+Regular affixes roll within a range governed by affix tier, item level, and
+character level — see §Crafting Formula Concept below for the full
+`TopRollChance` formula and material tier table.
+
+**Legendary affixes have no ranges and are unaffected by any of these factors**
+— two copies of the same legendary affix are always identical.
 - Each crafting action triggers ECS **Events** and **Commands**, allowing simulation replays and rollback safety.
 
 ---

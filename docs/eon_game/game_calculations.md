@@ -365,4 +365,174 @@ All successful blocks trigger a short recovery window (see Section 11 — Block 
 
 ---
 
+## 13. EHP Paradigm Shifts via Legendary Affixes
+
+The default EHP model is **five-layer balanced**: life pool backed by armor,
+evasion, resistances, block, and debuff resistance working in combination. No
+single layer provides full protection; the formula's diminishing returns reward
+spreading investment across all five.
+
+Legendary affixes can shift a build into a fundamentally different EHP
+paradigm — not nudging numbers but changing which layers feed into the formula
+and how recovery works. Each paradigm uses the same underlying `R / (R + K * L)`
+math; the affix changes what R means and what the cost of that redefinition is.
+
+---
+
+### Paradigm 1 — Balanced (default)
+
+Five layers, each capped by its own K, all contributing. The intended baseline
+for most builds. Content is balanced around a player who has invested reasonably
+across all five layers.
+
+---
+
+### Paradigm 2 — Fortress (armor-universal coverage)
+
+**Affix:** *"Armor applies to all damage types, including DoTs. You lose all
+HP regeneration and mana regeneration."*
+
+Armor's `R / (R + K * L)` now covers physical hits, elemental hits, bleed,
+poison, and burn — all incoming damage passes through the same armor rating.
+The cost: no passive recovery of any kind. Every point of damage that gets
+through is permanent until actively recovered.
+
+**K interaction:** Armor applies to DoTs at its own tuning constant rather than
+the DoT resistance constant, giving legendary affixes an independent lever:
+
+| DoT K used | Power level | Note |
+|---|---|---|
+| DoT resistance K (0.5) | Very strong | Armor is extra efficient vs DoTs |
+| Armor K (1.0) | Strong | Same curve as physical |
+| Unique affix K (1.5–2.0) | Balanced | Ceiling without touching base curves |
+
+Recommended: unique K per legendary affix for clean tuning independence.
+
+**What this forces:** Recovery must be active — life leech from attacks, life
+on kill, recovery skills. Standing still in the fortress kills you. The
+defensive paradigm dictates the offensive style: you must keep hitting to stay
+alive. High-armor fortress builds are nearly immune to DoT-heavy content but
+fragile against anything that cuts attack uptime (CC, knockback, silence).
+
+---
+
+### Paradigm 3 — Glancing Blows (evasion-universal coverage)
+
+**Affix:** *"Evasion applies to all damage types, including DoTs. You no longer
+fully evade attacks — instead every hit and every DoT tick deals 40% of its
+damage. Your evasion chance cap raises to 85%."*
+
+**Standard evasion in Eon** uses PoE's entropy sequencing — a deterministic
+system that guarantees your average evasion rate over time (at 50% evasion you
+WILL evade half of all attacks) but the individual hit/miss sequence still feels
+like variance. Moment-to-moment mitigation is not fully predictable. DoTs bypass
+evasion entirely.
+
+**Glancing Blows removes all remaining variance.** No hit/miss. No sequence. No
+gambling. Every attack glances for exactly 40% and that 40% still passes through
+armor and resistances:
+
+```
+GlancingDamage = HitDamage * 0.40 * (1 - ArmorMitigation) * (1 - ResMitigation)
+```
+
+DoTs also become glancing — each tick deals 40% of its normal value, further
+reduced by resistances. An evasion build's natural weakness to DoT-heavy content
+is resolved without making it free.
+
+**Expected damage comparison:**
+
+| Mode | Chance | Damage on proc | Expected factor |
+|---|---|---|---|
+| Standard evasion 50% | 50% full miss | 0% | 0.50 |
+| Glancing Blows 85% | 85% glancing | 40% | 0.85×0.4 + 0.15×1.0 = **0.49** |
+
+Nearly identical average — completely different feel. Glancing Blows trades the
+gamble for consistency. In long fights against fast attackers the 40% chips
+relentlessly; against slow hard-hitting pinnacle bosses it is excellent.
+
+**Symmetry with block Glancing Blows:** the same 40% / 85% cap applies to both
+evasion and block Glancing Blows. Players learn the concept once and it means
+the same thing across both defensive layers.
+
+**Paradigm identity:** the Glancing Blows evasion build is the "no RNG
+mitigation" evasion build. Passive regen still works. Recovery demands are
+lower than Fortress. The cost is implicit — you can never fully negate anything,
+and fast-hitting enemies sustain consistent chip damage that regen must outpace.
+
+---
+
+### Paradigm 4 — Mind over Matter (mana-as-life)
+
+**Affix:** *"100% of all damage — including DoTs — is taken from mana before
+life. Mana regeneration is doubled. Damage taken is doubled. All mitigation
+(armor, resistances, evasion, block) operates at 80% efficiency."*
+
+**The formula shift:**
+
+Normal: `FinalDamage = Hit × (1 − Mitigation)` → hits life
+
+MoM: `FinalDamage = Hit × (1 − Mitigation × 0.80) × 2` → hits mana
+
+Example with 40% armor mitigation against a 500-damage hit:
+
+| Mode | Calculation | Result |
+|---|---|---|
+| Normal | `500 × (1 − 0.40)` | 300 to life |
+| MoM | `500 × (1 − 0.32) × 2` | 680 to mana |
+
+A single hit costs significantly more than its life equivalent. Life becomes a
+last-resort overflow buffer — it only depletes when mana is exhausted.
+
+**Recovery model:**
+
+Doubled mana regen is the primary sustain mechanism. Between bursts, mana
+refills fast. The paradigm is designed for spike survival: a heavy hit that
+would one-shot a normal build drains the mana pool instead, and regen restores
+it before the next spike. Against sustained fast-hitting enemies, mana drains
+faster than it regenerates — this is the paradigm's natural weakness.
+
+**The skill-mana tension:**
+
+Skills cost mana. Damage takes mana. In a tough fight, every cast chips the
+defensive buffer. A MoM player is constantly weighing offensive output (spending
+mana on skills) against defensive reserves (needing mana to absorb the next hit).
+This is a richer resource management loop than managing a single HP bar.
+
+**Natural weaknesses:**
+
+- **DoT-heavy content:** every tick hits mana at 80% mitigation × 2. Sustained
+  bleed or poison drains mana relentlessly between ticks — regen may not keep
+  pace on DoT-stacked map affixes.
+- **Mana drain enemies/affixes:** any mechanic that drains mana directly
+  collapses the defensive buffer without dealing "damage" in the traditional
+  sense. Map affixes or boss abilities that reduce mana are the paradigm's
+  hard counter.
+- **Low mana pool builds:** MoM scales with total mana. Intelligence-heavy
+  caster builds are natural fits; strength/dexterity builds need heavy mana
+  investment from gear to make the paradigm viable.
+
+**Paradigm identity:** survive spikes through a deep mana buffer and fast regen;
+die to sustained pressure or anything that bypasses the mana layer. Rewards
+active resource management over passive stat stacking.
+
+---
+
+### Design Rule
+
+> A legendary EHP paradigm shift must change *which layers matter* and *how
+> recovery works*, not just increase the numbers. If removing the affix
+> doesn't fundamentally change how the build plays, it isn't a paradigm shift
+> — it's a stat boost.
+
+> Legendary affixes have no numerical ranges. Two copies of the same legendary
+> affix are identical — no "good roll" or "bad roll." Regular affixes have
+> ranges; legendary affixes are flat binary trade-offs. The commitment is the
+> cost: legendary affixes cannot be extracted once crafted, only replaced
+> (destroying the old one). They drop at normal play pace and are not
+> level-dependent — the decision to commit is the meaningful moment, not the
+> acquisition.
+
+---
+
 *End of document.*
