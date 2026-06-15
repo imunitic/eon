@@ -173,7 +173,37 @@ val register : Eon_ecs.World.t -> 'a Components.t -> Components.registration_res
 2. Register with world: `Engine.register world pos`
 3. Use with entities: `World.add_component world entity ~name:"Position" data`
 
-### 3.4 Current Limitations
+### 3.4 Re-export Convention — Single Import Point
+
+**`Eon_engine` is the single import for all game code.** Game code should never
+need to open or reference `Eon_ecs` directly. Any `Eon_ecs` type that game code
+needs is re-exported through `Eon_engine` under the same name.
+
+```ocaml
+(* eon_engine.mli — re-exports of Eon_ecs types game code needs *)
+module Entity_id  = Eon_ecs.Entity_id
+module Bus        = Eon_ecs.Bus
+module Single_bus = Eon_ecs.Single_bus
+module Double_bus = Eon_ecs.Double_bus
+module Clock      = Eon_ecs.Clock
+module Progress   = Eon_ecs.Progress
+module Loop       = Eon_ecs.Loop
+```
+
+**Why:** When `Eon_engine` eventually replaces an `Eon_ecs` type with its own
+implementation (e.g. `Progress`, `Loop`, or `Entity_id` with engine-specific
+behaviour), the re-export line changes from `= Eon_ecs.X` to `= X_impl`. Game
+code that only ever imports `Eon_engine` recompiles without any code changes.
+
+**What is NOT re-exported:** Modules that `Eon_engine` already owns and
+replaces — `World`, `System`, `Pipeline`, `Query`, `Component`. These have
+engine-specific versions and `Eon_ecs` variants should not be reachable from
+game code.
+
+**The rule:** If game code would otherwise write `Eon_ecs.X`, it belongs in
+the re-export list. If `Eon_engine` has its own `X`, it does not.
+
+### 3.5 Current Limitations
 
 1. **No query builder abstraction**: Direct use of `Eon_ecs.Query` functions
 2. **No backend abstraction**: Tight coupling with `Eon_ecs.World.t`
