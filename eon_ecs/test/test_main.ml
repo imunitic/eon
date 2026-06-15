@@ -16,6 +16,7 @@ let () =
       "Pipeline", Test_pipeline.tests;
       "Pipeline (QCheck)", Test_prop_pipeline.tests;
       "Query", Test_query.tests;
+      "Query.iter_entities", Test_query.iter_entities_tests;
       "Progress", Test_progress.tests;
       "Progress (QCheck)", Test_prop_progress.tests;
       "Loop", Test_loop.tests;
