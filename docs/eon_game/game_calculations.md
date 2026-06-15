@@ -403,6 +403,50 @@ evasion, resistances, block, and debuff resistance working in combination. No
 single layer provides full protection; the formula's diminishing returns reward
 spreading investment across all five.
 
+### Per-Paradigm Monster K Modifier
+
+**Design goal: every paradigm is equally viable from early game to endgame.**
+
+No paradigm should dominate because its core resource is easy to stack with
+deterministic crafting. MoM should not be "obviously best" simply because
+mana and mana regen are straightforward to craft — that would push every player
+toward MoM and make the other paradigms feel like inferior options. Equally,
+no paradigm should be locked behind endgame gear investment (the way PoE's CI
+requires heavy ES stacking before it functions). All six paradigms must feel
+equally capable and equally challenging in the same situation, from the first
+legendary affix the player finds to the deepest pinnacle content.
+
+The mechanism: each paradigm carries a **monster K modifier** — a slight
+adjustment to how effectively a monster's threat level `L` converts into damage
+against that build. The monster's stats are unchanged; the modifier is a
+property of the paradigm's interaction with incoming threats, not of the enemy.
+
+`EffectiveMitigation = R / (R + (K × paradigm_K_modifier) × L)`
+
+Paradigms whose core resource is easy to stack (mana, life) get a slightly
+elevated modifier — the same mob is marginally more threatening, compensating
+for how accessible that resource is. Paradigms with harsh trade-offs (no HP
+regen) get a slightly reduced modifier — a small reward for the difficulty of
+the cost. The result: a fresh player picking up their first MoM affix and a
+fresh player picking up their first Fortress affix face equivalent challenge,
+and both remain equally valid at endgame.
+
+The player never sees this modifier directly — they observe a mitigation
+percentage that already accounts for it.
+
+| Paradigm | Monster K modifier | Rationale |
+|---|---|---|
+| Balanced | 1.0 | Baseline — all other modifiers relative to this |
+| Fortress | 0.9 | Slightly favorable — no HP regen is a harsh cost |
+| Glancing Blows | 1.0 | Neutral — 40% always is already the trade-off |
+| Mind over Matter | 1.15 | Slightly unfavorable — mana is easy to stack with deterministic crafting |
+| Status Inoculation | 1.1 | Slightly unfavorable — full DoT/ailment/CC immunity is very strong |
+| Iron Striker | 1.0 | Neutral — locked crit multiplier is a real offensive cost |
+
+> These values are starting points for tuning, not final numbers. Adjust per
+> balance pass once content is playable. The goal is equal perceived difficulty
+> across all paradigms at equivalent gear levels.
+
 Legendary affixes can shift a build into a fundamentally different EHP
 paradigm — not nudging numbers but changing which layers feed into the formula
 and how recovery works. Each paradigm uses the same underlying `R / (R + K * L)`
