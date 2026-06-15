@@ -421,12 +421,13 @@ across all five layers.
 ### Paradigm 2 — Fortress (armor-universal coverage)
 
 **Affix:** *"Armor applies to all damage types, including DoTs. You lose all
-HP regeneration and mana regeneration."*
+HP regeneration."*
 
 Armor's `R / (R + K * L)` now covers physical hits, elemental hits, bleed,
 poison, and burn — all incoming damage passes through the same armor rating.
-The cost: no passive recovery of any kind. Every point of damage that gets
-through is permanent until actively recovered.
+The cost: no HP regeneration. Every point of damage that gets through is
+permanent until actively recovered. Mana regeneration still works — skills
+remain castable.
 
 **K interaction:** Armor applies to DoTs at its own tuning constant rather than
 the DoT resistance constant, giving legendary affixes an independent lever:
