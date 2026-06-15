@@ -216,6 +216,13 @@ let test_iter_entities_four_components () =
 (* ------------------------------------------------------------- *)
 (* Suite registration                                             *)
 (* ------------------------------------------------------------- *)
+let test_count_unregistered_raises () =
+  let world = World.create () in
+  Alcotest.check_raises
+    "count: unregistered name raises Invalid_argument"
+    (Invalid_argument "count: unregistered component: Ghost")
+    (fun () -> ignore (Query.count world ["Ghost"]))
+
 let tests =
   [
     test_case "iter1" `Quick test_iter1;
@@ -223,6 +230,7 @@ let tests =
     test_case "iter2 argument order" `Quick test_iter2_arg_order;
     test_case "iter3 and iter4" `Quick test_iter3_iter4;
     test_case "count" `Quick test_count;
+    test_case "count unregistered raises" `Quick test_count_unregistered_raises;
   ]
 
 let iter_entities_tests =

@@ -140,11 +140,16 @@ let iter_entities world names f =
             f eid)
        base
 
-(** Count how many entities match the given components. *)
+(** Count how many entities match the given components.
+    Raises [Invalid_argument] if any name was never registered — consistent
+    with [iter_entities] and [get_component]. *)
 let count world names =
   let sets =
+    List.map (fun name ->
+      match World.find_component world ~name with
+      | None -> invalid_arg ("count: unregistered component: " ^ name)
+      | Some c -> c.Component.data)
     names
-    |> List.filter_map (storage world)
   in
   match smallest sets with
   | None -> 0

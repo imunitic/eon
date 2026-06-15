@@ -2,33 +2,20 @@
 
 open Eon_engine
 
-module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend.Default)
-
-(* ============================================================================ *)
-(* Test Components                                                              *)
-(* ============================================================================ *)
+module Q = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend.Default)
 
 module Health = struct
   type t = { current : int; max : int }
-
   let component : t Components.t = Components.component "Health"
-  
   let make current max = { current; max }
 end
 
 module Frozen = struct
-  type t = { value : bool }
-
+  type t = unit
   let component : t Components.t = Components.component "Frozen"
-  
-  let make value = { value }
 end
 
-(* ============================================================================ *)
-(* Helper Functions                                                             *)
-(* ============================================================================ *)
-
-let create_world_with_components () =
+let create_world () =
   let world = World.create () in
   ignore (World.register world Components.Position.component);
   ignore (World.register world Components.Velocity.component);
@@ -36,469 +23,265 @@ let create_world_with_components () =
   ignore (World.register world Frozen.component);
   world
 
-(* ============================================================================ *)
-(* Tests                                                                        *)
-(* ============================================================================ *)
+(* ── iter ── *)
 
-let test_iter1 () =
-  let world = create_world_with_components () in
-  
-  (* Create entities with Position component *)
+let pos x y : Components.Position.t = { x; y }
+let vel dx dy : Components.Velocity.t = { dx; dy }
+
+let test_iter_single () =
+  let world = create_world () in
   let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e1 Components.Position.component pos1;
-
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
-
-  (* Create entity without Position *)
   let e3 = World.create_entity world in
-  let health = Health.make 100 100 in
-  World.add_component world e3 Health.component health;
+  World.add_component world e1 Components.Position.component (pos 1.0 2.0);
+  World.add_component world e2 Components.Position.component (pos 3.0 4.0);
+  World.add_component world e3 Health.component (Health.make 100 100);
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "two entities with Position" 2 (List.length !seen);
+  Alcotest.(check bool) "e1 found" true (List.mem e1 !seen);
+  Alcotest.(check bool) "e2 found" true (List.mem e2 !seen);
+  Alcotest.(check bool) "e3 not found" false (List.mem e3 !seen)
 
-  (* Query for entities with Position *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.iter1 (fun entity pos -> results := (entity, pos) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "iter1 should find 2 entities" 2 (List.length !results);
-  let entity_ids = List.map fst !results in
-  Alcotest.(check bool) "e1 should be in results" true (List.mem e1 entity_ids);
-  Alcotest.(check bool) "e2 should be in results" true (List.mem e2 entity_ids);
-  Alcotest.(check bool) "e3 should not be in results" false (List.mem e3 entity_ids)
-
-
-let test_iter2 () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with both Position and Velocity *)
+let test_iter_two_components () =
+  let world = create_world () in
   let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  let vel1 : Components.Velocity.t = { dx = 0.5; dy = 0.5 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Components.Velocity.component vel1;
-
-  (* Create entity with only Position *)
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
-
-  (* Create entity with only Velocity *)
   let e3 = World.create_entity world in
-  let vel3 : Components.Velocity.t = { dx = 1.0; dy = 1.0 } in
-  World.add_component world e3 Components.Velocity.component vel3;
+  World.add_component world e1 Components.Position.component (pos 1.0 2.0);
+  World.add_component world e1 Components.Velocity.component (vel 0.5 0.5);
+  World.add_component world e2 Components.Position.component (pos 3.0 4.0);
+  World.add_component world e3 Components.Velocity.component (vel 1.0 1.0);
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.having Components.Velocity.name
+  |> Q.iter (fun view ->
+       let (p : Components.Position.t) = View.get view Components.Position.component in
+       let (v : Components.Velocity.t) = View.get view Components.Velocity.component in
+       seen := (View.entity view, p, v) :: !seen);
+  Alcotest.(check int) "one entity with both" 1 (List.length !seen);
+  match !seen with
+  | [(entity, p, v)] ->
+    Alcotest.(check bool) "is e1" true (Eon_ecs.Entity_id.equal entity e1);
+    Alcotest.(check (float 0.001)) "pos.x" 1.0 p.x;
+    Alcotest.(check (float 0.001)) "vel.dx" 0.5 v.dx
+  | _ -> Alcotest.fail "expected exactly 1 result"
 
-  (* Query for entities with both Position and Velocity *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.with_component (Components.name Components.Velocity.component)
-  |> Query.iter2 (fun entity (pos : Components.Position.t) (vel : Components.Velocity.t) ->
-    results := (entity, pos, vel) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "iter2 should find 1 entity" 1 (List.length !results);
-  match !results with
-  | [(entity, pos, vel)] ->
-      Alcotest.(check bool) "result should be e1" true (Eon_ecs.Entity_id.equal entity e1);
-      Alcotest.(check (float 0.001)) "pos.x" 1.0 pos.x;
-      Alcotest.(check (float 0.001)) "vel.dx" 0.5 vel.dx
-  | _ -> Alcotest.fail "Expected exactly 1 result"
-
-
-let test_iter1_with_having () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position and Frozen *)
+let test_iter_with_having_filter () =
+  let world = create_world () in
   let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Frozen.component (Frozen.make true);
-
-  (* Create entity with Position but not Frozen *)
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
+  World.add_component world e1 Components.Position.component (pos 1.0 2.0);
+  World.add_component world e1 Frozen.component ();
+  World.add_component world e2 Components.Position.component (pos 3.0 4.0);
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.having Frozen.component
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "one entity (frozen)" 1 (List.length !seen);
+  Alcotest.(check bool) "e1 found" true (List.mem e1 !seen);
+  Alcotest.(check bool) "e2 not found" false (List.mem e2 !seen)
 
-  (* Query for entities with Position that also have Frozen *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.having (Components.name Frozen.component)
-  |> Query.iter1 (fun entity pos -> results := (entity, pos) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "iter1 with having should find 1 entity" 1 (List.length !results);
-  let entity_ids = List.map fst !results in
-  Alcotest.(check bool) "e1 should be in results" true (List.mem e1 entity_ids);
-  Alcotest.(check bool) "e2 should not be in results" false (List.mem e2 entity_ids)
-
-
-let test_iter1_with_not_having () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position and Frozen *)
+let test_iter_with_not_having_filter () =
+  let world = create_world () in
   let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Frozen.component (Frozen.make true);
-
-  (* Create entity with Position but not Frozen *)
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
+  World.add_component world e1 Components.Position.component (pos 1.0 2.0);
+  World.add_component world e1 Frozen.component ();
+  World.add_component world e2 Components.Position.component (pos 3.0 4.0);
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.not_having Frozen.component
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "one entity (not frozen)" 1 (List.length !seen);
+  Alcotest.(check bool) "e2 found" true (List.mem e2 !seen);
+  Alcotest.(check bool) "e1 not found" false (List.mem e1 !seen)
 
-  (* Query for entities with Position that do not have Frozen *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.not_having (Components.name Frozen.component)
-  |> Query.iter1 (fun entity pos -> results := (entity, pos) :: !results);
+let test_having_all () =
+  let world = create_world () in
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  let e3 = World.create_entity world in
+  World.add_component world e1 Components.Position.component (pos 1.0 2.0);
+  World.add_component world e1 Components.Velocity.component (vel 0.5 0.5);
+  World.add_component world e1 Frozen.component ();
+  World.add_component world e2 Components.Position.component (pos 3.0 4.0);
+  World.add_component world e2 Components.Velocity.component (vel 1.0 1.0);
+  World.add_component world e3 Components.Position.component (pos 5.0 6.0);
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.having_all [Components.Velocity.name; Frozen.component]
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "one entity has all three" 1 (List.length !seen);
+  Alcotest.(check bool) "e1 found" true (List.mem e1 !seen);
+  Alcotest.(check bool) "e2 not found" false (List.mem e2 !seen);
+  Alcotest.(check bool) "e3 not found" false (List.mem e3 !seen)
 
-  (* Assertions *)
-  Alcotest.(check int) "iter1 with not_having should find 1 entity" 1 (List.length !results);
-  let entity_ids = List.map fst !results in
-  Alcotest.(check bool) "e2 should be in results" true (List.mem e2 entity_ids);
-  Alcotest.(check bool) "e1 should not be in results" false (List.mem e1 entity_ids)
+let test_not_having_any () =
+  let world = create_world () in
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  let e3 = World.create_entity world in
+  World.add_component world e1 Components.Position.component (pos 1.0 2.0);
+  World.add_component world e1 Frozen.component ();
+  World.add_component world e2 Components.Position.component (pos 3.0 4.0);
+  World.add_component world e2 Health.component (Health.make 100 100);
+  World.add_component world e3 Components.Position.component (pos 5.0 6.0);
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.not_having_any [Frozen.component; Health.component]
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "one entity has neither" 1 (List.length !seen);
+  Alcotest.(check bool) "e3 found" true (List.mem e3 !seen);
+  Alcotest.(check bool) "e1 not found" false (List.mem e1 !seen);
+  Alcotest.(check bool) "e2 not found" false (List.mem e2 !seen)
 
+let test_five_components () =
+  let world = World.create () in
+  let names = ["A"; "B"; "C"; "D"; "E"] in
+  let descs = List.map (fun n -> Components.component n) names in
+  List.iter (fun d -> ignore (World.register world d)) descs;
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  List.iter (fun d -> World.add_component world e1 d 1) descs;
+  List.iter (fun d -> World.add_component world e2 d 1)
+    (List.filteri (fun i _ -> i < 4) descs);  (* e2 missing E *)
+  let seen = ref [] in
+  Q.from world
+  |> Q.having_all names
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "only e1 has all 5" 1 (List.length !seen);
+  Alcotest.(check bool) "e1 found" true (List.mem e1 !seen)
 
 let test_count () =
-  let world = create_world_with_components () in
-  
-  (* Create 3 entities with Position *)
+  let world = create_world () in
   for i = 1 to 3 do
     let e = World.create_entity world in
-    let pos : Components.Position.t = { x = float i; y = float i } in
-    World.add_component world e Components.Position.component pos
+    World.add_component world e Components.Position.component (pos (float i) 0.0)
   done;
-
-  (* Create 1 entity without Position *)
   let e = World.create_entity world in
-  let health = Health.make 100 100 in
-  World.add_component world e Health.component health;
-
-  (* Count entities with Position *)
-  let count =
-    Query.from world
-    |> Query.with_component (Components.name Components.Position.component)
-    |> Query.count
-  in
-
-  Alcotest.(check int) "count should return 3" 3 count
-
+  World.add_component world e Health.component (Health.make 100 100);
+  let n = Q.from world |> Q.having Components.Position.name |> Q.count in
+  Alcotest.(check int) "count 3 entities with Position" 3 n
 
 let test_count_with_filters () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position and Frozen *)
+  let world = create_world () in
   let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Frozen.component (Frozen.make true);
-
-  (* Create entity with Position but not Frozen *)
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
+  World.add_component world e1 Components.Position.component (pos 1.0 0.0);
+  World.add_component world e1 Frozen.component ();
+  World.add_component world e2 Components.Position.component (pos 2.0 0.0);
+  let n_having =
+    Q.from world
+    |> Q.having Components.Position.name
+    |> Q.having Frozen.component
+    |> Q.count in
+  Alcotest.(check int) "count with having" 1 n_having;
+  let n_not_having =
+    Q.from world
+    |> Q.having Components.Position.name
+    |> Q.not_having Frozen.component
+    |> Q.count in
+  Alcotest.(check int) "count with not_having" 1 n_not_having
 
-  (* Count entities with Position that have Frozen *)
-  let count_with_having =
-    Query.from world
-    |> Query.with_component (Components.name Components.Position.component)
-    |> Query.having (Components.name Frozen.component)
-    |> Query.count
-  in
-  Alcotest.(check int) "count with having should return 1" 1 count_with_having;
-
-  (* Count entities with Position that do not have Frozen *)
-  let count_with_not_having =
-    Query.from world
-    |> Query.with_component (Components.name Components.Position.component)
-    |> Query.not_having (Components.name Frozen.component)
-    |> Query.count
-  in
-  Alcotest.(check int) "count with not_having should return 1" 1 count_with_not_having
-
-
-let test_arity_mismatch () =
-  let world = create_world_with_components () in
-  
-  (* Try to use iter2 with only one component *)
-  let should_raise () =
-    Query.from world
-    |> Query.with_component (Components.name Components.Position.component)
-    |> Query.iter2 (fun _ _ _ -> ())
-  in
-
-  Alcotest.(check bool) "iter2 with 1 component should raise" true
-    (try should_raise (); false with Invalid_argument _ -> true)
-
-
-let test_unregistered_component () =
-  let world = create_world_with_components () in
-
-  let e = World.create_entity world in
-  let pos : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e Components.Position.component pos;
-
-  (* Querying for an unregistered component raises Invalid_argument,
-     consistent with World.get_component on an unregistered name. *)
+let test_unregistered_raises () =
+  let world = create_world () in
   Alcotest.check_raises
     "unregistered component raises Invalid_argument"
     (Invalid_argument "iter_entities: unregistered component: NonExistent")
     (fun () ->
-      Query.from world
-      |> Query.with_component "NonExistent"
-      |> Query.iter1 (fun _ (_ : unit) -> ()))
+      Q.from world
+      |> Q.having "NonExistent"
+      |> Q.iter (fun _ -> ()))
 
-
-let test_with_components () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position and Velocity *)
+let test_destroyed_entity_not_visited () =
+  let world = create_world () in
   let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  let vel1 : Components.Velocity.t = { dx = 0.5; dy = 0.5 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Components.Velocity.component vel1;
-
-  (* Create entity with only Position *)
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
-
-  (* Query using with_components *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_components [
-    Components.name Components.Position.component;
-    Components.name Components.Velocity.component
-  ]
-  |> Query.iter2 (fun entity (pos : Components.Position.t) (vel : Components.Velocity.t) ->
-    results := (entity, pos, vel) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "with_components should find 1 entity" 1 (List.length !results);
-  match !results with
-  | [(entity, pos, vel)] ->
-      Alcotest.(check bool) "result should be e1" true (Eon_ecs.Entity_id.equal entity e1);
-      Alcotest.(check (float 0.001)) "pos.x" 1.0 pos.x;
-      Alcotest.(check (float 0.001)) "vel.dx" 0.5 vel.dx
-  | _ -> Alcotest.fail "Expected exactly 1 result"
-
-
-let test_having_all () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position, Velocity, and Frozen *)
-  let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  let vel1 : Components.Velocity.t = { dx = 0.5; dy = 0.5 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Components.Velocity.component vel1;
-  World.add_component world e1 Frozen.component (Frozen.make true);
-
-  (* Create entity with Position and Velocity but not Frozen *)
-  let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  let vel2 : Components.Velocity.t = { dx = 1.0; dy = 1.0 } in
-  World.add_component world e2 Components.Position.component pos2;
-  World.add_component world e2 Components.Velocity.component vel2;
-
-  (* Create entity with Position only *)
-  let e3 = World.create_entity world in
-  let pos3 : Components.Position.t = { x = 5.0; y = 6.0 } in
-  World.add_component world e3 Components.Position.component pos3;
-
-  (* Query for entities with Position that also have both Velocity and Frozen *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.having_all [
-    Components.name Components.Velocity.component;
-    Components.name Frozen.component
-  ]
-  |> Query.iter1 (fun entity pos -> results := (entity, pos) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "having_all should find 1 entity" 1 (List.length !results);
-  let entity_ids = List.map fst !results in
-  Alcotest.(check bool) "e1 should be in results" true (List.mem e1 entity_ids);
-  Alcotest.(check bool) "e2 should not be in results" false (List.mem e2 entity_ids);
-  Alcotest.(check bool) "e3 should not be in results" false (List.mem e3 entity_ids)
-
-
-let test_not_having_any () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position and Frozen *)
-  let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Frozen.component (Frozen.make true);
-
-  (* Create entity with Position and Health (not Frozen) *)
-  let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
-  let health = Health.make 100 100 in
-  World.add_component world e2 Health.component health;
-
-  (* Create entity with Position only *)
-  let e3 = World.create_entity world in
-  let pos3 : Components.Position.t = { x = 5.0; y = 6.0 } in
-  World.add_component world e3 Components.Position.component pos3;
-
-  (* Query for entities with Position that do not have Frozen or Health *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.not_having_any [
-    Components.name Frozen.component;
-    Components.name Health.component
-  ]
-  |> Query.iter1 (fun entity pos -> results := (entity, pos) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "not_having_any should find 1 entity" 1 (List.length !results);
-  let entity_ids = List.map fst !results in
-  Alcotest.(check bool) "e3 should be in results" true (List.mem e3 entity_ids);
-  Alcotest.(check bool) "e1 should not be in results" false (List.mem e1 entity_ids);
-  Alcotest.(check bool) "e2 should not be in results" false (List.mem e2 entity_ids)
-
-
-let test_iter3 () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position, Velocity, and Health *)
-  let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  let vel1 : Components.Velocity.t = { dx = 0.5; dy = 0.5 } in
-  let health1 = Health.make 100 100 in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Components.Velocity.component vel1;
-  World.add_component world e1 Health.component health1;
-
-  (* Create entity with only two of the three *)
-  let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  let vel2 : Components.Velocity.t = { dx = 1.0; dy = 1.0 } in
-  World.add_component world e2 Components.Position.component pos2;
-  World.add_component world e2 Components.Velocity.component vel2;
-
-  (* Query for entities with all three components *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.with_component (Components.name Components.Velocity.component)
-  |> Query.with_component (Components.name Health.component)
-  |> Query.iter3 (fun entity (pos : Components.Position.t) (vel : Components.Velocity.t) (health : Health.t) ->
-    results := (entity, pos, vel, health) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "iter3 should find 1 entity" 1 (List.length !results);
-  match !results with
-  | [(entity, pos, vel, health)] ->
-      Alcotest.(check bool) "result should be e1" true (Eon_ecs.Entity_id.equal entity e1);
-      Alcotest.(check (float 0.001)) "pos.x" 1.0 pos.x;
-      Alcotest.(check (float 0.001)) "vel.dx" 0.5 vel.dx;
-      Alcotest.(check int) "health.current" 100 health.current
-  | _ -> Alcotest.fail "Expected exactly 1 result"
-
-
-let test_iter4 () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position, Velocity, Health, and Frozen *)
-  let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  let vel1 : Components.Velocity.t = { dx = 0.5; dy = 0.5 } in
-  let health1 = Health.make 100 100 in
-  World.add_component world e1 Components.Position.component pos1;
-  World.add_component world e1 Components.Velocity.component vel1;
-  World.add_component world e1 Health.component health1;
-  World.add_component world e1 Frozen.component (Frozen.make true);
-
-  (* Create entity with only three of the four *)
-  let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  let vel2 : Components.Velocity.t = { dx = 1.0; dy = 1.0 } in
-  let health2 = Health.make 50 100 in
-  World.add_component world e2 Components.Position.component pos2;
-  World.add_component world e2 Components.Velocity.component vel2;
-  World.add_component world e2 Health.component health2;
-
-  (* Query for entities with all four components *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.with_component (Components.name Components.Velocity.component)
-  |> Query.with_component (Components.name Health.component)
-  |> Query.with_component (Components.name Frozen.component)
-  |> Query.iter4 (fun entity (pos : Components.Position.t) (vel : Components.Velocity.t) (health : Health.t) (frozen : Frozen.t) ->
-    results := (entity, pos, vel, health, frozen) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "iter4 should find 1 entity" 1 (List.length !results);
-  match !results with
-  | [(entity, pos, vel, health, frozen)] ->
-      Alcotest.(check bool) "result should be e1" true (Eon_ecs.Entity_id.equal entity e1);
-      Alcotest.(check (float 0.001)) "pos.x" 1.0 pos.x;
-      Alcotest.(check (float 0.001)) "vel.dx" 0.5 vel.dx;
-      Alcotest.(check int) "health.current" 100 health.current;
-      Alcotest.(check bool) "frozen.value" true frozen.value
-  | _ -> Alcotest.fail "Expected exactly 1 result"
-
-
-let test_destroyed_entity_removal () =
-  let world = create_world_with_components () in
-  
-  (* Create entity with Position and destroy it *)
-  let e1 = World.create_entity world in
-  let pos1 : Components.Position.t = { x = 1.0; y = 2.0 } in
-  World.add_component world e1 Components.Position.component pos1;
+  World.add_component world e1 Components.Position.component (pos 1.0 0.0);
+  World.add_component world e2 Components.Position.component (pos 3.0 0.0);
   World.destroy_entity world e1;
+  let seen = ref [] in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.iter (fun view -> seen := View.entity view :: !seen);
+  Alcotest.(check int) "destroyed entity not visited" 1 (List.length !seen);
+  Alcotest.(check bool) "e2 found" true (List.mem e2 !seen)
 
-  (* Create second entity with Position (should be at same index if freed) *)
+(* ── View ── *)
+
+let test_view_get () =
+  let world = create_world () in
+  let e = World.create_entity world in
+  ignore e;
+  World.add_component world e Components.Position.component (pos 7.0 3.0);
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.iter (fun view ->
+       let (p : Components.Position.t) = View.get view Components.Position.component in
+       Alcotest.(check (float 0.001)) "View.get x" 7.0 p.x;
+       Alcotest.(check (float 0.001)) "View.get y" 3.0 p.y)
+
+let test_view_get_raises_on_absent () =
+  let world = create_world () in
+  let e = World.create_entity world in
+  World.add_component world e Components.Position.component (pos 0.0 0.0);
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.iter (fun view ->
+       Alcotest.check_raises
+         "View.get raises on absent component"
+         (Invalid_argument "View.get: component absent: Velocity")
+         (fun () -> ignore (View.get view Components.Velocity.component)))
+
+let test_view_get_opt () =
+  let world = create_world () in
+  let e1 = World.create_entity world in
   let e2 = World.create_entity world in
-  let pos2 : Components.Position.t = { x = 3.0; y = 4.0 } in
-  World.add_component world e2 Components.Position.component pos2;
+  World.add_component world e1 Components.Position.component (pos 1.0 0.0);
+  World.add_component world e1 Components.Velocity.component (vel 5.0 0.0);
+  World.add_component world e2 Components.Position.component (pos 2.0 0.0);
+  let with_vel = ref 0 and without_vel = ref 0 in
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.iter (fun view ->
+       match View.get_opt view Components.Velocity.component with
+       | Some _ -> incr with_vel
+       | None   -> incr without_vel);
+  Alcotest.(check int) "one entity has vel" 1 !with_vel;
+  Alcotest.(check int) "one entity lacks vel" 1 !without_vel
 
-  (* Query for entities with Position - should only find e2 *)
-  let results = ref [] in
-  Query.from world
-  |> Query.with_component (Components.name Components.Position.component)
-  |> Query.iter1 (fun entity (pos : Components.Position.t) -> results := (entity, pos) :: !results);
-
-  (* Assertions *)
-  Alcotest.(check int) "destroyed entity removed from sparse set" 1 (List.length !results);
-  match !results with
-  | [(entity, pos)] ->
-      Alcotest.(check bool) "result should be e2" true (Eon_ecs.Entity_id.equal entity e2);
-      Alcotest.(check (float 0.001)) "pos.x" 3.0 pos.x
-  | _ -> Alcotest.fail "Expected exactly 1 result"
-
-
-(* ============================================================================ *)
-(* Test Suite Registration                                                      *)
-(* ============================================================================ *)
+let test_view_entity () =
+  let world = create_world () in
+  let e = World.create_entity world in
+  World.add_component world e Components.Position.component (pos 0.0 0.0);
+  Q.from world
+  |> Q.having Components.Position.name
+  |> Q.iter (fun view ->
+       Alcotest.(check bool) "View.entity matches"
+         true (Eon_ecs.Entity_id.equal (View.entity view) e))
 
 let tests = [
-  Alcotest.test_case "iter1 basic" `Quick test_iter1;
-  Alcotest.test_case "iter2 basic" `Quick test_iter2;
-  Alcotest.test_case "iter1 with having filter" `Quick test_iter1_with_having;
-  Alcotest.test_case "iter1 with not_having filter" `Quick test_iter1_with_not_having;
-  Alcotest.test_case "count" `Quick test_count;
-  Alcotest.test_case "count with filters" `Quick test_count_with_filters;
-  Alcotest.test_case "arity mismatch raises error" `Quick test_arity_mismatch;
-  Alcotest.test_case "unregistered component" `Quick test_unregistered_component;
-  Alcotest.test_case "with_components (bulk include)" `Quick test_with_components;
-  Alcotest.test_case "having_all filter" `Quick test_having_all;
-  Alcotest.test_case "not_having_any filter" `Quick test_not_having_any;
-  Alcotest.test_case "iter3 basic" `Quick test_iter3;
-  Alcotest.test_case "iter4 basic" `Quick test_iter4;
-  Alcotest.test_case "destroyed entity removal" `Quick test_destroyed_entity_removal;
+  Alcotest.test_case "iter1 basic"                `Quick test_iter_single;
+  Alcotest.test_case "iter2 basic"                `Quick test_iter_two_components;
+  Alcotest.test_case "iter1 with having filter"   `Quick test_iter_with_having_filter;
+  Alcotest.test_case "iter1 with not_having filter" `Quick test_iter_with_not_having_filter;
+  Alcotest.test_case "having_all filter"          `Quick test_having_all;
+  Alcotest.test_case "not_having_any filter"      `Quick test_not_having_any;
+  Alcotest.test_case "5+ component query"         `Quick test_five_components;
+  Alcotest.test_case "count"                      `Quick test_count;
+  Alcotest.test_case "count with filters"         `Quick test_count_with_filters;
+  Alcotest.test_case "unregistered component"     `Quick test_unregistered_raises;
+  Alcotest.test_case "destroyed entity removal"   `Quick test_destroyed_entity_not_visited;
+  Alcotest.test_case "View.get"                   `Quick test_view_get;
+  Alcotest.test_case "View.get raises on absent"  `Quick test_view_get_raises_on_absent;
+  Alcotest.test_case "View.get_opt"               `Quick test_view_get_opt;
+  Alcotest.test_case "View.entity"                `Quick test_view_entity;
 ]
