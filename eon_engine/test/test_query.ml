@@ -2,7 +2,7 @@
 
 open Eon_engine
 
-module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
+module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend.Default)
 
 (* ============================================================================ *)
 (* Test Components                                                              *)
@@ -239,19 +239,20 @@ let test_arity_mismatch () =
 
 let test_unregistered_component () =
   let world = create_world_with_components () in
-  
-  (* Create entity with Position *)
+
   let e = World.create_entity world in
   let pos : Components.Position.t = { x = 1.0; y = 2.0 } in
   World.add_component world e Components.Position.component pos;
 
-  (* Query for unregistered component *)
-  let results = ref 0 in
-  Query.from world
-  |> Query.with_component "NonExistent"
-  |> Query.iter1 (fun _ _ -> incr results);
-
-  Alcotest.(check int) "unregistered component should yield 0 results" 0 !results
+  (* Querying for an unregistered component raises Invalid_argument,
+     consistent with World.get_component on an unregistered name. *)
+  Alcotest.check_raises
+    "unregistered component raises Invalid_argument"
+    (Invalid_argument "iter_entities: unregistered component: NonExistent")
+    (fun () ->
+      Query.from world
+      |> Query.with_component "NonExistent"
+      |> Query.iter1 (fun _ (_ : unit) -> ()))
 
 
 let test_with_components () =

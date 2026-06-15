@@ -50,3 +50,9 @@ val iter4 :
 
 (** Count the entities that contain every component listed. *)
 val count : World.t -> string list -> int
+
+(** Iterate every alive entity that holds all of the named components, using
+    the smallest sparse set as the iteration base.
+    Raises [Invalid_argument] if any name was never registered — consistent
+    with [get_component] / [add_component]. *)
+val iter_entities : World.t -> string list -> (Entity_id.t -> unit) -> unit

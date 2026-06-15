@@ -140,6 +140,80 @@ let test_iter3_iter4 () =
   check int "iter4 sum" 10 !sum4
 
 (* ------------------------------------------------------------- *)
+(* iter_entities tests                                           *)
+(* ------------------------------------------------------------- *)
+
+let test_iter_entities_single () =
+  let world = World.create () in
+  World.register_component world ~name:"Hp" ~id:0 |> ignore;
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  World.add_component world e1 ~name:"Hp" 100;
+  World.add_component world e2 ~name:"Hp" 50;
+  let count = ref 0 in
+  Query.iter_entities world ["Hp"] (fun _ -> incr count);
+  check int "single component visits all holders" 2 !count
+
+let test_iter_entities_intersection () =
+  let world = World.create () in
+  World.register_component world ~name:"A" ~id:0 |> ignore;
+  World.register_component world ~name:"B" ~id:1 |> ignore;
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  World.add_component world e1 ~name:"A" ();
+  World.add_component world e1 ~name:"B" ();
+  World.add_component world e2 ~name:"A" ();  (* B is absent *)
+  let count = ref 0 in
+  Query.iter_entities world ["A"; "B"] (fun _ -> incr count);
+  check int "two-component intersection yields one entity" 1 !count
+
+let test_iter_entities_empty_list () =
+  let world = World.create () in
+  let _e = World.create_entity world in
+  let count = ref 0 in
+  Query.iter_entities world [] (fun _ -> incr count);
+  check int "empty name list yields nothing" 0 !count
+
+let test_iter_entities_unregistered_raises () =
+  let world = World.create () in
+  Alcotest.check_raises
+    "unregistered name raises Invalid_argument"
+    (Invalid_argument "iter_entities: unregistered component: Foo")
+    (fun () -> Query.iter_entities world ["Foo"] (fun _ -> ()))
+
+let test_iter_entities_destroyed_excluded () =
+  let world = World.create () in
+  World.register_component world ~name:"X" ~id:0 |> ignore;
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  World.add_component world e1 ~name:"X" ();
+  World.add_component world e2 ~name:"X" ();
+  World.destroy_entity world e1;
+  let count = ref 0 in
+  Query.iter_entities world ["X"] (fun _ -> incr count);
+  check int "destroyed entity not visited" 1 !count
+
+let test_iter_entities_four_components () =
+  let world = World.create () in
+  World.register_component world ~name:"A" ~id:0 |> ignore;
+  World.register_component world ~name:"B" ~id:1 |> ignore;
+  World.register_component world ~name:"C" ~id:2 |> ignore;
+  World.register_component world ~name:"D" ~id:3 |> ignore;
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  World.add_component world e1 ~name:"A" ();
+  World.add_component world e1 ~name:"B" ();
+  World.add_component world e1 ~name:"C" ();
+  World.add_component world e1 ~name:"D" ();
+  World.add_component world e2 ~name:"A" ();
+  World.add_component world e2 ~name:"B" ();
+  World.add_component world e2 ~name:"C" ();
+  (* e2 lacks D *)
+  let count = ref 0 in
+  Query.iter_entities world ["A"; "B"; "C"; "D"] (fun _ -> incr count);
+  check int "four-component intersection" 1 !count
+
+(* ------------------------------------------------------------- *)
 (* Suite registration                                             *)
 (* ------------------------------------------------------------- *)
 let tests =
@@ -149,4 +223,14 @@ let tests =
     test_case "iter2 argument order" `Quick test_iter2_arg_order;
     test_case "iter3 and iter4" `Quick test_iter3_iter4;
     test_case "count" `Quick test_count;
+  ]
+
+let iter_entities_tests =
+  [
+    test_case "single component" `Quick test_iter_entities_single;
+    test_case "intersection" `Quick test_iter_entities_intersection;
+    test_case "empty name list" `Quick test_iter_entities_empty_list;
+    test_case "unregistered raises" `Quick test_iter_entities_unregistered_raises;
+    test_case "destroyed excluded" `Quick test_iter_entities_destroyed_excluded;
+    test_case "four components" `Quick test_iter_entities_four_components;
   ]

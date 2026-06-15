@@ -118,6 +118,28 @@ let iter4 (type a b c d) world c1 c2 c3 c4 (f : Entity_id.t -> a -> b -> c -> d 
        Sparse_set.iter (fun id _ -> visit id) s4
   | _ -> ()
 
+(** Iterate every alive entity that has all of the named components.
+    Uses smallest-set-first iteration. Raises [Invalid_argument] if any name
+    is not registered — consistent with [get_component] / [add_component]. *)
+let iter_entities world names f =
+  let sets =
+    List.map (fun name ->
+      match World.find_component world ~name with
+      | None -> invalid_arg ("iter_entities: unregistered component: " ^ name)
+      | Some c -> c.Component.data)
+    names
+  in
+  match smallest sets with
+  | None -> ()
+  | Some base ->
+     let others = List.filter (fun s -> s != base) sets in
+     Sparse_set.iter
+       (fun id _ ->
+          let eid = eid_of world id in
+          if List.for_all (fun s -> Sparse_set.contains s eid) others then
+            f eid)
+       base
+
 (** Count how many entities match the given components. *)
 let count world names =
   let sets =

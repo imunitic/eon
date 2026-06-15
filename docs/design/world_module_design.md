@@ -96,8 +96,8 @@ File: `eon_engine/world.ml`
 
 ```ocaml
 type t = {
-  core                   : Eon_ecs.World.t;
-  mutable[@atomic] next_id : int;   (* per-world dense component id allocator *)
+  core              : Eon_ecs.World.t;
+  mutable next_id   : int [@atomic];   (* per-world dense component id allocator *)
 }
 
 let create () =
@@ -146,14 +146,16 @@ let has_component world entity name =
 (* ... remaining delegations (get_component, create_entity, etc.) ... *)
 ```
 
-`next_id` uses the OCaml 5.4 atomic record field syntax (`mutable[@atomic]`),
-which stores the integer inline in the record rather than as a separate heap
-object. Compared to `int Atomic.t`, this eliminates one indirection and one
-allocation per world. The `[%atomic.loc world.next_id]` ppx produces an
-`Atomic.Loc.t` pointing at the field, which `Atomic.Loc.fetch_and_add` then
-operates on atomically. Registration is initialisation-time only, never on the
-hot path, so the atomic cost is negligible in practice regardless — but the
-unboxed form is the right default on 5.4+.
+`next_id` uses the OCaml 5.4 atomic record field syntax — the `[@atomic]`
+attribute goes **after the type**: `mutable next_id : int [@atomic]`. This
+stores the integer inline in the record rather than as a separate heap object.
+Compared to `int Atomic.t`, this eliminates one indirection and one allocation
+per world. `[%atomic.loc world.next_id]` is a built-in compiler extension (no
+ppx library needed) that produces an `Atomic.Loc.t` pointing at the field;
+`Atomic.Loc.fetch_and_add` then operates on it atomically. Registration is
+initialisation-time only, never on the hot path, so the atomic cost is
+negligible in practice regardless — but the unboxed form is the right default on
+5.4+.
 IDs are dense per world (`0, 1, 2, …`) and have no meaning across worlds.
 
 `Component_descriptor` is a pure name wrapper: `component` (constructor), `name`

@@ -7,7 +7,8 @@
 (** Query backend signature for pluggable query execution. *)
 module Query_backend = Query_backend
 
-(** Default sparse set backend. *)
+(** Default sparse set backend. Provides [Make(W : World.S)] functor and [Default]
+    instance backed by [World.t]. *)
 module Sparse_set_backend = Sparse_set_backend
 
 (** Query builder for efficient entity iteration. *)
@@ -19,12 +20,12 @@ module Components = Components
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t
 
-(** Engine world wrapper.
-    
-    Note: to_raw is NOT included in the public World API. Use Backend.World.to_raw
-    if you're implementing a custom backend.
-*)
+(** Engine world wrapper. *)
 module World : sig
+  (** Uniform world signature — program backends and engine utilities against this,
+      not against the concrete [t] directly. *)
+  module type S = World.S
+
   type t = World.t
 
   val create : unit -> t
@@ -42,40 +43,25 @@ module World : sig
 
   (** {2 Data-plane store} *)
 
-  (** Attach arbitrary data, keyed by an open polymorphic variant, to the world.
-      If data for the key already exists, it is overwritten. *)
   val add_data : t -> [> ] -> 'a -> unit
-
-  (** Set (insert or overwrite) arbitrary data keyed by an open polymorphic variant.
-      This is an alias for {!add_data} with naming that makes overwrite semantics explicit. *)
   val set_data : t -> [> ] -> 'a -> unit
-
-  (** Retrieve data by key. Returns [None] if no data exists for the key. *)
   val get_data : t -> [> ] -> 'a option
-
-  (** Number of stored data entries. *)
   val count_data : t -> int
 
   (** {2 Service-plane store} *)
 
-  (** Register a long-lived service (bus, singleton, etc.) accessible via variant key.
-      If a service for the key already exists, it is overwritten. *)
   val add_service : t -> [> ] -> 'a -> unit
-
-  (** Retrieve a previously registered service. Returns [None] if no service exists for the key. *)
   val get_service : t -> [> ] -> 'a option
-
-  (** List the identifiers of all registered services.
-      
-      The returned integers are physical identities of variant constructors
-      (derived via [Obj.repr]), usable only to count or check presence by
-      comparing against the key's [Obj.repr] value. These are opaque identifiers
-      with no guaranteed stability across runs. *)
   val list_services : t -> int list
+
+  (** {2 Backend query primitives} *)
+
+  val iter_entities : t -> string list -> (entity_id -> unit) -> unit
+  val has_component : t -> entity_id -> string -> bool
 end
 
 (** Extension API for backend implementors.
-    
+
     This module provides the API surface for implementing custom backends
     and extensions to Eon Engine. If you're building a game with eon_engine,
     you don't need this module.
@@ -88,8 +74,6 @@ end
 
 (** Create a component descriptor with a given name.
 
-    This is a convenience alias for [Components.component].
-    
     Example:
     {[
       module Position = struct

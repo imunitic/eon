@@ -1,85 +1,73 @@
-(** Sparse set backend for query execution.
-    
-    This is the default backend that wraps Eon_ecs.Query directly.
-    Applies having/excludes filters as post-filters inside the callback.
-*)
+module Make (W : World.S) : Query_backend.S with type world = W.t = struct
+  type world = W.t
 
-type world = World.t
+  (* Entity-only iteration: keeps entities that pass all three filter lists. *)
+  let iter_entities world ~includes ~having ~excludes f =
+    let required = includes @ having in
+    W.iter_entities world required (fun entity ->
+      if not (List.exists (W.has_component world entity) excludes) then
+        f entity)
 
-(** Check if an entity has a component by name.
-    Returns false if component is not registered or entity doesn't have it. *)
-let entity_has_component raw_world entity name =
-  (* First check if component is registered to avoid exception from get_component *)
-  match Eon_ecs.World.find_component raw_world ~name with
-  | None -> false  (* Component not registered *)
-  | Some _ ->
-      match Eon_ecs.World.get_component raw_world entity ~name with
-      | Some _ -> true
-      | None -> false
+  let iter1 (type a) world ~includes ~having ~excludes
+      (f : Eon_ecs.Entity_id.t -> a -> unit) =
+    match includes with
+    | [c1] ->
+        let c1 : a Component_descriptor.t = c1 in
+        iter_entities world ~includes ~having ~excludes (fun entity ->
+          match W.get_component world entity c1 with
+          | Some v1 -> f entity v1
+          | None -> ())
+    | _ -> invalid_arg "iter1 requires exactly 1 component in includes"
 
-(** Check if an entity has all components in the having list. *)
-let has_all_having raw_world entity = function
-  | [] -> true
-  | having -> List.for_all (entity_has_component raw_world entity) having
+  let iter2 (type a b) world ~includes ~having ~excludes
+      (f : Eon_ecs.Entity_id.t -> a -> b -> unit) =
+    match includes with
+    | [c1; c2] ->
+        let c1 : a Component_descriptor.t = c1 in
+        let c2 : b Component_descriptor.t = c2 in
+        iter_entities world ~includes ~having ~excludes (fun entity ->
+          match W.get_component world entity c1,
+                W.get_component world entity c2 with
+          | Some v1, Some v2 -> f entity v1 v2
+          | _ -> ())
+    | _ -> invalid_arg "iter2 requires exactly 2 components in includes"
 
-(** Check if an entity has any component in the excludes list. *)
-let has_any_excluded raw_world entity = function
-  | [] -> false
-  | excludes -> List.exists (entity_has_component raw_world entity) excludes
+  let iter3 (type a b c) world ~includes ~having ~excludes
+      (f : Eon_ecs.Entity_id.t -> a -> b -> c -> unit) =
+    match includes with
+    | [c1; c2; c3] ->
+        let c1 : a Component_descriptor.t = c1 in
+        let c2 : b Component_descriptor.t = c2 in
+        let c3 : c Component_descriptor.t = c3 in
+        iter_entities world ~includes ~having ~excludes (fun entity ->
+          match W.get_component world entity c1,
+                W.get_component world entity c2,
+                W.get_component world entity c3 with
+          | Some v1, Some v2, Some v3 -> f entity v1 v2 v3
+          | _ -> ())
+    | _ -> invalid_arg "iter3 requires exactly 3 components in includes"
 
-let iter1 world ~includes ~having ~excludes f =
-  let raw_world = Backend.World.to_raw world in
-  match includes with
-  | [c1] ->
-      Eon_ecs.Query.iter1 raw_world c1 (fun entity v1 ->
-        if has_all_having raw_world entity having && not (has_any_excluded raw_world entity excludes) then
-          f entity v1)
-  | _ -> invalid_arg "iter1 requires exactly 1 component in includes"
+  let iter4 (type a b c d) world ~includes ~having ~excludes
+      (f : Eon_ecs.Entity_id.t -> a -> b -> c -> d -> unit) =
+    match includes with
+    | [c1; c2; c3; c4] ->
+        let c1 : a Component_descriptor.t = c1 in
+        let c2 : b Component_descriptor.t = c2 in
+        let c3 : c Component_descriptor.t = c3 in
+        let c4 : d Component_descriptor.t = c4 in
+        iter_entities world ~includes ~having ~excludes (fun entity ->
+          match W.get_component world entity c1,
+                W.get_component world entity c2,
+                W.get_component world entity c3,
+                W.get_component world entity c4 with
+          | Some v1, Some v2, Some v3, Some v4 -> f entity v1 v2 v3 v4
+          | _ -> ())
+    | _ -> invalid_arg "iter4 requires exactly 4 components in includes"
 
-let iter2 world ~includes ~having ~excludes f =
-  let raw_world = Backend.World.to_raw world in
-  match includes with
-  | [c1; c2] ->
-      Eon_ecs.Query.iter2 raw_world c1 c2 (fun entity v1 v2 ->
-        if has_all_having raw_world entity having && not (has_any_excluded raw_world entity excludes) then
-          f entity v1 v2)
-  | _ -> invalid_arg "iter2 requires exactly 2 components in includes"
+  let count world ~includes ~having ~excludes =
+    let n = ref 0 in
+    iter_entities world ~includes ~having ~excludes (fun _ -> incr n);
+    !n
+end
 
-let iter3 world ~includes ~having ~excludes f =
-  let raw_world = Backend.World.to_raw world in
-  match includes with
-  | [c1; c2; c3] ->
-      Eon_ecs.Query.iter3 raw_world c1 c2 c3 (fun entity v1 v2 v3 ->
-        if has_all_having raw_world entity having && not (has_any_excluded raw_world entity excludes) then
-          f entity v1 v2 v3)
-  | _ -> invalid_arg "iter3 requires exactly 3 components in includes"
-
-let iter4 world ~includes ~having ~excludes f =
-  let raw_world = Backend.World.to_raw world in
-  match includes with
-  | [c1; c2; c3; c4] ->
-      Eon_ecs.Query.iter4 raw_world c1 c2 c3 c4 (fun entity v1 v2 v3 v4 ->
-        if has_all_having raw_world entity having && not (has_any_excluded raw_world entity excludes) then
-          f entity v1 v2 v3 v4)
-  | _ -> invalid_arg "iter4 requires exactly 4 components in includes"
-
-let count world ~includes ~having ~excludes =
-  let count_ref = ref 0 in
-  let count_fn1 _ _ = incr count_ref in
-  let count_fn2 _ _ _ = incr count_ref in
-  let count_fn3 _ _ _ _ = incr count_ref in
-  let count_fn4 _ _ _ _ _ = incr count_ref in
-  match includes with
-  | [_] ->
-      iter1 world ~includes ~having ~excludes count_fn1;
-      !count_ref
-  | [_; _] ->
-      iter2 world ~includes ~having ~excludes count_fn2;
-      !count_ref
-  | [_; _; _] ->
-      iter3 world ~includes ~having ~excludes count_fn3;
-      !count_ref
-  | [_; _; _; _] ->
-      iter4 world ~includes ~having ~excludes count_fn4;
-      !count_ref
-  | _ -> invalid_arg "count requires 1-4 components in includes"
+module Default = Make (World)

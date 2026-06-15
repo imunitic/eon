@@ -105,6 +105,23 @@ let mk_query_iter4 ~entity_count ~component_count =
                   invalid_arg "mk_query_iter1 expects at least one component")))
     distribution_cases
 
+let mk_query_iter_entities ~entity_count ~component_count =
+  List.map
+    (fun { label; distribution } ->
+       let name =
+         Printf.sprintf "query-iter_entities-entities%d-components%d-%s"
+           entity_count component_count label
+       in
+       Test.make ~name
+         (stage (fun () ->
+              let world, components =
+                Benchmark_helpers.populate_world
+                  ~entity_count ~component_count ~distribution
+              in
+              fun () ->
+                Query.iter_entities world components (fun _ -> ()))))
+    distribution_cases
+
 let suite =
   Test.make_grouped ~name:"query_iter1"
     (List.concat
@@ -120,7 +137,10 @@ let suite =
        ; mk_query_iter4 ~entity_count:10_000 ~component_count:4
        ; mk_query_iter4 ~entity_count:10_000 ~component_count:6
        ; mk_query_iter4 ~entity_count:50_000 ~component_count:6
-
+       ; mk_query_iter_entities ~entity_count:10_000 ~component_count:1
+       ; mk_query_iter_entities ~entity_count:10_000 ~component_count:2
+       ; mk_query_iter_entities ~entity_count:10_000 ~component_count:4
+       ; mk_query_iter_entities ~entity_count:50_000 ~component_count:4
        ])
 
 let instances =
