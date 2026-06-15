@@ -4,8 +4,8 @@
 
 **DRAFT — not finished.** Proposed / design notes. Captures the concurrency philosophy and the
 engine-layer parallel pipeline model. Interacts with
-[world_module_design.md](world_module_design.md) (lazy index rebuild)
-and [query_view_design.md](query_view_design.md) (read access via the view).
+[world_module_design.md](world_module_design.md) and
+[query_view_design.md](query_view_design.md) (read access via the view).
 
 ---
 
@@ -110,35 +110,38 @@ writer.
 
 ---
 
-## 6. Archetype index rebuild under parallelism
+## 6. Query iteration under parallelism
 
-The archetype backend rebuilds its index lazily on first query and on structural
-change (dirty flag). Under a parallel `Read_only` phase, a rebuild firing
-*during* the phase would be a write under concurrent readers — a data race even
-though every system is "only reading."
+The current backend is sparse-set based (`iter1`/`iter2`/`iter3`/`iter4` in
+`Eon_ecs.Query`). There is **no index to rebuild** — queries walk sparse sets
+directly, with `iter2`–`iter4` picking the smallest set as the iteration base
+and checking membership in the others. This is inherently stateless on the read
+path.
 
-**Resolution — rebuild at the `collect → tick` boundary.** Place a single
-"rebuild-if-dirty" sync step after `Buses.collect` and before `Progress.tick`:
+The parallelism concern is therefore **structural mutation**, not index
+reconstruction. `add_component`, `remove_component`, and `destroy_entity` all
+mutate sparse sets — inserting or removing entries in the dense array and index
+table. If a `Read_only` phase runs such mutations concurrently with queries, the
+iterating worker races with the mutating one even though the system is tagged
+read-only.
 
-- The writes that dirty the index come from `on_*` handlers in **two** places,
-  both *before* `tick`: the **previous** frame's `drain` (Commands/Signals
-  handlers) and the **current** frame's `collect` (e.g. Double_bus events emitted
-  last frame, dispatched now). The boundary rebuild captures both.
-- The parallel `tick` then runs over a **frozen** index with zero writers.
-- `drain` at frame end sets the dirty flag for next frame's boundary rebuild.
+**Resolution — confine structural mutations to the write side of the frame
+boundary.** A structurally safe `Read_only` phase requires that no `add_`,
+`remove_`, or `destroy_` calls are in flight during `Progress.tick`. Given the
+frame order:
 
-So there is exactly **one deterministic rebuild per frame**, never a mid-phase
-lazy rebuild.
+```
+Buses.collect  →  Progress.tick  →  Buses.drain  →  Renderer.render
+```
 
-**Eager `install`** removes the cold-start special case (the index exists from
-frame 0, so no first-ever-query rebuild fires mid-phase). It does **not** retire
-the boundary rebuild: a `Read_write` phase that changes structure still dirties
-the index, and the next frame's boundary rebuild settles it. Install simplifies
-this to one clean boundary check rather than an unpredictable mid-phase fault —
-an argument for making install the norm in parallel setups.
+structural mutations come from `on_*` handlers, which fire during `collect` and
+`drain` — both outside `tick`. As long as the §5 discipline holds (update only
+reads; on_* handlers only write), the parallel read phase sees a structurally
+frozen world with no active writers.
 
-Layering: the engine's parallel loop/progress inserts this boundary sync; the
-sequential `eon_ecs` core needs nothing.
+No boundary sync step is needed beyond what the frame order already provides.
+Layering: the engine's parallel loop enforces the phase boundary; `eon_ecs` core
+needs nothing.
 
 ---
 
@@ -245,8 +248,9 @@ The parallel read phase is safe **iff** all of these hold:
 1. **Phases run sequentially** (§3) — the barriers exist.
 2. **`Read_only` phases contain no writers** (§4) — by tag honesty, or enforced
    by `RO` world views (§7).
-3. **The index is rebuilt at the `collect → tick` boundary, never mid-phase**
-   (§6).
+3. **No structural mutations (`add_component`, `remove_component`,
+   `destroy_entity`) are in flight during `tick`** — they are confined to
+   `on_*` handlers in `collect`/`drain`, outside the parallel phase (§6).
 4. **Bus `emit` is per-worker-buffered; dispatch stays sequential; merge is
    deterministic at the phase barrier** (§8).
 
@@ -262,8 +266,9 @@ guarantees the engine pipeline provides.
 - **Do not run subscriber/handler callbacks concurrently.** Only `emit`
   (buffer append) and `Read_only` system `update` run in parallel; everything
   that can mutate stays sequential at a barrier.
-- **Do not rebuild the archetype index lazily inside a parallel phase.** Force it
-  at the `collect → tick` boundary.
+- **Do not call `add_component`, `remove_component`, or `destroy_entity` inside a
+  `Read_only` phase's `update`.** Structural mutations must stay in `on_*`
+  handlers that fire during `collect`/`drain`, never during the parallel `tick`.
 - **Do not phantom-type the core `World.t`.** If `RO`/`RW` views are adopted,
   they live in `eon_engine` over `world.raw`.
 - **Do not assume a non-deterministic merge is acceptable.** Determinism is a
