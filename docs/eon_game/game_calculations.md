@@ -4,6 +4,37 @@ This document summarizes a complete, rating-based combat math framework inspired
 
 ---
 
+## 0. Fundamental Combat Rules
+
+These rules govern all combat interactions and take precedence over any
+specific mechanic described in later sections.
+
+### Hit Resolution
+
+**A hit that connects with an enemy triggers all on-hit effects regardless of
+damage dealt.**
+
+On-hit effects — life on hit, cast on critical strike, proc effects, charges
+gained on hit — fire whenever an attack successfully lands, not when it deals
+damage above zero. Damage mitigation, damage reduction, and resistance never
+suppress on-hit triggers.
+
+**Why:** Decoupling hit resolution from damage output prevents invisible build
+failures. A player whose melee damage is near zero (e.g. Iron Striker paradigm)
+still recovers via life on hit, still procs spells via cast on crit. An enemy
+with high physical resistance never silently disables a build’s recovery layer.
+The player can reason about their build without knowing which enemies break which
+mechanics. Diablo 2’s "must deal damage for on-hit to proc" created exactly this
+class of hidden, wiki-only knowledge — Eon does not copy it.
+
+**The rule in full:**
+- Attack connects with enemy → on-hit effects fire
+- Attack misses / is evaded → on-hit effects do not fire
+- Attack connects but deals 0 or near-0 damage → on-hit effects still fire
+- Enemy mitigation, resistance, or immunity → reduces damage only, never suppresses procs
+
+---
+
 ## 🔍 Variable Clarification: Understanding `L`
 
 Throughout Eon’s design documentation, the variable **`L`** has appeared in two related contexts:
@@ -418,9 +449,19 @@ fragile against anything that cuts attack uptime (CC, knockback, silence).
 
 ### Paradigm 3 — Glancing Blows (evasion-universal coverage)
 
-**Affix:** *"Evasion applies to all damage types, including DoTs. You no longer
-fully evade attacks — instead every hit and every DoT tick deals 40% of its
-damage. Your evasion chance cap raises to 85%."*
+**Affix:** *"Evasion applies to all damage types, including projectile damage and
+DoTs. You no longer fully evade attacks — instead every hit and every DoT tick
+deals 40% of its damage. Your evasion chance cap raises to 85%."*
+
+**Standard evasion in Eon** covers **attack damage only** — melee hits, ranged
+attacks, physical bow shots. It does not apply to spell projectiles, magical
+AoEs, or DoTs. This is a meaningful coverage gap: casters and ranged spell
+enemies bypass evasion entirely against a standard evasion build.
+
+**Glancing Blows extends evasion to all damage:** attack damage, projectile
+damage (including spell projectiles), and DoTs. This makes it particularly
+strong against ranged and caster-heavy content where standard evasion offers
+nothing.
 
 **Standard evasion in Eon** uses PoE's entropy sequencing — a deterministic
 system that guarantees your average evasion rate over time (at 50% evasion you
@@ -515,6 +556,163 @@ This is a richer resource management loop than managing a single HP bar.
 **Paradigm identity:** survive spikes through a deep mana buffer and fast regen;
 die to sustained pressure or anything that bypasses the mana layer. Rewards
 active resource management over passive stat stacking.
+
+---
+
+### Paradigm 5 — Status Inoculation (CI variant)
+
+**Affix:** *"You are immune to all DoTs and ailments, including CC effects
+(freeze, stun, shock, chill, bleed, poison, burn). All mitigation layers are
+capped at 50% efficacy."*
+
+**The immunity scope:**
+Complete removal of the sustained damage and status control game. DoTs never
+tick. Freeze never locks you in place. Stun never interrupts your attack.
+Shock never amplifies incoming damage. An entire class of boss and map mechanic
+becomes irrelevant.
+
+**The 50% cap:**
+
+```
+EffectiveMitigation = min(0.50, R / (R + K * L))
+```
+
+Mitigation values below 50% are **unaffected** — a player with 35% armor still
+gets 35%. Over-investment above 50% in any single layer is capped. This
+naturally penalises stacking one defence to extremes while leaving moderate,
+spread investment untouched. It also reinforces the five-layer philosophy: no
+single layer can carry you past 50%, so the reward for broad investment remains.
+
+**Life amplification — percentage only, not flat:**
+
+All `% increased maximum life` modifiers on gear and affixes are **50% more
+effective** (a more multiplier):
+
+```
+EffectiveLifeIncrease = sum_of_percent_life_mods × 1.5
+```
+
+Example: gear giving `+80% increased life` → effectively `+120% increased life`.
+
+**Critically: this only amplifies percentage modifiers, not flat life.** Flat
+maximum life (`+X maximum life`) is unaffected. This means the amplifier scales
+with how much flat life you have invested:
+
+| Flat life | Normal (+80% inc.) | CI variant (+120% inc.) | Gain |
+|---|---|---|---|
+| 2000 | 3600 | 4400 | +800 |
+| 500 | 900 | 1100 | +200 |
+
+A player who neglected flat life gets almost nothing from the amplifier. The
+paradigm **requires investment in both flat life (the base) and % life mods
+(the multiplier)**. Neither alone is sufficient — this shapes crafting
+decisions by demanding affix slots dedicated to both life types rather than
+the defence layers a balanced build would stack.
+
+**The threat model shift:**
+
+All surviving danger is direct hits. Life pool, regen, and block become the
+primary survival tools. Against DoT-heavy maps and ailment-stacking bosses the
+build is nearly unkillable. Against fast hard-hitting enemies and high-burst
+pinnacle bosses the 50% mitigation cap means each direct hit lands harder —
+which is why the larger life pool is necessary, not a bonus.
+
+**Recovery:** Passive regen still works fully. No forced active-recovery
+constraint like Fortress. The paradigm is sustained by life regen between
+spikes rather than active leech.
+
+**Content matchups:**
+
+| Content | Performance |
+|---|---|
+| DoT-heavy maps (poison, bleed mods) | Excellent — immune |
+| Ailment-stacking bosses | Excellent — immune to their kit |
+| CC-gated boss phases (freeze, stun) | Trivial — ignored |
+| Burst damage pinnacle bosses | Dangerous — 50% cap bites |
+| Fast sustained-hit enemies | Manageable with life pool and regen |
+
+**Paradigm identity:** trade the sustained-damage game entirely for a worse
+but simpler direct-hit game. You are not trying to survive everything — you
+have eliminated one category of threat and accepted vulnerability to another.
+
+---
+
+### Paradigm 6 — Iron Striker (non-critable, crit multiplier locked)
+
+**Affix:** *"You cannot be critically hit by enemies. Your critical hit multiplier
+is locked at 150% regardless of investment — crit multiplier affixes provide no
+benefit."*
+
+**What 150% locked means:**
+
+150% is the base crit multiplier — a crit deals 50% more than a normal hit, and
+nothing can push it further. All crit multiplier affixes on gear and the passive
+tree become dead stats. Crit chance still works; crits still trigger proc effects.
+Only the magnitude of each crit is capped.
+
+**The emergent archetype — Melee Cast on Critical Strike:**
+
+This paradigm is the first that makes sustained melee-range CoC viable.
+
+Previously, melee CoC builds died to the same mechanic they relied on: standing
+in enemy melee range with high attack speed and high crit chance means absorbing
+enemy crits at point-blank. Random incoming crits at close range were the build's
+main killer. Iron Striker removes that death condition entirely.
+
+The chain of constraints that defines the build:
+
+1. **Capped multiplier → melee damage is near zero.** No investment in multiplier
+   means melee hits deal base damage only. Spells triggered by crits do all the
+   actual damage.
+
+2. **Near-zero melee damage → leech is useless.** Life leech scales with damage
+   dealt. A build that deals no melee damage gets nothing from leech affixes.
+
+3. **Life on hit becomes the required recovery.** Life on hit restores a flat
+   amount per hit regardless of damage dealt. With high attack speed (already
+   needed for proc frequency), hits per second are high — life on hit delivers
+   consistent recovery even when the hits themselves do nothing.
+
+4. **High attack speed serves two purposes simultaneously.** More attacks per
+   second = more crit procs = more spell triggers = more damage. The same stat
+   also = more hits per second = more life on hit = more recovery.
+
+**Full build kit — nothing wasted:**
+
+| Affix type | Role | Why |
+|---|---|---|
+| Flat maximum life | Buffer | Direct hits are predictable; pool must be large |
+| % increased life | Amplifier | Scales flat life investment |
+| Critical hit chance | Procs | More crits = more spell triggers per second |
+| Attack speed | Dual purpose | Proc frequency + life on hit recovery |
+| Spell damage | Output | The actual damage source |
+| Life on hit | Recovery | Leech is dead; hits are plentiful |
+
+Crit multiplier and life leech affixes are both completely dead for this build.
+Every freed slot has a clear home.
+
+**Recovery model:** Life on hit scales with attack speed, not damage. The same
+investment that maximises spell output (attack speed) also maximises sustain.
+No active recovery required — sustain is passive and automatic as long as you
+keep attacking.
+
+**Content matchups:**
+
+| Content | Performance |
+|---|---|
+| High-crit enemies and bosses | Excellent — immune to their spike mechanic |
+| Sustained melee range combat | Excellent — life on hit sustains continuously |
+| Mobile bosses requiring repositioning | Challenging — melee range dependency |
+| DoT-heavy content | Normal — no special immunity or vulnerability |
+
+**Paradigm identity:** the melee mage who cannot be critted, deals no melee
+damage, and sustains through the frequency of their strikes rather than the power
+of them. The first build in Eon that makes standing in an enemy's face and
+channelling spells through melee attacks genuinely safe.
+
+> **Itemisation note:** Life on hit must be a viable affix tier in the crafting
+> system for this paradigm to function. It is the only non-leech recovery option
+> and must scale meaningfully with attack speed investment at endgame.
 
 ---
 

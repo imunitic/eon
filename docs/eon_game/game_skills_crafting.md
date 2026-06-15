@@ -16,6 +16,103 @@ Each **skill** is treated as an ECS component, and skill behavior (damage, area,
 
 - This ensures that skill progression feels consistent with other systems — fast early growth and gradual slowdown.
 - Skills may unlock **behavior modifiers** (e.g., “Firebolt splits into 2 projectiles at level 5”) rather than just flat stat increases.
+- **Each skill has its own passive skill tree** (Last Epoch style) — independent per-skill specialisation that modifies that skill's behaviour, scaling, and effects. Skill trees are not shared; investing in Fireball's tree has no effect on Ice Nova's.
+
+### 🎮 Skill Bar Layout
+
+```
+[ LMB ] [ RMB ] [ Q ] [ W ] [ E ] [ R ]
+```
+
+- **LMB** — primary action slot (attack, meta-spell, or skill)
+- **RMB** — secondary action slot (attack, meta-spell, or skill)
+- **Q / W / E / R** — four skill slots for active abilities
+
+### ⚡ Meta-Spells
+
+**Meta-spells can only be placed in the LMB slot.** LMB is the dedicated
+meta-spell slot — the only valid slot for them. RMB and Q / W / E / R cannot
+accept meta-spells. Only one meta-spell can be active at a time, making the LMB
+slot a significant build decision: which meta-spell do you place there?
+
+**LMB is a click-to-move slot.** In most ARPGs, LMB is reserved for movement
+and the skill placed there is effectively wasted — players put "Move Only" there
+and forget it. Eon reclaims this slot entirely. A meta-spell placed in LMB
+behaves exactly like Move Only — left-clicking still moves the character, the
+meta-spell never fires on click — but additionally provides a passive trigger
+engine and its own skill tree. The slot goes from wasted to load-bearing without
+any conflict with movement.
+
+**Meta-spells have their own skill tree** that scales the triggered spells
+globally rather than per-spell. While each skill in Q / W / E / R has its own
+individual tree, the meta-spell tree applies across everything it triggers.
+
+**CoC skill tree — example nodes:**
+
+Standard nodes:
+- Spell damage (global, applies to all triggered spells)
+- Elemental penetration (reduces enemy elemental resistance for triggered spells)
+- Ailment chance (increased chance to apply burn, freeze, shock on triggered spells)
+- Chance to trigger on non-crit hits
+- Reduced cooldown between triggers
+
+Exotic nodes:
+- **Echo** — each triggered spell has a chance to fire twice
+- **Ring of Fire** — instead of all spells firing toward the cursor simultaneously,
+  each spell fires in a different direction evenly spaced in a circle around the
+  player. Four spells = four directions 90° apart. Transforms CoC from a focused
+  burst into a radial explosion. Completely changes positioning — you want to be
+  surrounded, not facing enemies.
+- **Cone of Fire** — triggered spells fan out in a cone in front of the player
+  rather than all aimed at the cursor. Four spells = four angles spread evenly
+  across the cone arc. Shotgun pattern — effective against tight enemy clusters
+  directly ahead, rewards aggressive forward movement into packs.
+
+These are example directions; the full tree is not yet designed.
+
+### ⚡ Cast on Critical Strike (CoC) — Meta-Spell Example
+
+Cast on Critical Strike is a **meta-spell** — it does no damage itself. It is a
+trigger mechanism placed in the **LMB slot** that reads the skill bar and fires
+spells automatically.
+
+**How it works:**
+
+- Place CoC in **LMB**
+- Place your attack (melee weapon attack or ranged attack) in **RMB**
+- Place spells in any combination of **Q / W / E / R**
+- When your RMB attack lands a critical hit, CoC fires **all spells** currently
+  in Q / W / E / R **simultaneously**, each with their full skill tree
+  specialisation applied
+- Non-spell skills in Q / W / E / R slots are **ignored by CoC** — they remain
+  usable manually by pressing the key, they simply do not proc
+- Empty slots are ignored
+
+**Maximum triggered spells: 4** (one per Q / W / E / R slot)
+
+**Example build:**
+
+| Slot | Skill | CoC behaviour |
+|---|---|---|
+| LMB | Cast on Critical Strike | The trigger |
+| RMB | Melee attack | Crits → fires CoC |
+| Q | Fireball (specced: max AoE + burn) | Triggered simultaneously |
+| W | Ice Nova (specced: max radius + freeze) | Triggered simultaneously |
+| E | Lightning Bolt (specced: 4-chain) | Triggered simultaneously |
+| R | Warcry (non-spell) | Ignored by CoC; still usable manually |
+
+On every RMB crit: Fireball, Ice Nova, and Lightning Bolt all fire at once,
+each with their full skill tree effects. Warcry is unaffected and available
+on demand.
+
+**On-hit rule:** CoC procs on any successful hit regardless of damage dealt —
+see `game_calculations.md §0`. Near-zero melee damage (Iron Striker paradigm)
+still triggers CoC on every crit.
+
+**Skill tree depth:** each triggered spell is independently specialised. A CoC
+build with four spells has four separate skill trees to invest in — the build
+depth comes from how deeply you specialise each spell, not from how many you
+equip.
 
 ### 🧩 Example ECS Representation
 
