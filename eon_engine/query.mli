@@ -2,64 +2,52 @@
 
     Builder pattern for constructing and executing queries over entities.
     Uses a pluggable backend via functor application.
-    
-    {1 Usage Example}
-    
+
+    Example:
     {[
-      (* Choose your backend at compile time *)
-      module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
-      
-      (* Query entities with Position and Velocity, but not Frozen *)
-      let results = ref [] in
-      Query.from world
-      |> Query.with_component "Position"
-      |> Query.with_component "Velocity"
-      |> Query.not_having "Frozen"
-      |> Query.iter2 (fun entity pos vel ->
-        results := (entity, pos.x, vel.dx) :: !results
-      )
-      
-      (* Count entities with Position that have Health *)
-      let count =
-        Query.from world
-        |> Query.with_component "Position"
-        |> Query.having "Health"
-        |> Query.count
+      module Q = Query.Make(Sparse_set_backend.Default)
+
+      Q.from world
+      |> Q.having Position.name
+      |> Q.having Velocity.name
+      |> Q.not_having Frozen.name
+      |> Q.iter (fun view ->
+           let pos = View.get view Position.component in
+           let vel = View.get view Velocity.component in
+           ...)
     ]}
 *)
 
-module Make (B : Query_backend.S) : sig
+module Make (B : Query_backend.S with type world = World.t) : sig
   type query
-  (** Accumulated query constraints. Not resolved until iter/count is called. *)
+  (** Accumulated query constraints. Not resolved until [iter] or [count] is called. *)
 
   val from : B.world -> query
   (** Entry point. Captures the world, starts an empty query. *)
 
-  (** -- Component value fetching --
-      These contribute to callback arity. Order defines callback argument order. *)
-  val with_component  : string -> query -> query
-  val with_components : string list -> query -> query
+  (** {2 Filters} *)
 
-  (** -- Presence filters (markers) --
-      Must be present but value is NOT fetched. Do NOT contribute to arity.
-      Use case: `having "Frozen"` filters to frozen entities without pulling
-      the Frozen value into the callback. *)
-  val having      : string -> query -> query
-  val having_all  : string list -> query -> query
+  val having     : string -> query -> query
+  (** Require the named component to be present.
+      Use for components you will read via [View.get] and for marker components
+      you will not read — both are just "must be present." *)
 
-  (** -- Exclusion filters --
-      Must be absent. Do NOT contribute to arity. *)
+  val having_all : string list -> query -> query
+  (** Require all named components to be present. *)
+
   val not_having     : string -> query -> query
-  val not_having_any : string list -> query -> query
+  (** Require the named component to be absent. *)
 
-  (** -- Execution --
-      Callback argument order matches with_component call order.
-      iter1 expects exactly 1 with_component, iter2 expects exactly 2, etc.
-      Raises invalid_arg if arity does not match. *)
-  val iter1 : (Eon_ecs.Entity_id.t -> 'a -> unit)                      -> query -> unit
-  val iter2 : (Eon_ecs.Entity_id.t -> 'a -> 'b -> unit)                -> query -> unit
-  val iter3 : (Eon_ecs.Entity_id.t -> 'a -> 'b -> 'c -> unit)          -> query -> unit
-  val iter4 : (Eon_ecs.Entity_id.t -> 'a -> 'b -> 'c -> 'd -> unit)    -> query -> unit
+  val not_having_any : string list -> query -> query
+  (** Require all named components to be absent. *)
+
+  (** {2 Execution} *)
+
+  val iter  : (View.t -> unit) -> query -> unit
+  (** Iterate every matching entity. The callback receives a [View.t] cursor;
+      use [View.get] / [View.get_opt] to read component values and
+      [View.entity] to get the entity id. *)
 
   val count : query -> int
+  (** Count matching entities without a callback. *)
 end

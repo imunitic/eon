@@ -9,6 +9,7 @@ module Components = Components
 module Query_backend = Query_backend
 module Sparse_set_backend = Sparse_set_backend
 module Query = Query
+module View = View
 
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t

@@ -48,7 +48,9 @@ val iter4 :
   (Entity_id.t -> 'a -> 'b -> 'c -> 'd -> unit) ->
   unit
 
-(** Count the entities that contain every component listed. *)
+(** Count the entities that contain every component listed.
+    Raises [Invalid_argument] if any name was never registered — consistent
+    with [iter_entities] and [get_component]. *)
 val count : World.t -> string list -> int
 
 (** Iterate every alive entity that holds all of the named components, using

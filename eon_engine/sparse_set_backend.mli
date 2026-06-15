@@ -1,18 +1,18 @@
 (** Sparse set backend for query execution.
 
-    The default backend — delegates entity iteration to [World.iter_entities]
-    and value fetching to [World.get_component]. Applies [having] and [excludes]
-    as per-entity post-filters via [World.has_component].
+    The default backend. Delegates entity iteration to [World.iter_entities]
+    and applies [excludes] as a per-entity post-filter via [World.has_component].
+    Never touches component values — value extraction is the caller's job via [View].
 
     Use [Default] for the concrete instance backed by [World.t]:
     {[
-      module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend.Default)
+      module Q = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend.Default)
     ]}
 
     To use a custom world type that satisfies [World.S], apply [Make]:
     {[
       module My_backend = Eon_engine.Sparse_set_backend.Make(My_world)
-      module Query = Eon_engine.Query.Make(My_backend)
+      module Q = Eon_engine.Query.Make(My_backend)
     ]}
 *)
 
