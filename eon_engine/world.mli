@@ -1,5 +1,9 @@
 (** Eon Engine World wrapper. *)
 
+(* ================================================================ *)
+(* World.S — Backend signature                                       *)
+(* ================================================================ *)
+
 (** Uniform world signature that all backends and engine code depend on.
     Has no reference to [Eon_ecs.World.t] — backends work with [W.t] throughout
     and call [W.iter_entities] / [W.has_component] for query operations. *)
@@ -40,6 +44,10 @@ module type S = sig
       Returns [false] if the component is not registered or is absent on the entity.
       Used by backends to apply excludes post-filters by string name. *)
 end
+
+(* ================================================================ *)
+(* Concrete World module                                             *)
+(* ================================================================ *)
 
 (** Opaque handle to the engine world. *)
 type t
