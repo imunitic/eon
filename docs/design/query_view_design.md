@@ -56,7 +56,7 @@ One terminator, a typed view:
 
 ```ocaml
 Query.from world
-|> Query.with_components [Position.name; Velocity.name]
+|> Query.having_all [Position.name; Velocity.name]
 |> Query.not_having Frozen.name
 |> Query.iter (fun view ->
      let pos = View.get view Position.component in
@@ -64,8 +64,8 @@ Query.from world
      ...)
 ```
 
-- **Filtering** (`with_component` / `having` / `not_having`) stays string-keyed,
-  so EDN-driven and modder systems drive membership exactly as before.
+- **Filtering** (`having` / `having_all` / `not_having` / `not_having_any`) stays
+  string-keyed, so EDN-driven and modder systems drive membership exactly as before.
 - **Value access** is via `View.get`, typed by the component *descriptor*'s
   phantom type — `'a Component_descriptor.t` is a `string` tagged with `'a`, so
   `View.get view Position.component : Position.t` with no `Obj.magic` at the
@@ -178,13 +178,11 @@ module Make (B : Query_backend.S) : sig
 
   val from : B.world -> query
 
-  (* -- filters (string-keyed, unchanged) -- *)
-  val with_component  : string -> query -> query
-  val with_components : string list -> query -> query
-  val having          : string -> query -> query
-  val having_all      : string list -> query -> query
-  val not_having      : string -> query -> query
-  val not_having_any  : string list -> query -> query
+  (* -- filters (string-keyed) -- *)
+  val having         : string -> query -> query
+  val having_all     : string list -> query -> query
+  val not_having     : string -> query -> query
+  val not_having_any : string list -> query -> query
 
   (* -- execution -- *)
   val iter  : (View.t -> unit) -> query -> unit
@@ -196,18 +194,12 @@ end
 `View.t`; it pulls whatever typed values it needs. `View.entity view` gives the
 entity id.
 
-### `with_component` and `having` now collapse mechanically
-
-Under `iterN`, `with_component` (fetched, contributes arity) and `having`
-(presence only, no arity) were genuinely different. Under the view model there
-is **no arity**, and values are pulled lazily — so both mean exactly "must be
-present." Mechanically the backend receives one combined *required* set.
-
-We keep both names as **intent-revealing API sugar**: `with_component` reads as
-"I will read this value," `having` reads as "just filter." But they compile to
-the same required list, and a component filtered by either can be read via
-`View.get`. The three-list model is now effectively two: **required (present)**
-and **excluded (absent)**.
+`with_component` and `with_components` are **removed**. Under the view model
+there is no arity and values are pulled lazily — "must be present to read" and
+"must be present as a marker" are mechanically identical. `having` / `having_all`
+cover both roles honestly. The filter vocabulary is now two symmetric pairs:
+**`having` / `having_all`** (required present) and
+**`not_having` / `not_having_any`** (required absent).
 
 ---
 
@@ -222,29 +214,28 @@ module type S = sig
 
   val iter_entities :
     world ->
-    includes:string list ->
-    having:string list ->
+    required:string list ->
     excludes:string list ->
     (Eon_ecs.Entity_id.t -> unit) ->
     unit
 
   val count :
     world ->
-    includes:string list ->
-    having:string list ->
+    required:string list ->
     excludes:string list ->
     int
 end
 ```
 
 The backend's job collapses to **"yield matching entity ids."** It never touches
-component values — value extraction lives entirely in `View`. This is both
-simpler and a cleaner seam for the archetype backend (§8).
+component values — value extraction lives entirely in `View`. The `includes` /
+`having` split disappears at the backend boundary: the builder merges both into
+one `required` list before dispatch. This is both simpler and a cleaner seam for
+the archetype backend (§8).
 
 ### `Sparse_set_backend`
 
-- Combine `includes @ having` into the required AND-set.
-- Call `W.iter_entities world required`.
+- Pass `required` directly to `W.iter_entities world required`.
 - Inside the callback, apply `excludes` as a per-entity post-filter via
   `W.has_component world entity name` — returns `false` for unregistered or
   absent components, so no raise risk on excluded names.
@@ -259,7 +250,7 @@ No reference to `Eon_ecs.World.t` or `Eon_ecs.Query` anywhere in the backend.
 ```ocaml
 (* Two components + exclusion *)
 Query.from world
-|> Query.with_components [Position.name; Velocity.name]
+|> Query.having_all [Position.name; Velocity.name]
 |> Query.not_having Frozen.name
 |> Query.iter (fun view ->
      let pos = View.get view Position.component in
@@ -268,22 +259,21 @@ Query.from world
 
 (* Five components — impossible before, trivial now *)
 Query.from world
-|> Query.with_components
-     [A.name; B.name; C.name; D.name; E.name]
+|> Query.having_all [A.name; B.name; C.name; D.name; E.name]
 |> Query.iter (fun view ->
      let a = View.get view A.component in
      (* ... e *) ())
 
-(* Marker filter — Frozen required but never read *)
+(* Marker filter — Frozen required but not read; Position read *)
 Query.from world
-|> Query.with_component Position.name
+|> Query.having Position.name
 |> Query.having Frozen.name
 |> Query.iter (fun view ->
      let pos = View.get view Position.component in ...)
 
 (* Optional read — Velocity if present *)
 Query.from world
-|> Query.with_component Position.name
+|> Query.having Position.name
 |> Query.iter (fun view ->
      let pos = View.get view Position.component in
      match View.get_opt view Velocity.component with
@@ -292,7 +282,7 @@ Query.from world
 
 (* EDN-driven / dynamic — filter list from data *)
 Query.from world
-|> Query.with_components required_names
+|> Query.having_all required_names
 |> Query.not_having_any excluded_names
 |> Query.count
 ```
@@ -318,11 +308,14 @@ single `iter` with `View.get` reads:
 
 ```ocaml
 (* before *)
+|> Query.with_component Position.name
+|> Query.with_component Velocity.name
 |> Query.iter2 (fun e pos vel -> ...)
 
 (* after *)
+|> Query.having Position.name
+|> Query.having Velocity.name
 |> Query.iter (fun view ->
-     let e   = View.entity view in
      let pos = View.get view Position.component in
      let vel = View.get view Velocity.component in
      ...)
@@ -427,16 +420,19 @@ by typed descriptor — a deliberate hybrid driven by the EDN requirement.
 
 ---
 
-## 12. Open Decisions
+## 12. Decisions
 
-1. **Callback shape.** `iter (fun view -> ...)` (entity via `View.entity`) vs.
-   `iter (fun entity view -> ...)` (entity passed explicitly, matching the old
-   `iterN` first-arg convention). Leaning toward view-only for a single uniform
-   cursor; explicit-entity is slightly more ergonomic for the common
-   despawn/relation case. Pick one.
-2. **Keep `with_component` vs `having` as distinct names?** They are now
-   mechanically identical (both "required present"). Keep both as intent sugar,
-   or collapse to one (`require` / `with_component`) and drop `having`?
-3. **`count` alignment scope.** Fix `count` to raise on unregistered in this same
-   change (recommended, keeps the two primitives consistent), or land
-   `iter_entities` first and align `count` separately?
+1. **Callback shape** — `iter (fun view -> ...)`. The view is the cursor; passing
+   entity separately would be redundant (`View.entity view` is explicit enough).
+   `iter (fun entity view -> ...)` is legacy thinking from the positional `iterN`
+   model.
+
+2. **`with_component` vs `having`** — `with_component` / `with_components` are
+   **removed**. `having` / `having_all` / `not_having` / `not_having_any` are the
+   complete filter vocabulary. `having` is honest regardless of whether you read
+   the value; the symmetric pair with `not_having` is cleaner than mixing two
+   names for the same concept.
+
+3. **`count` alignment scope** — fix `count` to raise on unregistered in the same
+   change as `iter_entities` (ecs-020). Keeping the two primitives consistent
+   matters more than minimising the `eon_ecs` diff.
