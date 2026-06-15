@@ -1,3 +1,7 @@
+(* ================================================================ *)
+(* World.S — Backend signature                                       *)
+(* ================================================================ *)
+
 module type S = sig
   type t
 
@@ -25,6 +29,10 @@ module type S = sig
   val iter_entities : t -> string list -> (Eon_ecs.Entity_id.t -> unit) -> unit
   val has_component : t -> Eon_ecs.Entity_id.t -> string -> bool
 end
+
+(* ================================================================ *)
+(* Concrete World module                                             *)
+(* ================================================================ *)
 
 type t = {
   core              : Eon_ecs.World.t;
