@@ -21,24 +21,30 @@ Core design goals:
 
 ## 2. Public API boundary
 
-Public/stable API is what is exported from:
-- `eon_ecs/eon_ecs.mli`
+**`eon_ecs` public API:**
+- Contract: `eon_ecs/eon_ecs.mli`
+- Composition root: `eon_ecs/eon_ecs.ml`
+- Rule: if a module should be public, wire and document it in both files. Internal modules not re-exported from `eon_ecs.mli` are private.
 
-Composition root:
-- `eon_ecs/eon_ecs.ml`
-
-Rule:
-- If a module should be public, wire and document it in both files above.
-- Internal modules not re-exported from `eon_ecs/eon_ecs.mli` are private.
+**`eon_engine` public API:**
+- Contract: `eon_engine/eon_engine.mli`
+- Composition root: `eon_engine/eon_engine.ml`
+- Rule: same as above. `Eon_ecs` types needed by game code are re-exported here — see §13.
 
 ## 3. Design documentation
 
-The `docs/design/` directory contains the authoritative source of architecture and design decisions.
+The `docs/design/` directory contains the authoritative source of architecture and design decisions. See `docs/design/index.md` for the full list and one-line summaries.
 
 Current design documents:
-- `eon_engine_design.md` — Eon Engine architecture and component registration system
-- `eon_engine_query_design.md` — Query builder design for `eon_engine`
-- `rendering_layer_design.md` — Backend-agnostic rendering layer design
+- `eon_engine_design.md` — top-level `eon_engine` philosophy, module structure, re-export convention
+- `eon_engine_query_design.md` — query builder and backend abstraction
+- `world_module_design.md` — `World.S` signature and per-world `Id_counter`
+- `query_view_design.md` — unified `iter` + typed `View` replacing `iter1..4`
+- `thread_safety_design.md` — concurrency philosophy, `World_cap` capability types, reactive system model
+- `parallel_pipeline_execution.md` — concrete parallel pipeline spec: `Dependency_graph`, `Executor.S`, `World_cap`, `Eon_engine.System`
+- `rendering_layer_design.md` — backend-agnostic rendering layer
+- `data_service_plane_namespacing.md` — data/service plane namespacing at the engine layer
+- `world_manager_design.md` — stub for future `Worlds` multi-world module
 
 Key principles:
 - Design documents take precedence over implementation details.
@@ -219,3 +225,47 @@ When asked about tasks — what was worked on last, pending work, or status — 
 - "What task did we work on last?" → Find the file with the most recent `:LAST_UPDATED:` timestamp.
 - "What tasks are still pending?" → Find files with unchecked items in `** Tasks` or `* TODO` headings.
 - "Show me the status of ecs-001" → Parse `~/Roam/*ecs_001*.org` and report task state and notes.
+
+## 13. `eon_engine` conventions
+
+### Single-import rule
+
+**Game code imports only `Eon_engine`, never `Eon_ecs` directly.** `Eon_engine`
+re-exports all `Eon_ecs` types that game code needs. When `Eon_engine` grows its
+own replacement for an `Eon_ecs` type, the re-export line is swapped — zero
+call-site changes for users.
+
+Modules `Eon_engine` already owns (do **not** re-export from `Eon_ecs`):
+`World`, `System`, `Pipeline`, `Query`, `Component`.
+
+Modules re-exported from `Eon_ecs` (game code uses `Eon_engine.X`, not `Eon_ecs.X`):
+`Entity_id`, `Bus`, `Single_bus`, `Double_bus`, `Clock`, `Progress`, `Loop`.
+
+### Two pipeline stacks
+
+| Stack | When to use | System type | World type |
+|---|---|---|---|
+| Sequential | default; no parallelism needed | `Eon_ecs.System` | `Eon_engine.World.t` |
+| Parallel | opt-in; `Eon_engine.Pipeline` | `Eon_engine.System` | `World_cap.ro/rw World_cap.t` |
+
+Never mix system types across stacks.
+
+### Parallel pipeline — reactive system model
+
+The parallel pipeline only accepts `Eon_engine.System`. All systems in the
+parallel pipeline follow the reactive model:
+
+- `update : World_cap.ro World_cap.t -> float -> unit` — **always read-only**, enforced at compile time. Runs in parallel across all systems in a phase.
+- `on_signal / on_event / on_command : World_cap.rw World_cap.t -> ... -> unit` — **always read-write**, always sequential (fire during `collect`/`drain`, never during `tick`).
+
+`on_*` handlers are optional — defaulting to no-ops makes a non-reactive system.
+
+### `World_cap` — pipeline-internal
+
+`World_cap` is constructed and managed by the parallel pipeline. Game code
+never calls `World_cap.wrap`. Game code sees `World_cap.ro World_cap.t` in
+`update` and `World_cap.rw World_cap.t` in `on_*` handlers — it does not
+construct these values.
+
+`World_cap` lives in `eon_engine` only. Never add `'perm` phantom types to
+`Eon_ecs.World.t`.
