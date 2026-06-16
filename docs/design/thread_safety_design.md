@@ -426,4 +426,4 @@ over the core pipeline, and entirely engine-side (`eon_ecs` untouched).
    interface). The agreed fix is a `Mutex` on `emit` only. The remaining open
    question — whether to hard-code `Mutex` in the bus or use an injectable
    `LOCK` functor to keep `eon_ecs` mutex-free — is tracked in
-   [parallel_pipeline_execution.md §7.5](parallel_pipeline_execution.md).
+   [parallel_pipeline_execution.md §8.5](parallel_pipeline_execution.md).
