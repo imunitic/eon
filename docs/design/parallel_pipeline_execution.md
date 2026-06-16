@@ -232,7 +232,7 @@ never see it and require no changes. See §7.4.
 
 ## 7. Execution Algorithm
 
-### 6.1 Phase-level loop
+### 7.1 Phase-level loop
 
 ```ocaml
 let run t (world : World.t) dt =
@@ -251,12 +251,12 @@ let run t (world : World.t) dt =
 No phase-kind check. No branching. Every phase dispatches via `Executor` —
 `Sequential` gives the sequential fallback, `Domain_pool` gives parallelism.
 
-### 6.2 `run_by_filter`
+### 7.2 `run_by_filter`
 
 Same loop, but the jobs list only contains systems that pass `filter s.kind`.
 `run_all` still blocks until all filtered jobs complete.
 
-### 6.3 Structural safety
+### 7.3 Structural safety
 
 No additional sync step is needed. From [thread_safety_design.md §6](thread_safety_design.md):
 structural mutations (`add_component`, `remove_component`, `destroy_entity`)
@@ -265,7 +265,7 @@ are confined to `on_*` handlers that fire during `Buses.collect` /
 When `Executor.run_all` receives its job list, the world is structurally
 frozen.
 
-### 6.4 ECS chain preservation — `World_cap` is pipeline-internal
+### 7.4 ECS chain preservation — `World_cap` is pipeline-internal
 
 `Progress` and `Loop` both work with `World.t` and call `Pipeline.run world
 dt` — identical to the sequential pipeline. `World_cap.wrap` and
@@ -302,7 +302,7 @@ mutable OCaml value; concurrent appends from multiple Domains can corrupt it.
 The fix is a **`Mutex` on `emit`** — self-contained in the bus, no changes to
 the Executor, Pipeline, World, or system interface.
 
-### 7.1 The straightforward approach
+### 8.1 The straightforward approach
 
 Each bus holds one `Mutex.t`. `emit` locks it, appends the message, unlocks.
 
@@ -322,7 +322,7 @@ let emit bus msg =
 The Mutex only guards `emit`. `drain`, `collect`, and handler registration all
 run sequentially — outside the parallel phase window — and need no locking.
 
-### 7.2 Why not per-worker local buffers
+### 8.2 Why not per-worker local buffers
 
 The alternative — each worker accumulates emits into a local buffer, merged
 at the phase barrier — cannot be contained inside the Executor. The Executor
@@ -331,7 +331,7 @@ fetches from the World. Intercepting `emit` requires either wrapping the World
 passed to each worker, adding `Domain.DLS` checks inside the bus, or changing
 the system interface. All three spread the complexity across multiple modules.
 
-### 7.3 Performance
+### 8.3 Performance
 
 An uncontended `Mutex.lock`/`unlock` on OCaml 5 is a single atomic CAS,
 roughly 10–30 ns. Emit is a cold-path call — systems emit a handful of
@@ -341,7 +341,7 @@ entities) the parallel `Read_only` phase emits roughly 1650 messages per
 frame. At 20 ns each that is **~33 µs out of a 16 ms budget** — 0.2%,
 unmeasurable in practice.
 
-### 7.4 Ordering
+### 8.4 Ordering
 
 The order in which concurrently emitted messages land in the queue is
 intentionally unspecified and irrelevant. Each system emits logically
@@ -349,7 +349,7 @@ independent messages (a Move intent, a Damage event, an animation frame
 update) — subscribers handle their own message types and do not depend on
 interleaving order with other systems in the same phase.
 
-### 7.5 Open: injectable `LOCK` functor vs. hard-coded `Mutex`
+### 8.5 Open: injectable `LOCK` functor vs. hard-coded `Mutex`
 
 > **Not yet decided.**
 
@@ -466,7 +466,7 @@ genuinely mutex-free library. The added surface is small and stable.
 
 ## 9. Open Decisions
 
-### 8.1 `RO`/`RW` World Views (phantom capabilities)
+### 9.1 `RO`/`RW` World Views (phantom capabilities)
 
 **Decided: ship with the first parallel pipeline, using Option A.**
 
@@ -485,7 +485,7 @@ pipeline receives `rw t`, calls `readonly` once at the start of `run`, and
 passes `ro t` into every system `update`. Full design is captured in
 [thread_safety_design.md §7](thread_safety_design.md).
 
-### 8.2 Concrete `Executor` implementations
+### 9.2 Concrete `Executor` implementations
 
 Ship `Sequential` first (always). Then decide:
 
