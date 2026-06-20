@@ -1,5 +1,13 @@
 # 🧠 EDN Parser Library (Algebraic Effects Version)
 
+> **Syntax note:** This document uses the OCaml 5.0/5.1 effect declaration
+> syntax (`effect Foo : type`). On OCaml 5.2+ (our baseline is 5.4) the
+> correct form is a GADT extension:
+> `type _ Effect.t += Peek : char option Effect.t`. The handler pattern
+> `| effect Foo k ->` becomes `Effect.Deep.match_with` / `Effect.Deep.try_with`.
+> The code below is a design sketch — adapt the declarations before
+> compiling.
+
 This document defines a minimal **EDN parser library written in OCaml 5.x** using **algebraic effects**.  
 It’s designed for loading **prefabs**, **configs**, and **modding data** in the **Eon ECS** or **Eon Engine** project.
 

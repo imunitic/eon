@@ -754,28 +754,28 @@ let collect_cameras world graph =
 
 ## 11. Implementation Roadmap
 
-**Note**: The implementation roadmap below provides a suggested sequence of phases. The exact details and API may be refined during implementation. This is a guideline, not a fixed specification.
+**Note**: The implementation roadmap below provides a suggested sequence of phases. The exact details and API may be refined during implementation. This is a guideline, not a fixed specification. Task IDs are TBD — ecs-021 is assigned to the parallel pipeline; rendering tasks will be numbered from wherever the sequence lands after that.
 
-### Phase 1: Base Commands and Collectors (ecs-021)
+### Phase 1: Base Commands and Collectors
 - [ ] Define `Render_commands.mli` with base command type
 - [ ] Define base collectors (collect_sprites, collect_cameras, etc.)
 - [ ] Implement base collectors that add base commands
 - [ ] Unit tests for base commands and collectors
 
-### Phase 2: Render Graph (ecs-022)
+### Phase 2: Render Graph
 - [ ] Define `Render_graph.S` signature (generic over command type)
 - [ ] Implement generic render graph structure
 - [ ] Support for adding and iterating commands
 - [ ] Unit tests for graph operations
 
-### Phase 3: Render Pipeline (ecs-023)
+### Phase 3: Render Pipeline
 - [ ] Define `Render_pipeline.S` signature (mirrors ECS Pipeline, generic over command type)
 - [ ] Implement pipeline with phases and ordering (before/after)
 - [ ] Support for collectors attached to phases
 - [ ] Topological phase ordering
 - [ ] Integration tests
 
-### Phase 4: Render System (ecs-024)
+### Phase 4: Render System
 - [ ] Define `Render_system.S` signature
 - [ ] Implement system that:
   - Initializes RenderGraph each frame
@@ -783,13 +783,13 @@ let collect_cameras world graph =
   - Calls backend.render with graph
 - [ ] Integration with ECS Pipeline
 
-### Phase 5: Rendering Backend (ecs-025)
+### Phase 5: Rendering Backend
 - [ ] Define `Rendering_backend.S` signature
 - [ ] Implement simple reference backend
 - [ ] Show how backends extend base commands
 - [ ] Documentation for backend creation
 
-### Phase 6: Backend Implementations (ecs-026)
+### Phase 6: Backend Implementations
 - [ ] Implement terminal backend (ASCII art)
 - [ ] Implement simple OpenGL backend
 - [ ] Document backend creation patterns

@@ -2,7 +2,7 @@
 
 ## Status
 
-**DRAFT — not finished.** Proposed. Supersedes the `iterN` terminator design in
+**IMPLEMENTED** (ecs-020). Supersedes the `iterN` terminator design in
 [eon_engine_query_design.md](eon_engine_query_design.md) (§3 execution
 functions, §6 three-list/arity semantics, and the §7 "write your own iter5"
 rule). Composes cleanly with [world_module_design.md](world_module_design.md)

@@ -61,10 +61,10 @@ let () =
 ## ▶️ Running
 
 ```sh
-opam install bechamel  # one-time setup
-
-dune exec eon_ecs/bench/bench_sparse_set.exe --profile=release
+just bench sparse_set
 ```
+
+(`just bench <name>` compiles with `--profile=release` and runs the suite. See `Justfile` for the full recipe.)
 
 ## 🏗️ Building Query Worlds for Benches
 
