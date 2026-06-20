@@ -563,29 +563,27 @@ module Single_bus : S  (* same-frame; drain = collect; mutex on emit *)
 module Double_bus : S  (* next-frame; emit → next queue; mutex on emit *)
 ```
 
-Each module is a flat record with its own `Queue.t`, `Mutex.t`, and handler
-list. `emit` is the only operation that locks; all other operations run
-sequentially outside the parallel phase window and need no locking:
+Each module **embeds** the corresponding `Eon_ecs` bus type and adds a
+`Mutex.t`. `emit` is the only operation that locks; all other operations
+delegate to the inner bus and run sequentially outside the parallel phase
+window. This is the same pattern `Eon_engine.System.Make` uses — embed the
+core, add one capability on top:
 
 ```ocaml
 (* eon_engine/single_bus.ml *)
-type 'a t = {
-  queue    : 'a Queue.t;
-  mutex    : Mutex.t;
-  handlers : ('a -> unit) list ref;
-}
+type 'a t = { inner : 'a Eon_ecs.Single_bus.t; mutex : Mutex.t }
 
-let create ()    = { queue = Queue.create (); mutex = Mutex.create (); handlers = ref [] }
-let emit t msg   = Mutex.lock t.mutex; Queue.push msg t.queue; Mutex.unlock t.mutex
-let on t h       = t.handlers := h :: !(t.handlers)
-let collect t    = Queue.iter (fun m -> List.iter (fun h -> h m) !(t.handlers)) t.queue;
-                   Queue.clear t.queue
-let drain        = collect
+let create ()  = { inner = Eon_ecs.Single_bus.create (); mutex = Mutex.create () }
+let emit t msg = Mutex.lock t.mutex; Eon_ecs.Single_bus.emit t.inner msg; Mutex.unlock t.mutex
+let on t h     = Eon_ecs.Single_bus.on t.inner h
+let collect t  = Eon_ecs.Single_bus.collect t.inner
+let drain      = collect
 ```
 
-`Double_bus` follows the same structure with a `current`/`next` queue pair;
-`emit` pushes to `next` under the mutex; `drain` runs `collect` on `current`
-then swaps — both sequentially, no locking needed.
+`Double_bus` follows the same embedding pattern with `Eon_ecs.Double_bus.t` as
+the inner type; `emit` delegates to the inner bus's `emit` under the mutex;
+`drain` delegates to the inner bus's `drain` — both sequentially, no locking
+needed.
 
 Bus instances are threaded through the world as services — the same
 service-locator pattern as the core. Before calling `register_all`, the user
