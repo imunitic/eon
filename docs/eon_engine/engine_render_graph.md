@@ -101,11 +101,13 @@ The engine only provides the data.
 
 ## Implementation Roadmap
 
-| Phase | Task ID | Description |
-|-------|---------|-------------|
-| 1 | ecs-021 | `Render_commands.mli` + base collectors |
-| 2 | ecs-022 | `Render_graph` (generic over command type) |
-| 3 | ecs-023 | `Render_pipeline` (phases, ordering, topo sort) |
-| 4 | ecs-024 | `Render_system` (ECS system, world data plane handoff) |
-| 5 | ecs-025 | `Rendering_backend.S` + reference backend |
-| 6 | ecs-026 | Terminal backend + OpenGL backend |
+Task IDs are TBD — ecs-021 is the parallel pipeline; rendering tasks will be numbered from wherever the sequence lands after that.
+
+| Phase | Description |
+|-------|-------------|
+| 1 | `Render_commands.mli` + base collectors |
+| 2 | `Render_graph` (generic over command type) |
+| 3 | `Render_pipeline` (phases, ordering, topo sort) |
+| 4 | `Render_system` (ECS system, world data plane handoff) |
+| 5 | `Rendering_backend.S` + reference backend |
+| 6 | Terminal backend + OpenGL backend |

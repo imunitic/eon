@@ -2,8 +2,7 @@
 
 ## Status
 
-**DRAFT — not finished.** Proposed / design notes. Captures the concurrency philosophy and the
-engine-layer parallel pipeline model. Interacts with
+**DESIGN SETTLED** — philosophy and invariants are decided. Implementation is ecs-021. Interacts with
 [world_module_design.md](world_module_design.md) and
 [query_view_design.md](query_view_design.md) (read access via the view).
 
@@ -42,13 +41,13 @@ solution baked into the core.
   build on. If the core left phase ordering loose, the engine could not promise
   the barriers the parallel model depends on.
 - **`eon_engine` ships its own pipeline** with sequential *phases* but optionally
-  *parallel systems within a phase*, gated by `Read_only` / `Read_write` phase
-  tags. This is opt-in and layered on top of the sequential core.
+  *parallel systems within a phase*, enforced by `World_cap` phantom capability
+  types (`ro`/`rw`). This is opt-in and layered on top of the sequential core.
 
 ```
 game code
     ↓
-Engine parallel pipeline   ← Read_only/Read_write phase tags, parallel systems (eon_engine)
+Engine parallel pipeline   ← World_cap ro/rw phantom types, parallel systems (eon_engine)
     ↓
 Sequential primitives      ← Pipeline/System, strictly sequential (eon_ecs, unchanged)
 ```
@@ -301,36 +300,29 @@ for the rare blind-write handler.
 
 ## 8. Buses under parallelism
 
+**Decision: `Eon_engine` owns its own mutex-aware `Single_bus` and `Double_bus`
+implementations; `eon_ecs` buses are left completely untouched.**
+
 Signals / Events / Commands are emitted-to during systems. If parallel systems
-`emit` to one shared bus concurrently, that races — unless the bus is
-thread-safe, which would violate "no thread-safety imposed in core."
+`emit` to one shared bus concurrently, that races. The fix is a **`Mutex` on
+`emit`** only — self-contained in the bus, no changes to Executor, Pipeline,
+World, or system interface.
 
-**Model (Bevy-style): parallelize only the `emit`; keep dispatch sequential.**
+`eon_engine` defines `Bus.S` (= `Eon_ecs.Bus.BUS`) and provides standalone
+implementations:
 
-- Each worker gets a **thread-local buffer**; `emit` appends to it. Appends to
-  per-worker buffers do not race.
-- Handlers / subscriber callbacks (which may mutate the world) are **never** run
-  concurrently — they fire sequentially at the sync point, exactly as today.
-- Merge the per-worker buffers at the **phase barrier** (the end-of-parallel-phase
-  sync point), before any subsequent phase or drain reads them. Deferring all the
-  way to "just before drain" is correct only if no intervening same-tick phase
-  inspects the bus; merging at the barrier is the safer general rule.
+- **`Eon_engine.Single_bus`**: flat record with `Queue.t`, `Mutex.t`, and
+  handlers. `emit` locks; `drain`/`collect`/`on` run sequentially and need no
+  locking.
+- **`Eon_engine.Double_bus`**: same structure with `current`/`next` queue pair;
+  `emit` pushes to `next` under the mutex; `drain` runs `collect` on `current`
+  then swaps — both sequentially.
 
-Per bus:
+Per-worker local buffers (the alternative) were rejected: they cannot be
+contained in the Executor without touching World, bus, or system interface.
 
-| Bus | Type | Merge target |
-|---|---|---|
-| Signals | `Single_bus` | merge into main queue at barrier; handlers fire at drain |
-| Commands | `Single_bus` | merge into main queue at barrier; handlers fire at drain |
-| Events | `Double_bus` | merge into the `next` queue before the end-of-frame swap |
-
-**The merge must be deterministic** — stable worker order (e.g. worker index,
-then local append order). Otherwise command/event ordering varies run-to-run and
-you lose reproducibility (replays, deterministic netcode, debugging). Parallel
-*execution*, deterministic *merge*.
-
-> Status: a fully worked parallel-bus design is **not yet settled** — this is the
-> agreed model/direction, not a final spec.
+See [parallel_pipeline_execution.md §8](parallel_pipeline_execution.md) for the
+full module shapes and rationale.
 
 ---
 
@@ -371,46 +363,26 @@ frame order. Invariant (2) is a compile-time guarantee enforced by `World_cap`.
 
 The engine ships its own **`Eon_engine.Pipeline.Make(System)(Executor)`**
 functor — the same Make idiom as the core's `Pipeline.Make`, **not** a wrapper
-over the core pipeline, and entirely engine-side (`eon_ecs` untouched).
+over the core pipeline, and entirely engine-side (`eon_ecs` untouched except for
+`Dependency_graph`).
 
 - **The dependency graph is extracted into the core as a public primitive.**
-  Today the core's `topo_sort` lives *inside* its `Make` functor body
-  ([pipeline.ml:112](../../eon_ecs/pipeline.ml)), so it is not callable without
-  instantiating the core functor, and the engine package — being separate — could
-  not reuse it at all without duplicating ~35 lines. Instead of duplicating, we
-  pull the dependency-ordering logic out into its own module,
-  `Eon_ecs.Dependency_graph` (a generic DAG: add node, add `before`/`after`
-  edge, `topo_sort`, cycle detection), and **re-export it from `eon_ecs.mli`** so
-  the engine package can depend on it. `Eon_ecs.Pipeline.Make` is refactored to
-  *delegate* to it (behaviour-preserving — same ordering, same cache-invalidation
-  semantics), and `Eon_engine.Pipeline.Make(System)(Executor)` reuses the same
-  primitive rather than re-implementing the graph.
+  `Eon_ecs.Dependency_graph` (a generic DAG: `add_node`, `before`/`after` edge,
+  `topo_sort` with caching, cycle detection) is re-exported from `eon_ecs.mli`.
+  `Eon_ecs.Pipeline.Make` is refactored to delegate to it (behaviour-preserving).
+  `Eon_engine.Pipeline.Make(System)(Executor)` reuses the same primitive rather
+  than re-implementing the graph. See [parallel_pipeline_execution.md §2](parallel_pipeline_execution.md).
 
-  *Why this is an `eon_ecs` change worth making:* topo-sort is not a
-  *responsibility* of the pipeline — it is a *dependency* the pipeline consumes.
-  The pipeline's job is phase scheduling and system execution; ordering a DAG is
-  a separable, fundamental, stable concern. Extracting it is a separation-of-
-  concerns refactor that also yields a reusable public seam (users building their
-  own schedulers get it too). It clears the same bar as `iter_entities`:
-  fundamental, philosophy-preserving, additive (new public module, no signature
-  change to existing API), and now backed by **two concrete consumers** (both
-  pipelines). The trade-off is added public surface + a behaviour-preserving
-  refactor of `Pipeline.Make` versus the ~35-line duplicate — and the package
-  boundary makes duplication the *only* alternative, since a functor-body-local
-  helper cannot cross into `eon_engine`.
+- **No phase tags.** All phases dispatch via `Executor` — `Sequential` gives
+  the sequential fallback, `Domain_pool` gives parallelism. Phase tags were
+  dropped: since all system `update` functions must take `World_cap.ro World_cap.t`,
+  every phase is always safe to run in parallel. A per-phase tag would only
+  re-state what the type system already guarantees. See §4.
 
-  Only the execution loop is necessarily reimplemented in the engine variant,
-  since it goes from a sequential fold to tag-aware dispatch — that genuinely is
-  pipeline-specific and stays per-pipeline.
-- **Phase tags ride the existing metadata slot.** The core stores phases as
-  `('phase, unit) Hashtbl.t` — that `unit` is a placeholder. The engine variant
-  stores `('phase, phase_kind)` carrying `Read_only` / `Read_write`.
-- **Execution:** `Read_write` phases run their systems sequentially; `Read_only`
-  phases dispatch systems through `Executor`. A `Sequential` executor recovers
-  exactly the core's behaviour, so the parallel pipeline degrades cleanly.
-- **Orthogonality:** the phase tag is independent of the existing system `kind`
-  (`run_by_filter`, used for fixed/variable timestep filtering). Do not conflate
-  them.
+- **Execution:** `Executor.run_all` receives jobs for each phase's systems and
+  blocks until all complete. Phase boundary = sync point. `run_by_filter` filters
+  by system `kind` (`Fixed`/`Variable`) before dispatching. See
+  [parallel_pipeline_execution.md §7](parallel_pipeline_execution.md).
 
 ## 12. Open Decisions
 

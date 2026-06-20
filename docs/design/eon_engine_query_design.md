@@ -1,5 +1,20 @@
 # Eon Engine — Query Layer Design
 
+> **PARTIALLY SUPERSEDED.** The `Query_backend.S` signature (§1), the
+> `Sparse_set_backend` (§2), and the `Query.Make` builder (§3) have been
+> implemented but with a different API than described here:
+>
+> - `Query_backend.S` has only `iter_entities` + `count` (not `iter1..iter4`).
+>   See the actual `eon_engine/query_backend.mli`.
+> - `iter1..iter4` terminators and `with_component` are replaced by a single
+>   `iter` + `View.get`. See [query_view_design.md](query_view_design.md).
+> - `Archetype_backend` and the `Fallback` functor were **dropped** as premature.
+>   See [world_module_design.md](world_module_design.md).
+> - `eon_ecs` core received `iter_entities` (ecs-020) and will receive
+>   `Dependency_graph` (ecs-021) — the "frozen at 1.0" framing in §9 is stale.
+>
+> This document is retained as historical context for the design evolution.
+
 ## Context
 
 `eon_ecs` core ships a minimal `Query` module with `iter1`/`iter2`/`iter3`/`iter4` functions
@@ -93,7 +108,7 @@ Files: `eon_engine/sparse_set_backend.ml` / `sparse_set_backend.mli`
 - No reference to `Eon_ecs.World.t` or `Eon_ecs.Query` — works entirely through `World.S`
 - This is the **default backend** — thin wrapper, no new storage logic
 
-### `Archetype_backend` *(planned — ecs-016, not yet implemented)*
+### `Archetype_backend` *(DROPPED — premature optimisation; see world_module_design.md)*
 
 > **See [world_module_design.md](world_module_design.md) for the authoritative design.**
 > The summary below is kept for orientation only.
@@ -105,7 +120,7 @@ Files: `eon_engine/sparse_set_backend.ml` / `sparse_set_backend.mli`
 - Falls back to sparse set reads for component values (archetypes are a **query
   acceleration cache**, NOT a replacement storage — sparse sets remain authoritative)
 
-### `Fallback` functor *(planned — ecs-016, not yet implemented)*
+### `Fallback` functor *(DROPPED — premature; no archetype backend to fall back from)*
 
 File: `eon_engine/query_backend_fallback.ml`
 

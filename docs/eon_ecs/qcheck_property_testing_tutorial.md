@@ -127,7 +127,7 @@ qcheck random seed: 125386556
 Re-run with that seed to reproduce:
 
 ```sh
-QCHECK_SEED=125386556 opam exec -- dune exec eon_ecs/test/test_main.exe -- test "Sparse Set \(QCheck\)"
+QCHECK_SEED=125386556 just test eon_ecs/test/test_main.exe
 ```
 
 Useful environment variables:

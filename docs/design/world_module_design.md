@@ -2,10 +2,10 @@
 
 ## Status
 
-**DRAFT — not finished.** Earlier revisions of this document described an
-archetype cache (Bitset, Archetype_index, Archetype_backend) and a `World.Make`
-functor parameterised over a `TRACKING` signature. Both have been dropped as
-premature optimisations. This document covers only what is worth implementing now:
+**IMPLEMENTED** (ecs-016/017/019). Earlier revisions of this document described
+an archetype cache (Bitset, Archetype_index, Archetype_backend) and a
+`World.Make` functor parameterised over a `TRACKING` signature. Both were dropped
+as premature optimisations. This document covers what was implemented:
 the `World.S` signature, the per-world `Id_counter`, and the
 `Sparse_set_backend.Make(W : World.S)` functor.
 

@@ -159,19 +159,20 @@ Eon Engine includes 9 built-in components:
 
 ### 3.3 API Structure
 
-**Public API** (`eon_engine/eon_engine.mli`):
+**Public API** (`eon_engine/eon_engine.mli`) — key modules:
 ```ocaml
+module World      = World       (* Eon_engine.World.t, not Eon_ecs.World.t *)
 module Components = Components
-
-val is_registered : Eon_ecs.World.t -> 'a Components.t -> bool
-val component : string -> 'a Components.t
-val register : Eon_ecs.World.t -> 'a Components.t -> Components.registration_result
+module Query      = Query       (* Query.Make(Sparse_set_backend.Default) *)
+module View       = View
+(* ... eon_ecs re-exports: Entity_id, Clock, Progress, Loop, ... *)
 ```
 
 **Component Registration Flow**:
-1. Create component descriptor: `let pos = Engine.component "Position"`
-2. Register with world: `Engine.register world pos`
-3. Use with entities: `World.add_component world entity ~name:"Position" data`
+1. Create world: `let world = Eon_engine.World.create ()`
+2. Register all built-in components: `Eon_engine.Components.Engine_components.register_all world`
+3. Add to entities: `Eon_engine.World.add_component world entity Position.component {x=0.;y=0.}`
+4. Query: `Query.from world |> Query.having_all [Position.name; Velocity.name] |> Query.iter (fun view -> ...)`
 
 ### 3.4 Re-export Convention — Single Import Point
 
@@ -201,200 +202,42 @@ changes.
 `World`, `System`, `Pipeline`, `Query`, `Component`, `Bus`, `Single_bus`,
 `Double_bus`. These have engine-specific versions and the `Eon_ecs` originals
 must not be reachable from game code. In particular, `Single_bus` and
-`Double_bus` are engine-owned mutex-aware wrappers around the `eon_ecs`
-originals (see [parallel_pipeline_execution.md §8](parallel_pipeline_execution.md));
-the `eon_ecs` versions remain the no-Mutex sequential implementations used
-internally by the core library.
+`Double_bus` are standalone engine-owned implementations with a `Mutex` on
+`emit` (see [parallel_pipeline_execution.md §8](parallel_pipeline_execution.md));
+the `eon_ecs` originals remain the no-Mutex sequential implementations used
+internally by the core library and are left completely untouched.
 
 **The rule:** If game code would otherwise write `Eon_ecs.X`, it belongs in
 the re-export list. If `Eon_engine` has its own `X`, it does not.
 
-### 3.5 Current Limitations
+## 4. Implemented Features (ecs-016 through ecs-020)
 
-1. **No query builder abstraction**: Direct use of `Eon_ecs.Query` functions
-2. **No backend abstraction**: Tight coupling with `Eon_ecs.World.t`
-3. **No World wrapper**: Users work directly with `Eon_ecs.World`
-4. **No component groups**: Manual registration of each component
-5. **No entity factory patterns**: Manual entity creation and component addition
+The following were delivered in prior tasks and are now part of the engine:
 
-## 4. Future Features Planning
+- **Query backend abstraction** (`Query_backend.S`, `Sparse_set_backend`) — ecs-016.
+  `Query_backend.S` exposes only `iter_entities` + `count`; value extraction is
+  via `View.get`, not per-arity callbacks. Archetype_backend and Fallback functor
+  were dropped as premature.
+- **Query builder** (`Query.Make`) — ecs-016. Single `iter` + `View` terminator
+  replaces `iter1..iter4`. See [query_view_design.md](query_view_design.md).
+- **World wrapper** (`World`, `World.S`) — ecs-016/017. Per-world `Id_counter`
+  (OCaml 5 atomic record field); `to_raw` exposed as extension API.
+- **Component groups** (`Components.register_all`) — ecs-018.
+- **Data/service plane** (`World.add_data`, `World.add_service`, etc.) — ecs-019.
+- **`iter_entities` in `eon_ecs`** + `Query.count` contract fix + `View` — ecs-020.
 
-### 4.1 Next Tasks (ecs-016, ecs-017)
+## 4.1 Next: Parallel Pipeline (ecs-021)
 
-#### 4.1.1 Query Builder and Backend Abstraction (ecs-016)
+The next major task is the parallel execution layer. See
+[parallel_pipeline_execution.md](parallel_pipeline_execution.md) for the full
+spec. Summary of what ecs-021 delivers:
 
-**Goal**: Provide a typed query builder API with pluggable backends.
-
-**Design**:
-```ocaml
-module type Query_backend.S = sig
-  type world
-  val iter1 : world -> includes:string list -> excludes:string list ->
-              (Entity_id.t -> 'a -> unit) -> unit
-  val iter2 : world -> includes:string list -> excludes:string list ->
-              (Entity_id.t -> 'a -> 'b -> unit) -> unit
-  (* ... iter3, iter4, count ... *)
-end
-```
-
-**Backend Implementations**:
-- `Sparse_set_backend`: Default backend, delegates to `Eon_ecs.Query`
-- `Archetype_backend`: Acceleration cache using archetype index
-- `Fallback`: Composable fallback between backends
-
-**Query Builder API**:
-```ocaml
-module Make(B : Query_backend.S) : sig
-  type query
-  val from : B.world -> query
-  val with_component : string -> query -> query
-  val having : string -> query -> query  (* Presence check only *)
-  val not_having : string -> query -> query
-  val iter1 : (Entity_id.t -> 'a -> unit) -> query -> unit
-  (* ... iter2, iter3, iter4, count ... *)
-end
-```
-
-**User Wiring** (compile-time):
-```ocaml
-module Query = Eon_engine.Query.Make(Eon_engine.Sparse_set_backend)
-```
-
-#### 4.1.2 World Wrapper (ecs-017)
-
-**Goal**: Wrap `Eon_ecs.World` in `Eon_engine.World` with higher-level component registration.
-
-**Module Structure**:
-```ocaml
-(* eon_engine.mli - Public API *)
-module World : sig
-  type t = World.t  (* Opaque wrapper, concrete type is { raw : Eon_ecs.World.t } *)
-
-  val create : unit -> t
-  val create_entity : t -> Eon_ecs.Entity_id.t
-  val register : t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
-  val is_registered : t -> 'a Component_descriptor.t -> bool
-  val add_component : t -> Eon_ecs.Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
-  val count_entities : t -> int
-  val is_alive : t -> Eon_ecs.Entity_id.t -> bool
-  (* ... other operations ... *)
-end
-
-module Backend : sig
-  module World : sig
-    val to_raw : World.t -> Eon_ecs.World.t
-  end
-end
-
-module Components : sig
-  val component : string -> 'a Component_descriptor.t
-  val name : 'a Component_descriptor.t -> string
-  val register_all : World.t -> unit
-end
-```
-
-**Key Design Decisions**:
-
-1. **World.t is opaque**: `type t` in `world.mli`, `type t = { raw : Eon_ecs.World.t }` in `world.ml`
-2. **to_raw NOT in public API**: Excluded from `Eon_engine.World` module signature
-3. **Backend module for implementors**: `Backend.World.to_raw` provides extension point for backends
-4. **All world operations through World module**: Registration, entity operations, and queries
-5. **World.ml accesses raw world directly**: No `Backend` involvement inside `world.ml`
-
-**Dependency Management**:
-- `World.mli` uses `Component_descriptor.registration_result` (not `Components.registration_result`) to avoid circular dependency
-- `Components.mli` uses `World.t` for registration functions, but `world.mli` does NOT depend back on `Components`
-- Result: No circular dependencies ✅
-
-**Type Safety**:
-- Entity operations use `'a Component_descriptor.t` (phantom-typed string)
-- Compile-time type checking prevents mismatched component/value types
-- Component descriptors are typed references to component types
-
-**API Consistency**:
-- `Eon_engine.World.create()` - creates world
-- `Eon_engine.World.register world component` - registers component (all through World)
-- `Eon_engine.World.is_registered world component` - checks registration
-- `Eon_engine.World.add_component world entity component value` - type-safe entity operations
-- `Eon_engine.Backend.World.to_raw world` - extension point for backend implementors
-
-**Module Naming**:
-- **Backend** (not Internal): Signals that this is an intentional extension point for backend authors
-- **Not "Internal"**: Because it's not just implementation details - it's a deliberate API for a specific audience
-- **User guidance**: The Backend module docstring says "If you're building a game with eon_engine, you don't need this module"
-
-**User Experience**:
-- Users perform all operations on the World object
-- No need to call functions on other modules for typical operations
-- Component registration via `World.register`, not top-level `Engine.register`
-- Backend implementors have a clearly marked extension point via `Backend`
-
-**Implementation Details**:
-- `world.ml` accesses `world.raw` directly (no Backend wrapper needed)
-- `Backend` module exists only for *external* modules that need raw access
-- `Components.register_all` stays on Components module (component group operation)
-- `Components.registration_result` type stays in components.mli (no cycle there)
-
-### 4.2 Future Roadmap
-
-#### Phase 1: Query System (ecs-016)
-- [ ] Implement `Query_backend.S` signature
-- [ ] Implement `Sparse_set_backend`
-- [ ] Implement `Archetype_backend`
-- [ ] Implement `Query_backend_fallback`
-- [ ] Implement `Query.Make` functor
-- [ ] Update public API exports
-
-#### Phase 2: World Wrapper (ecs-017)
-- [ ] Create `eon_engine/world.mli` and `world.ml`
-- [ ] Implement wrapper with automatic component ID integration
-- [ ] Update `eon_engine.mli` to export `World` module
-- [ ] Add convenience methods for entity creation
-
-#### Phase 3: Component Groups (ecs-018)
-- [ ] Define component group patterns
-- [ ] Provide `register_all` helper for groups
-- [ ] Document composition patterns
-
-#### Phase 4: Entity Factory (ecs-019)
-- [ ] Entity factory pattern for creating entities with predefined components
-- [ ] Template-based entity creation
-- [ ] Prefab system
-
-#### Phase 5: System Integration (ecs-020)
-- [ ] System registration with component dependencies
-- [ ] Automatic system ordering based on component access
-- [ ] Reactive system integration with query builder
-
-#### Phase 6: Rendering Layer (ecs-021 to ecs-024)
-- [ ] Render Graph - Backend-agnostic representation of renderable entities
-- [ ] Rendering Backend - Minimal interface with backend autonomy
-- [ ] Render Pipeline - Collects entities into render graph (similar to ECS Pipeline)
-- [ ] Backend Implementations - Reference backends and documentation
-
-See `docs/design/rendering_layer_design.md` for detailed rendering layer design.
-
-### 4.3 Design Goals for Future Features
-
-**Type Safety**
-- All component operations remain type-safe via phantom types
-- Query builder enforces arity matching at compile time
-- Backend selection is compile-time configurable
-
-**Performance**
-- Sparse set backend provides optimal iteration performance
-- Archetype backend provides acceleration for large worlds
-- Fallback mechanism allows gradual migration
-
-**Composability**
-- Backends can be composed via functors
-- Component groups can be extended
-- Systems can be modularly composed
-
-**Determinism**
-- Query results are deterministic
-- Backend selection is explicit and compile-time
-- No hidden fallbacks or magic
+- `Eon_ecs.Dependency_graph` — extracted topo-sort primitive (additive only)
+- `Eon_engine.Bus` / `Single_bus` / `Double_bus` — standalone mutex-aware buses
+- `Eon_engine.World_cap` — phantom `ro`/`rw` capability wrapper
+- `Eon_engine.Executor` — threading-substrate seam; `Sequential` ships first
+- `Eon_engine.System` — reactive system type with `update : ro World_cap.t`
+- `Eon_engine.Pipeline.Make(System)(Executor)` — parallel dispatch functor
 
 ## 5. Implementation Notes
 
@@ -402,10 +245,25 @@ See `docs/design/rendering_layer_design.md` for detailed rendering layer design.
 
 **eon_engine/**:
 - `eon_engine.mli`, `eon_engine.ml`: Public API
+- `world.mli`, `world.ml`: `World.S` signature + concrete `World` module
+- `world_cap.mli`, `world_cap.ml`: Phantom capability wrapper *(ecs-021)*
+- `query_backend.mli`: `Query_backend.S` signature
+- `query.mli`, `query.ml`: `Query.Make` builder functor
+- `view.mli`, `view.ml`: `View.t` typed cursor for component reads
+- `sparse_set_backend.mli`, `sparse_set_backend.ml`: Default query backend
+- `bus.mli`, `bus.ml`: `Bus.S` signature *(ecs-021)*
+- `single_bus.mli`, `single_bus.ml`: Mutex-aware same-frame bus *(ecs-021)*
+- `double_bus.mli`, `double_bus.ml`: Mutex-aware next-frame bus *(ecs-021)*
+- `executor.mli`, `executor.ml`: `Executor.S` + `Sequential` *(ecs-021)*
+- `system.mli`, `system.ml`: `System` reactive type *(ecs-021)*
+- `pipeline.mli`, `pipeline.ml`: `Pipeline.Make` functor *(ecs-021)*
+- `backend.mli`, `backend.ml`: Extension API (`to_raw`)
 - `components.mli`, `components.ml`: Component registration API
-- `component.mli`, `component.ml`: Component module signature
+- `component.mli`, `component.ml`: `Component.S` module signature
 - `component_descriptor.mli`, `component_descriptor.ml`: Descriptor implementation
-- `components/*.ml`, `components/*.mli`: Built-in component implementations
+- `components/*.ml`, `components/*.mli`: Built-in component implementations (9 components)
+
+Files marked *(ecs-021)* are planned, not yet implemented.
 
 ### 5.2 Build Configuration
 
@@ -444,6 +302,6 @@ See `docs/design/rendering_layer_design.md` for the complete rendering layer des
 
 ## 7. Conclusion
 
-Eon Engine provides a typed, ergonomic component registration API on top of the stable Eon ECS core. The current implementation establishes the foundation for component registration, with planned extensions for query building, world wrapping, rendering layer, and higher-level gameplay features.
+Eon Engine provides a typed, ergonomic layer on top of the stable Eon ECS core: typed component registration, a query builder with `View`-based reads, a `World` wrapper with per-world id allocation and the data/service plane, and (ecs-021) a parallel pipeline with phantom-typed `World_cap` safety.
 
 The design maintains the core Eon principles of minimalism, extensibility, purity, and determinism while providing developer-friendly abstractions for common game development patterns.
