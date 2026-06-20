@@ -28,10 +28,12 @@ eon_engine
   Eon_engine.Executor.Sequential               ← default; recovers sequential behaviour
   Eon_engine.Executor.Domain_pool              ← parallel; OCaml 5 Domains
   Eon_engine.World_cap                         ← phantom capability wrapper; pipeline-internal
+  Eon_engine.Bus                               ← Bus.S signature + Single_bus / Double_bus (mutex-on-emit)
 
 eon_ecs (additive change only)
   Eon_ecs.Dependency_graph                     ← extracted topo-sort primitive (new public module)
   Eon_ecs.Pipeline.Make                        ← refactored to delegate to Dependency_graph
+  (bus modules unchanged — no LOCK functor, no alias updates)
 ```
 
 ---
@@ -291,36 +293,56 @@ pipeline — not a breakage of the chain above it.
 
 ## 8. Bus Emit Under Parallelism
 
-> **WIP — direction agreed, implementation approach not yet decided.** The
-> problem and constraints are settled (§8.1–8.4). The open question is whether
-> to add a `Mutex` directly to the bus or use an injectable `LOCK` functor to
-> keep `eon_ecs` mutex-free (§8.5). Both are correct; the trade-off is API
-> surface vs. philosophical purity.
+**Decision: `Eon_engine` owns its own bus implementations.** `eon_ecs` buses
+are left completely untouched — no `LOCK` functor, no `Make` refactor, no
+alias updates. The engine layer provides mutex-aware `Single_bus` and
+`Double_bus` that it uses for the parallel pipeline.
 
 Systems running in parallel may call `emit` on a bus. The bus queue is a
 mutable OCaml value; concurrent appends from multiple Domains can corrupt it.
 The fix is a **`Mutex` on `emit`** — self-contained in the bus, no changes to
 the Executor, Pipeline, World, or system interface.
 
-### 8.1 The straightforward approach
+### 8.1 `Eon_engine.Bus`
 
-Each bus holds one `Mutex.t`. `emit` locks it, appends the message, unlocks.
+`Eon_engine` defines its own `Bus.S` signature (identical to `Eon_ecs.Bus.BUS`
+for now — a clean extension point if engine buses ever need engine-specific
+capabilities) and provides two standalone implementations:
 
 ```ocaml
-type 'a t = {
-  queue : 'a Queue.t;
-  mutex : Mutex.t;
-  (* ... *)
-}
+(* eon_engine/bus.mli *)
+module type S = Eon_ecs.Bus.BUS
 
-let emit bus msg =
-  Mutex.lock bus.mutex;
-  Queue.push msg bus.queue;
-  Mutex.unlock bus.mutex
+module Single_bus : S  (* same-frame; drain = collect; mutex on emit *)
+module Double_bus : S  (* next-frame; emit → next queue; mutex on emit *)
 ```
 
-The Mutex only guards `emit`. `drain`, `collect`, and handler registration all
-run sequentially — outside the parallel phase window — and need no locking.
+Each module is a flat record with its own `Queue.t`, `Mutex.t`, and handler
+list. `emit` is the only operation that locks; all other operations run
+sequentially outside the parallel phase window and need no locking:
+
+```ocaml
+(* eon_engine/single_bus.ml *)
+type 'a t = {
+  queue    : 'a Queue.t;
+  mutex    : Mutex.t;
+  handlers : ('a -> unit) list ref;
+}
+
+let create ()    = { queue = Queue.create (); mutex = Mutex.create (); handlers = ref [] }
+let emit t msg   = Mutex.lock t.mutex; Queue.push msg t.queue; Mutex.unlock t.mutex
+let on t h       = t.handlers := h :: !(t.handlers)
+let collect t    = Queue.iter (fun m -> List.iter (fun h -> h m) !(t.handlers)) t.queue;
+                   Queue.clear t.queue
+let drain        = collect
+```
+
+`Double_bus` follows the same structure with a `current`/`next` queue pair;
+`emit` pushes to `next` under the mutex; `drain` runs `collect` on `current`
+then swaps — both sequentially, no locking needed.
+
+`Pipeline.Make` and `register_all` use these engine buses internally.
+`eon_ecs.Single_bus` and `eon_ecs.Double_bus` are never touched.
 
 ### 8.2 Why not per-worker local buffers
 
@@ -337,9 +359,8 @@ An uncontended `Mutex.lock`/`unlock` on OCaml 5 is a single atomic CAS,
 roughly 10–30 ns. Emit is a cold-path call — systems emit a handful of
 messages per frame, not inside the hot iteration loop. In a PoE2-scale game
 (400 enemies, 150 projectiles, 300 status-effected entities, 800 animated
-entities) the parallel `Read_only` phase emits roughly 1650 messages per
-frame. At 20 ns each that is **~33 µs out of a 16 ms budget** — 0.2%,
-unmeasurable in practice.
+entities) the parallel phase emits roughly 1650 messages per frame. At 20 ns
+each that is **~33 µs out of a 16 ms budget** — 0.2%, unmeasurable in practice.
 
 ### 8.4 Ordering
 
@@ -349,118 +370,21 @@ independent messages (a Move intent, a Damage event, an animation frame
 update) — subscribers handle their own message types and do not depend on
 interleaving order with other systems in the same phase.
 
-### 8.5 Open: injectable `LOCK` functor vs. hard-coded `Mutex`
+### 8.5 Re-export discipline
 
-> **Not yet decided.**
-
-The straightforward approach (§8.1) adds a `Mutex` directly to the bus,
-which means `eon_ecs` takes a dependency on `Mutex` even in purely sequential
-use. This is technically harmless — `Mutex` is part of the OCaml stdlib — but
-it breaks the philosophy that `eon_ecs` never imposes a concurrency solution.
-
-The alternative is a thin `LOCK` functor seam in `eon_ecs`:
+`Eon_engine` is the single import for game code (see `eon_engine_design.md §3.4`).
+`Single_bus` and `Double_bus` are engine-owned implementations, so they are
+exported directly from `eon_engine.mli` — not re-exported from `eon_ecs`:
 
 ```ocaml
-(* bus.mli *)
-module type LOCK = sig
-  type t
-  val create : unit -> t
-  val lock   : t -> unit
-  val unlock : t -> unit
-end
-
-module No_lock : LOCK  (* all ops are no-ops; zero runtime cost after inlining *)
+(* eon_engine.mli — bus exports *)
+module Bus        = Bus          (* Bus.S signature *)
+module Single_bus = Single_bus   (* engine's mutex-aware implementation *)
+module Double_bus = Double_bus   (* engine's mutex-aware implementation *)
 ```
 
-```ocaml
-(* single_bus.ml *)
-module Make (L : LOCK) : BUS = struct
-  type 'a t = { queue : 'a Queue.t; lock : L.t; ... }
-  let emit bus msg =
-    L.lock bus.lock;
-    Queue.push msg bus.queue;
-    L.unlock bus.lock
-end
-
-module Default = Make(No_lock)  (* consistent with System.Default, Pipeline.Default, etc. *)
-```
-
-`Double_bus` follows the exact same pattern — `Make(L : LOCK)` with `module
-Default = Make(No_lock)`. The lock only guards `emit` there too; `drain`'s
-buffer swap runs sequentially outside the parallel phase window and needs no
-locking.
-
-`eon_engine` then injects the real `Mutex` into both:
-
-```ocaml
-module Mutex_lock : Eon_ecs.Bus.LOCK = struct
-  type t = Mutex.t
-  let create = Mutex.create
-  let lock   = Mutex.lock
-  let unlock = Mutex.unlock
-end
-
-module Single_bus_mt = Eon_ecs.Single_bus.Make(Mutex_lock)
-module Double_bus_mt = Eon_ecs.Double_bus.Make(Mutex_lock)
-```
-
-For this to work `LOCK` must be reachable from outside `eon_ecs`. It should
-be exported via `Bus` in `eon_ecs.mli` — `LOCK` is a bus concern, and `Bus`
-already owns `BUS`:
-
-```ocaml
-(* eon_ecs.mli *)
-module Bus : sig
-  module type BUS  = ...
-  module type LOCK = sig
-    type t
-    val create : unit -> t
-    val lock   : t -> unit
-    val unlock : t -> unit
-  end
-  module No_lock : LOCK
-end
-```
-
-`eon_engine` then references it as `Eon_ecs.Bus.LOCK`, keeping everything
-bus-related in one place in the public API.
-
-**`eon_ecs.ml`/`eon_ecs.mli` alias update (mandatory).** Currently the
-top-level aliases point at the bus modules directly:
-
-```ocaml
-module Signals  = Single_bus   (* currently satisfies BUS *)
-module Events   = Double_bus
-module Commands = Single_bus
-```
-
-After the refactor `Single_bus` and `Double_bus` are functor containers, no
-longer satisfying `BUS` themselves. The aliases must be updated to the
-`Default` instances:
-
-```ocaml
-module Signals  = Single_bus.Default
-module Events   = Double_bus.Default
-module Commands = Single_bus.Default
-```
-
-The same update applies to the corresponding type annotations in
-`eon_ecs.mli`. Everything downstream — `System.Default`, `Pipeline.Default`,
-`Loop.Default` — picks up `Signals`, `Events`, `Commands` transitively and
-requires no further changes.
-
-**Trade-off:**
-
-| | Hard-coded `Mutex` | Injectable `LOCK` |
-|---|---|---|
-| `eon_ecs` mutex-free | No | Yes |
-| Philosophy consistent | Borderline | Fully consistent |
-| Added API surface | None | `LOCK` sig + `No_lock` + `Make` functor per bus |
-| `Default = Make(No_lock)` keeps BC | — | Yes, consistent with rest of eon_ecs |
-| `No_lock` runtime cost | — | Zero after inlining |
-
-The injectable approach is the right call if we care about `eon_ecs` being a
-genuinely mutex-free library. The added surface is small and stable.
+`Eon_ecs.Single_bus` and `Eon_ecs.Double_bus` remain the no-Mutex sequential
+implementations and are not exposed to game code at the engine layer.
 
 ---
 
@@ -515,3 +439,49 @@ The parallel execution is safe iff:
 
 All four invariants are structural or compile-time guarantees — none require
 user promises or tag honesty.
+
+---
+
+## 11. Future: Exclusive System Variant
+
+> **Not planned — captured for future consideration.**
+
+The current design requires all `update` functions to be read-only
+(`World_cap.ro World_cap.t`). This is a deliberate trade: full compile-time
+safety in exchange for pushing all writes into sequential `on_*` handlers.
+
+A natural future extension — consistent with eon's functor style — is an
+`Exclusive` update variant that takes `rw World_cap.t` and is guaranteed to
+run sequentially:
+
+```ocaml
+type update =
+  | Parallel  of (World_cap.ro World_cap.t -> float -> unit)
+  | Exclusive of (World_cap.rw World_cap.t -> float -> unit)
+```
+
+The pipeline would run all `Parallel` systems in the current phase via
+`Executor.run_all`, then run all `Exclusive` systems in that phase one by one
+— no scheduling logic, no conflict graph, no programmer declarations to trust.
+The type guarantees `Parallel` systems never write and `Exclusive` systems
+never run concurrently. This is the same model Bevy calls "exclusive systems."
+
+The `on_*` handler model covers most write-at-update-time cases. Two clear
+exceptions stand out:
+
+**Non-reactive UI logic** — inventory management, skill tree allocation,
+equipment changes, dialogue state. These systems read and write world state
+directly in response to player input; there is no meaningful separation between
+"observe" and "react", no parallelism to exploit, and no bus message that would
+naturally carry the intent. Forcing them through the reactive pattern adds
+indirection without benefit.
+
+**Debugging and inspection tools** — world inspectors, entity browsers,
+component viewers, live-edit tooling. These need arbitrary `rw` access to
+traverse or modify any part of world state, are inherently sequential, and have
+no reactive semantics at all. A bus-driven model would be nonsensical here.
+Exclusive systems give them a clean, first-class slot in the pipeline without
+requiring a separate escape hatch.
+
+In both cases: sequential by construction, `rw` access guaranteed safe, no
+scheduling machinery required.

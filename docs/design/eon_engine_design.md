@@ -176,29 +176,35 @@ val register : Eon_ecs.World.t -> 'a Components.t -> Components.registration_res
 ### 3.4 Re-export Convention — Single Import Point
 
 **`Eon_engine` is the single import for all game code.** Game code should never
-need to open or reference `Eon_ecs` directly. Any `Eon_ecs` type that game code
-needs is re-exported through `Eon_engine` under the same name.
+need to open or reference `Eon_ecs` directly. Every `Eon_ecs` module is either
+owned and replaced by an engine version, or re-exported through `Eon_engine`
+under the same name. The long-term goal is that `Eon_ecs` is an invisible
+implementation detail — no game code ever writes `open Eon_ecs` or
+`Eon_ecs.Foo`.
 
 ```ocaml
-(* eon_engine.mli — re-exports of Eon_ecs types game code needs *)
-module Entity_id  = Eon_ecs.Entity_id
-module Bus        = Eon_ecs.Bus
-module Single_bus = Eon_ecs.Single_bus
-module Double_bus = Eon_ecs.Double_bus
-module Clock      = Eon_ecs.Clock
-module Progress   = Eon_ecs.Progress
-module Loop       = Eon_ecs.Loop
+(* eon_engine.mli — re-exports of Eon_ecs modules with no engine equivalent *)
+module Entity_id         = Eon_ecs.Entity_id
+module Clock             = Eon_ecs.Clock
+module Progress          = Eon_ecs.Progress
+module Loop              = Eon_ecs.Loop
+module Dependency_graph  = Eon_ecs.Dependency_graph
+(* ... all remaining Eon_ecs public modules without an engine replacement *)
 ```
 
-**Why:** When `Eon_engine` eventually replaces an `Eon_ecs` type with its own
-implementation (e.g. `Progress`, `Loop`, or `Entity_id` with engine-specific
-behaviour), the re-export line changes from `= Eon_ecs.X` to `= X_impl`. Game
-code that only ever imports `Eon_engine` recompiles without any code changes.
+**Why:** When `Eon_engine` eventually replaces an `Eon_ecs` module with its own
+implementation, the re-export line changes from `= Eon_ecs.X` to `= X_impl`.
+Game code that only ever imports `Eon_engine` recompiles without any source
+changes.
 
-**What is NOT re-exported:** Modules that `Eon_engine` already owns and
-replaces — `World`, `System`, `Pipeline`, `Query`, `Component`. These have
-engine-specific versions and `Eon_ecs` variants should not be reachable from
-game code.
+**What is NOT re-exported:** Modules that `Eon_engine` owns and replaces —
+`World`, `System`, `Pipeline`, `Query`, `Component`, `Bus`, `Single_bus`,
+`Double_bus`. These have engine-specific versions and the `Eon_ecs` originals
+must not be reachable from game code. In particular, `Single_bus` and
+`Double_bus` are engine-owned mutex-aware wrappers around the `eon_ecs`
+originals (see [parallel_pipeline_execution.md §8](parallel_pipeline_execution.md));
+the `eon_ecs` versions remain the no-Mutex sequential implementations used
+internally by the core library.
 
 **The rule:** If game code would otherwise write `Eon_ecs.X`, it belongs in
 the re-export list. If `Eon_engine` has its own `X`, it does not.

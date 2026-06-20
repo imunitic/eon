@@ -423,7 +423,7 @@ over the core pipeline, and entirely engine-side (`eon_ecs` untouched).
    and is a user-supplied executor a documented extension point from day one?
 3. **Parallel-bus spec.** The per-worker buffer approach was rejected (cannot
    be contained in the Executor without touching World, bus, or system
-   interface). The agreed fix is a `Mutex` on `emit` only. The remaining open
-   question — whether to hard-code `Mutex` in the bus or use an injectable
-   `LOCK` functor to keep `eon_ecs` mutex-free — is tracked in
-   [parallel_pipeline_execution.md §8.5](parallel_pipeline_execution.md).
+   interface). The agreed fix is a `Mutex` on `emit` only. **Decided:**
+   `eon_engine` owns its own `Single_bus` / `Double_bus` implementations with
+   a mutex on `emit`; `eon_ecs` buses are left completely untouched. See
+   [parallel_pipeline_execution.md §8](parallel_pipeline_execution.md).
