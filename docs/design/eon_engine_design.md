@@ -190,20 +190,20 @@ module Clock             = Eon_ecs.Clock
 module Progress          = Eon_ecs.Progress
 module Loop              = Eon_ecs.Loop
 module Dependency_graph  = Eon_ecs.Dependency_graph
-(* ... all remaining Eon_ecs public modules without an engine replacement *)
+(* ... all remaining Eon_ecs public modules without an engine wrapper *)
 ```
 
-**Why:** When `Eon_engine` eventually replaces an `Eon_ecs` module with its own
-implementation, the re-export line changes from `= Eon_ecs.X` to `= X_impl`.
-Game code that only ever imports `Eon_engine` recompiles without any source
-changes.
+**Why:** When `Eon_engine` wraps an `Eon_ecs` module with its own implementation
+(e.g. `World` wrapping `Eon_ecs.World`), the re-export changes from
+`= Eon_ecs.X` to the engine's wrapper. Game code that only ever imports
+`Eon_engine` recompiles without any source changes.
 
-**What is NOT re-exported:** Modules that `Eon_engine` owns and replaces —
+**What is NOT re-exported:** Modules that `Eon_engine` wraps and extends —
 `World`, `System`, `Pipeline`, `Query`, `Component`, `Bus`, `Single_bus`,
-`Double_bus`. These have engine-specific versions and the `Eon_ecs` originals
-must not be reachable from game code. In particular, `Single_bus` and
-`Double_bus` are standalone engine-owned implementations with a `Mutex` on
-`emit` (see [parallel_pipeline_execution.md §8](parallel_pipeline_execution.md));
+`Double_bus`. These have engine-specific wrappers that build upon the `Eon_ecs`
+originals. In particular, `Single_bus` and `Double_bus` are standalone
+engine-owned implementations with a `Mutex` on `emit` (see
+[parallel_pipeline_execution.md §8](parallel_pipeline_execution.md));
 the `eon_ecs` originals remain the no-Mutex sequential implementations used
 internally by the core library and are left completely untouched.
 
@@ -230,14 +230,21 @@ The following were delivered in prior tasks and are now part of the engine:
 
 The next major task is the parallel execution layer. See
 [parallel_pipeline_execution.md](parallel_pipeline_execution.md) for the full
-spec. Summary of what ecs-021 delivers:
+spec. The engine **builds upon** `eon_ecs` — wraps core modules rather than
+replacing them. Summary of what ecs-021 delivers:
 
-- `Eon_ecs.Dependency_graph` — extracted topo-sort primitive (additive only)
+- `Eon_ecs.Dependency_graph` — extracted topo-sort primitive (the **only** `eon_ecs` change)
 - `Eon_engine.Bus` / `Single_bus` / `Double_bus` — standalone mutex-aware buses
 - `Eon_engine.World_cap` — phantom `ro`/`rw` capability wrapper
 - `Eon_engine.Executor` — threading-substrate seam; `Sequential` ships first
-- `Eon_engine.System` — reactive system type with `update : ro World_cap.t`
-- `Eon_engine.Pipeline.Make(System)(Executor)` — parallel dispatch functor
+- `Eon_engine.System.Make(Core_system)` — wraps any `Eon_ecs.System.S` with `World_cap` (functor; `Default = Make(Eon_ecs.System.Default)`)
+- `Eon_engine.Pipeline.Make(System)(Executor)` — parallel dispatch via Executor, reuses `Eon_ecs.Dependency_graph`; output satisfies `Eon_ecs.Pipeline.S`
+- `Eon_engine.Loop_buses` — `BUSES` module reading engine bus instances from world services for collect/drain
+
+No changes to `Eon_ecs.System.S`, `Eon_ecs.Pipeline.S`, `Eon_ecs.Progress`, or
+`Eon_ecs.Loop`. `Eon_ecs.Progress.Make(Eon_engine.Pipeline.Default)` works
+directly — no adapter needed. The engine demonstrates the extension pattern:
+embed the core type, delegate to it, add capabilities on top.
 
 ## 5. Implementation Notes
 

@@ -362,9 +362,17 @@ frame order. Invariant (2) is a compile-time guarantee enforced by `World_cap`.
 ## 11. Pipeline Implementation (decided)
 
 The engine ships its own **`Eon_engine.Pipeline.Make(System)(Executor)`**
-functor — the same Make idiom as the core's `Pipeline.Make`, **not** a wrapper
-over the core pipeline, and entirely engine-side (`eon_ecs` untouched except for
-`Dependency_graph`).
+functor — a genuinely new pipeline with parallel dispatch, **not** a wrapper
+over the core pipeline. It reuses `Eon_ecs.Dependency_graph` for phase ordering
+and dispatches system `update_ro` closures via `Executor.run_all`.
+
+The engine's `System.make` **wraps** `Eon_ecs.System.make_reactive` (following
+the same pattern as `Eon_engine.World` wrapping `Eon_ecs.World`). The returned
+system embeds a core `Eon_ecs.System.Default.t` — fully compatible with
+`Eon_ecs.Pipeline.Make` for sequential execution.
+
+`eon_ecs` is untouched except for `Dependency_graph`. No changes to
+`Eon_ecs.System.S`, `Eon_ecs.Pipeline.S`, `Eon_ecs.Progress`, or `Eon_ecs.Loop`.
 
 - **The dependency graph is extracted into the core as a public primitive.**
   `Eon_ecs.Dependency_graph` (a generic DAG: `add_node`, `before`/`after` edge,
