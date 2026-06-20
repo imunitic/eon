@@ -236,26 +236,50 @@ own replacement for an `Eon_ecs` type, the re-export line is swapped — zero
 call-site changes for users.
 
 Modules `Eon_engine` already owns (do **not** re-export from `Eon_ecs`):
-`World`, `System`, `Pipeline`, `Query`, `Component`.
+`World`, `System`, `Pipeline`, `Query`, `Component`, `Bus`, `Single_bus`, `Double_bus`,
+`Signals`, `Events`, `Commands`.
+
+`Signals`, `Events`, `Commands` are semantic aliases (`Single_bus` / `Double_bus` /
+`Single_bus`) defined in the engine composition root — the same pattern as `eon_ecs`.
+Game code uses `Commands.emit`, never `Single_bus.emit` or `Double_bus.emit`.
 
 Modules re-exported from `Eon_ecs` (game code uses `Eon_engine.X`, not `Eon_ecs.X`):
-`Entity_id`, `Bus`, `Single_bus`, `Double_bus`, `Clock`, `Progress`, `Loop`.
+`Entity_id`, `Clock`, `Progress`, `Loop`.
+
+### Extension pattern — build upon, don't replace
+
+`Eon_engine` wraps `Eon_ecs` modules rather than replacing them:
+
+- `Eon_engine.World` wraps `Eon_ecs.World` with typed component descriptors
+- `Eon_engine.System.Make(Core_system)` wraps any `Eon_ecs.System.S` with `World_cap` capabilities
+- `Eon_engine.Pipeline.Make` uses `Eon_ecs.Dependency_graph` for phase ordering
+
+The embedded core types are fully functional — engine systems work with both
+`Eon_ecs.Pipeline.Make` (sequential) and `Eon_engine.Pipeline.Make` (parallel).
 
 ### Two pipeline stacks
 
-| Stack | When to use | System type | World type |
+| Use case | Pipeline | Executor | System type |
 |---|---|---|---|
-| Sequential | default; no parallelism needed | `Eon_ecs.System` | `Eon_engine.World.t` |
-| Parallel | opt-in; `Eon_engine.Pipeline` | `Eon_engine.System` | `World_cap.ro/rw World_cap.t` |
+| No `World_cap` needed | `Eon_ecs.Pipeline.Make(Eon_ecs.System.Default)` | N/A (core fold) | `Eon_ecs.System.Default` |
+| Engine sequential | `Eon_engine.Pipeline.Make(System.Default)(Sequential)` | `Sequential` | `Eon_engine.System.Default` |
+| Engine parallel | `Eon_engine.Pipeline.Make(System.Default)(Domain_pool)` | `Domain_pool` | `Eon_engine.System.Default` |
 
-Never mix system types across stacks.
+Engine systems always go through `Eon_engine.Pipeline.Make`. The executor controls
+parallelism — `Sequential` for deterministic single-threaded dispatch, `Domain_pool`
+for concurrent dispatch. The same `System.Default.make` definition works with both;
+swap the executor, not the system code.
+
+`Eon_engine.System.Default.t` is its own record type (stores `update_kind` alongside
+the embedded core) and does not satisfy `Eon_ecs.System.S`. Never pass engine systems
+to `Eon_ecs.Pipeline.Make`.
 
 ### Parallel pipeline — reactive system model
 
-The parallel pipeline only accepts `Eon_engine.System`. All systems in the
-parallel pipeline follow the reactive model:
+All systems in the parallel pipeline follow the reactive model:
 
-- `update : World_cap.ro World_cap.t -> float -> unit` — **always read-only**, enforced at compile time. Runs in parallel across all systems in a phase.
+- `update_kind = Parallel of (World_cap.ro World_cap.t -> float -> unit)` — **always read-only**, enforced at compile time. Runs in parallel across all systems in a phase.
+- `update_kind = Exclusive of (World_cap.rw World_cap.t -> float -> unit)` — **always sequential**, runs after parallel systems in the same phase. Can write world state directly.
 - `on_signal / on_event / on_command : World_cap.rw World_cap.t -> ... -> unit` — **always read-write**, always sequential (fire during `collect`/`drain`, never during `tick`).
 
 `on_*` handlers are optional — defaulting to no-ops makes a non-reactive system.
