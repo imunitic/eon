@@ -1,3 +1,7 @@
+module Signals  = Single_bus
+module Events   = Double_bus
+module Commands = Single_bus
+
 type world = Eon_ecs.World.t
 
 let require_service world name =
@@ -8,17 +12,17 @@ let require_service world name =
                 (Hashtbl.hash name land Stdlib.max_int))
 
 let collect world =
-  let signals  : _ Single_bus.t = require_service world `Signals  in
-  let events   : _ Double_bus.t = require_service world `Events   in
-  let commands : _ Single_bus.t = require_service world `Commands in
-  Single_bus.collect signals;
-  Double_bus.collect events;
-  Single_bus.collect commands
+  let signals  : _ Signals.t  = require_service world `Signals  in
+  let events   : _ Events.t   = require_service world `Events   in
+  let commands : _ Commands.t = require_service world `Commands in
+  Signals.collect  signals;
+  Events.collect   events;
+  Commands.collect commands
 
 let drain world =
-  let signals  : _ Single_bus.t = require_service world `Signals  in
-  let events   : _ Double_bus.t = require_service world `Events   in
-  let commands : _ Single_bus.t = require_service world `Commands in
-  Single_bus.drain signals;
-  Single_bus.drain commands;
-  Double_bus.drain events
+  let signals  : _ Signals.t  = require_service world `Signals  in
+  let events   : _ Events.t   = require_service world `Events   in
+  let commands : _ Commands.t = require_service world `Commands in
+  Signals.drain  signals;
+  Commands.drain commands;
+  Events.drain   events
