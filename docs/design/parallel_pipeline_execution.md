@@ -2,11 +2,10 @@
 
 ## Status
 
-**DRAFT — active design.** Implementation specification for the `eon_engine`
-parallel pipeline. The concurrency philosophy, invariants, and frame-order
-constraints live in [thread_safety_design.md](thread_safety_design.md) — read
-that first. This document translates those decisions into concrete module
-shapes, functor signatures, and execution algorithms.
+**IMPLEMENTED (ecs-021).** Modules shipped, tested, and committed. The
+concurrency philosophy, invariants, and frame-order constraints live in
+[thread_safety_design.md](thread_safety_design.md). This document is the
+authoritative reference for the parallel pipeline design.
 
 ---
 
@@ -185,20 +184,30 @@ developer constructs.
 
 ### 5.1 Implementation structure
 
-The engine system record stores the embedded core system and the original
-`update_kind` value alongside it:
+The engine system record stores user handlers directly alongside `update_kind`.
+This avoids the `World.t`/`World_cap.t` mismatch that would arise from embedding
+a `Core_system.t` (which expects `Eon_ecs.World.t`) inside a type whose handlers
+expect `World_cap.rw World_cap.t`:
 
 ```ocaml
 (* eon_engine/system.ml — inside Make(Core_system) *)
 type ('s, 'e, 'c) t = {
-  core        : ('s, 'e, 'c) Core_system.t;
+  register    : Eon_ecs.World.t -> unit;
   update_kind : update_kind;
+  kind        : kind;
+  on_signal   : World_cap.rw World_cap.t -> 's -> unit;
+  on_event    : World_cap.rw World_cap.t -> 'e -> unit;
+  on_command  : World_cap.rw World_cap.t -> 'c -> unit;
 }
 ```
 
-`is_parallel`, `update_ro`, `update_rw` project from this record. `register`
-and `attach` delegate to the embedded `core`. The `.mli` exports `module type S`
-(§5.2) with an abstract `type t` — the record fields are not visible to callers.
+`update_ro` and `update_rw` dispatch from `update_kind` directly. `attach`
+(called by `register_all`) reads bus instances from world services and wires the
+stored handlers as subscribers — the same service-locator pattern as
+`Eon_ecs.System.attach_handlers`. `register` is a no-op placeholder; component
+pre-registration happens at world setup time via `World.register`, not per-system.
+The `.mli` exports `module type S` (§5.2) with an abstract `type t` — the record
+fields are not visible to callers.
 
 ### 5.2 Public API — `S` and `DISPATCH`
 
@@ -238,8 +247,8 @@ module type DISPATCH = sig
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
-  val register    : ('s, 'e, 'c) t -> World.t -> unit
-  val attach      : ('s, 'e, 'c) t -> World.t -> unit
+  val register    : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
+  val attach      : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
 end
 
 module Make (Core_system : Eon_ecs.System.S) : DISPATCH
@@ -280,43 +289,27 @@ explicitly rather than `System.Default`. The common case — `System.Default.mak
 for defining systems and `Pipeline.Default` for running them — requires zero
 knowledge of `DISPATCH`.
 
-### 5.3 `make` — wraps at construction time
+### 5.3 `make` — stores handlers at construction time
 
 ```ocaml
 (* eon_engine/system.ml — inside Make(Core_system) *)
 
-let make ?on_signal ?on_event ?on_command ?(kind = Core_system.default_kind) update_kind =
-  let wrapped_update world dt = match update_kind with
-    | Parallel f ->
-      let ro = World_cap.readonly (World_cap.wrap world) in
-      f ro dt
-    | Exclusive f ->
-      let rw = World_cap.wrap world in
-      f rw dt
-  in
-  let wrapped_on_signal = match on_signal with
-    | None -> Core_system.ignore_signal
-    | Some f -> fun world msg -> f (World_cap.wrap world) msg
-  in
-  (* same for on_event, on_command *)
-  let core = Core_system.make_reactive
-    ~update:wrapped_update
-    ~on_signal:wrapped_on_signal
-    ~on_event:wrapped_on_event
-    ~on_command:wrapped_on_command
-    ~kind ()
-  in
-  { core; update_kind; on_signal; on_event; on_command; kind }
+let make ?(on_signal  = fun _ _ -> ())
+         ?(on_event   = fun _ _ -> ())
+         ?(on_command = fun _ _ -> ())
+         ?(kind = default_kind)
+         update_kind =
+  { register = (fun _ -> ()); update_kind; kind; on_signal; on_event; on_command }
 ```
 
-The wrapping is O(1) at construction time. The `wrapped_update` closure
-dispatches based on `update_kind`:
-- `Parallel` — wraps as `ro`, calls the user's parallel closure
-- `Exclusive` — wraps as `rw`, calls the user's exclusive closure
+`make` is O(1) — it stores the user's closures directly without wrapping them.
+The `World_cap` conversion happens later, at dispatch time:
+- `update_ro` — extracts the `Parallel` closure from `update_kind`, passes `ro World_cap.t`
+- `update_rw` — extracts the `Exclusive` closure from `update_kind`, passes `rw World_cap.t`
+- `attach` — wraps the raw world into `rw World_cap.t` and subscribes `on_*` closures to bus instances
 
-At dispatch time, the core pipeline calls `core.update world dt` — the closure
-handles the conversion internally. The engine pipeline accesses `update_kind`
-directly for parallel/exclusive dispatch.
+The default `kind` is borrowed from `Core_system.make_reactive ()` so that
+`System.Default.make` inherits the same default kind as the underlying core system.
 
 ### 5.4 Usage — Parallel and Exclusive systems
 
@@ -417,11 +410,11 @@ module Make
   val after      : later:'phase  -> earlier:'phase -> 'phase t -> 'phase t
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
 
-  val register_all : 'phase t -> World.t -> unit
-  val run          : 'phase t -> World.t -> float -> World.t
+  val register_all : 'phase t -> Eon_ecs.World.t -> unit
+  val run          : 'phase t -> Eon_ecs.World.t -> float -> Eon_ecs.World.t
   val run_by_filter :
     filter:(kind -> bool) ->
-    'phase t -> World.t -> float -> World.t
+    'phase t -> Eon_ecs.World.t -> float -> Eon_ecs.World.t
 
   val phases : 'phase t -> 'phase list
 end
@@ -432,7 +425,7 @@ The explicit `type system_t` and `type kind` aliases mean the output satisfies
 `Eon_ecs.Progress.Make(Eon_engine.Pipeline.Default)` work directly — no adapter
 needed.
 
-`run` and `register_all` take `World.t` — identical to `Eon_ecs.Pipeline.S`.
+`run` and `register_all` take `Eon_ecs.World.t` — identical to `Eon_ecs.Pipeline.S`.
 `World_cap` wrapping is entirely internal to the pipeline; `Progress` and `Loop`
 never see it and require no changes. See §7.4.
 
@@ -447,7 +440,7 @@ logic across the package boundary.
 ### 7.1 Phase-level loop
 
 ```ocaml
-let run t (world : World.t) dt =
+let run t (world : Eon_ecs.World.t) dt =
   let rw = World_cap.wrap world in
   let ro = World_cap.readonly rw in
   (* World_cap.wrap and readonly happen once — zero cost per phase *)
