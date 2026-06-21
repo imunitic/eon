@@ -10,9 +10,14 @@ let add_node node t =
   if List.mem node t.nodes then t
   else { nodes = node :: t.nodes; edges = t.edges; cache = ref None }
 
+let ensure_node node t =
+  if List.mem node t.nodes then t
+  else { t with nodes = node :: t.nodes; cache = ref None }
+
 let before ~earlier ~later t =
+  let t = t |> ensure_node earlier |> ensure_node later in
   if List.exists (fun (a, b) -> a = earlier && b = later) t.edges then t
-  else { nodes = t.nodes; edges = (earlier, later) :: t.edges; cache = ref None }
+  else { t with edges = (earlier, later) :: t.edges; cache = ref None }
 
 let after ~later ~earlier t = before ~earlier ~later t
 

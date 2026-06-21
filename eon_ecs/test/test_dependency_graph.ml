@@ -57,6 +57,18 @@ let test_cycle () =
   check_raises "cycle" (Invalid_argument "Dependency_graph: cycle detected")
     (fun () -> ignore (G.topo_sort g))
 
+let test_before_auto_inserts_nodes () =
+  let g = G.create () |> G.before ~earlier:"A" ~later:"B" in
+  let order = G.topo_sort g in
+  let pos n =
+    let rec go i = function
+      | [] -> failwith "not found"
+      | x :: _ when x = n -> i
+      | _ :: tl -> go (i + 1) tl
+    in go 0 order
+  in
+  check bool "A before B" true (pos "A" < pos "B")
+
 let test_cache_invalidation () =
   let g = G.create () |> G.add_node "A" |> G.add_node "B" in
   ignore (G.topo_sort g);
@@ -74,5 +86,6 @@ let tests =
     test_case "linear chain"       `Quick test_linear_chain;
     test_case "diamond DAG"        `Quick test_diamond;
     test_case "cycle raises"       `Quick test_cycle;
+    test_case "before auto-inserts nodes" `Quick test_before_auto_inserts_nodes;
     test_case "cache invalidation" `Quick test_cache_invalidation;
   ]

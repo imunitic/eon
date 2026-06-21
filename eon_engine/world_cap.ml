@@ -14,7 +14,7 @@ let get_data t                       = World.get_data t.world
 let get_service t                    = World.get_service t.world
 let list_services t                  = World.list_services t.world
 let iter_entities t                  = World.iter_entities t.world
-let has_component t entity name      = World.has_component t.world entity name
+let has_component t entity comp      = World.has_component t.world entity (Component_descriptor.name comp)
 
 (* Write operations — delegate to Eon_engine.World *)
 let create_entity t                  = World.create_entity t.world

@@ -59,23 +59,19 @@ module Bus : sig
 end
 
 (** Same-frame bus with mutex-protected [emit]. Satisfies [Bus.S]. *)
-module Single_bus : sig
-  include Bus.S
-end
+module Single_bus : module type of Single_bus
 
 (** Next-frame bus with mutex-protected [emit]. Satisfies [Bus.S]. *)
-module Double_bus : sig
-  include Bus.S
-end
+module Double_bus : module type of Double_bus
 
-(** Alias: same-frame signals bus. *)
-module Signals  : sig include Bus.S end
+(** Alias: same-frame signals bus. Same type as [Single_bus]. *)
+module Signals  : module type of Single_bus
 
-(** Alias: next-frame events bus. *)
-module Events   : sig include Bus.S end
+(** Alias: next-frame events bus. Same type as [Double_bus]. *)
+module Events   : module type of Double_bus
 
-(** Alias: same-frame commands bus. *)
-module Commands : sig include Bus.S end
+(** Alias: same-frame commands bus. Same type as [Single_bus]. *)
+module Commands : module type of Single_bus
 
 (** {2 World capability} *)
 
@@ -124,10 +120,12 @@ end
 module Pipeline : sig
   module type S = Pipeline.S
 
-  [@@@warning "-67"]
-  (* Build a parallel pipeline over any System.DISPATCH and Executor.
+  (* Warning 67 suppressed permanently: Executor.S has no types, only
+     run_all — OCaml's functor-usage check only tracks type references, so
+     Executor is invisible to it regardless of implementation.
      Pass System.Make(Core) as the system argument; System.Default is
      constrained to S and cannot be passed here directly. *)
+  [@@@warning "-67"]
   module Make
       (System   : System.DISPATCH)
       (Executor : Executor.S)

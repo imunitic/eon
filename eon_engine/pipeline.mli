@@ -27,10 +27,10 @@ module type S = sig
   val phases       : 'phase t -> 'phase list
 end
 
+(* Warning 67 suppressed permanently: Executor.S has no types, only
+   run_all — OCaml's functor-usage check only tracks type references, so
+   Executor is invisible to it regardless of implementation. *)
 [@@@warning "-67"]
-(* Build a parallel pipeline over a [System.DISPATCH] implementation and an
-   [Executor]. Swap [Executor.Sequential] for [Executor.Domain_pool] without
-   changing system definitions. *)
 module Make
     (System   : System.DISPATCH)
     (Executor : Executor.S)

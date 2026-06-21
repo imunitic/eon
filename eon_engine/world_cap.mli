@@ -37,7 +37,7 @@ val get_data             : _ t -> [> ] -> 'a option
 val get_service          : _ t -> [> ] -> 'a option
 val list_services        : _ t -> int list
 val iter_entities        : _ t -> string list -> (World.entity_id -> unit) -> unit
-val has_component        : _ t -> World.entity_id -> string -> bool
+val has_component        : _ t -> World.entity_id -> 'a Component_descriptor.t -> bool
 
 (** {2 Write operations — require [rw] capability} *)
 
