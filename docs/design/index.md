@@ -2,6 +2,7 @@
 
 Authoritative architecture and design decision documents. These govern implementation; when in conflict with other docs, these win.
 
+- [module_dependency_map.md](module_dependency_map.md) — Mermaid dependency graph of `eon_ecs` and `eon_engine`: internal module structure, and all embedding, wrapping, and type-alias relationships between the two packages.
 - [eon_engine_design.md](eon_engine_design.md) — Top-level design document for `eon_engine`: core philosophy, principles, module structure, and how the engine layer relates to `eon_ecs`.
 - [eon_engine_query_design.md](eon_engine_query_design.md) — Design for the `eon_engine` query builder and backend abstraction. Covers the fluent `Query.from |> with_component |> iter2` API, `not_having` post-filtering, and the `Query_backend.S` signature.
 - [world_module_design.md](world_module_design.md) — World module design (ecs-016): `World.S` signature, concrete `World` module with per-world `Id_counter`, and `Sparse_set_backend.Make(W : World.S)` functor. Supersedes the `Archetype_backend` sections of the query design doc.
