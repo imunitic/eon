@@ -44,9 +44,6 @@ type t = {
 let create () =
   { core = Eon_ecs.World.create (); next_id = 0 }
 
-let to_raw world =
-  world.core
-
 let create_entity world =
   Eon_ecs.World.create_entity world.core
 

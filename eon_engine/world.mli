@@ -58,12 +58,6 @@ type t
 (** Create a new empty world. *)
 val create : unit -> t
 
-(** Access the underlying ECS world.
-
-    EXTENSION API: Exposed for backend implementors who need direct access to
-    [Eon_ecs.World.t]. Game code should not use this. *)
-val to_raw : t -> Eon_ecs.World.t
-
 val create_entity        : t -> entity_id
 val add_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
 val set_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit

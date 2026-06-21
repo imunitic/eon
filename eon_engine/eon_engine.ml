@@ -61,9 +61,3 @@ type entity_id = Eon_ecs.Entity_id.t
 *)
 let component = Components.component
 
-(** Extension API for backend implementors. *)
-module Backend = struct
-  module World = struct
-    let to_raw = World.to_raw
-  end
-end
