@@ -2,17 +2,18 @@ module type S = sig
   type 'phase t
   type ('s, 'e, 'c) system_t
   type kind
+  type world
 
   val create       : unit -> 'phase t
   val add_phase    : 'phase -> 'phase t -> 'phase t
   val before       : earlier:'phase -> later:'phase -> 'phase t -> 'phase t
   val after        : later:'phase  -> earlier:'phase -> 'phase t -> 'phase t
   val add_system   : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
-  val register_all : 'phase t -> World.t -> unit
-  val run          : 'phase t -> World.t -> float -> World.t
+  val register_all : 'phase t -> world -> unit
+  val run          : 'phase t -> world -> float -> world
   val run_by_filter :
     filter:(kind -> bool) ->
-    'phase t -> World.t -> float -> World.t
+    'phase t -> world -> float -> world
   val phases       : 'phase t -> 'phase list
 end
 
@@ -21,9 +22,11 @@ module Make
     (Executor : Executor.S)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
+       and type world = World.t
 = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
   type kind = System.kind
+  type world = World.t
 
   (* Existential wrapper hiding the signal/event/command type parameters. *)
   type entry = Entry : ('s, 'e, 'c) System.t -> entry

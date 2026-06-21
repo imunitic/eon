@@ -132,6 +132,7 @@ module Pipeline : sig
     : Pipeline.S
       with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
+       and type world = World.t
   [@@@warning "+67"]
 
   (** Default pipeline: engine [System.Default] with [Executor.Sequential].
@@ -140,6 +141,7 @@ module Pipeline : sig
   module Default : Pipeline.S
     with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.Default.t
      and type kind = [ `Fixed | `Variable ]
+     and type world = World.t
 end
 
 (** {2 Progress} *)
