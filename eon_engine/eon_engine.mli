@@ -49,3 +49,46 @@ module Backend : sig
 end
 
 val component : string -> 'a Components.t
+
+(** {2 Buses} *)
+
+(** Engine bus signature — same as [Eon_ecs.Bus.S] but owned by the engine
+    layer so it can evolve independently. *)
+module Bus : sig
+  module type S = Bus.S
+end
+
+(** Same-frame bus with mutex-protected [emit]. Satisfies [Bus.S]. *)
+module Single_bus : sig
+  include Bus.S
+end
+
+(** Next-frame bus with mutex-protected [emit]. Satisfies [Bus.S]. *)
+module Double_bus : sig
+  include Bus.S
+end
+
+(** Alias: same-frame signals bus. *)
+module Signals  : sig include Bus.S end
+
+(** Alias: next-frame events bus. *)
+module Events   : sig include Bus.S end
+
+(** Alias: same-frame commands bus. *)
+module Commands : sig include Bus.S end
+
+(** {2 World capability} *)
+
+(** Phantom capability wrapper around [World.t].
+    Enforces read-only vs read-write access at compile time. *)
+module World_cap : sig
+  include module type of World_cap
+end
+
+(** {2 Executor} *)
+
+(** Threading-substrate seam for the parallel pipeline. *)
+module Executor : sig
+  module type S = Executor.S
+  module Sequential : Executor.S
+end
