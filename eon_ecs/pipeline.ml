@@ -57,10 +57,9 @@ module Make (System : System.S) = struct
   (* ================================================================ *)
 
   type 'phase t = {
-      phases       : ('phase, unit) Hashtbl.t;
-      mutable edges        : ('phase * 'phase) list;
-      systems      : ('phase, system_entry list) Hashtbl.t;
-      mutable order_cache  : 'phase list option;
+      phases  : ('phase, unit) Hashtbl.t;
+      mutable graph   : 'phase Dependency_graph.t;
+      systems : ('phase, system_entry list) Hashtbl.t;
     }
 
   (* ================================================================ *)
@@ -69,14 +68,13 @@ module Make (System : System.S) = struct
 
   let create () =
     { phases = Hashtbl.create 16;
-      edges = [];
-      systems = Hashtbl.create 16;
-      order_cache = None }
+      graph = Dependency_graph.create ();
+      systems = Hashtbl.create 16 }
 
   let add_phase phase t =
     if not (Hashtbl.mem t.phases phase) then begin
       Hashtbl.add t.phases phase ();
-      t.order_cache <- None
+      t.graph <- Dependency_graph.add_node phase t.graph
     end;
     t
 
@@ -85,10 +83,7 @@ module Make (System : System.S) = struct
   (* ================================================================ *)
 
   let before ~earlier ~later t =
-    if not (List.exists (fun (a, b) -> a = earlier && b = later) t.edges) then begin
-      t.edges <- (earlier, later) :: t.edges;
-      t.order_cache <- None
-    end;
+    t.graph <- Dependency_graph.before ~earlier ~later t.graph;
     t
 
   let after ~later ~earlier t = before ~earlier ~later t
@@ -109,50 +104,7 @@ module Make (System : System.S) = struct
   (* 🔹 Phase sorting *)
   (* ================================================================ *)
 
-  let topo_sort (edges : ('phase * 'phase) list) (phases : ('phase, unit) Hashtbl.t) =
-    let incoming = Hashtbl.create (Hashtbl.length phases)
-    and outgoing = Hashtbl.create (Hashtbl.length phases) in
-
-    Hashtbl.iter (fun p _ ->
-        Hashtbl.replace incoming p 0;
-        Hashtbl.replace outgoing p []) phases;
-
-    List.iter
-      (fun (a, b) ->
-        Hashtbl.replace outgoing a (b :: Hashtbl.find outgoing a);
-        Hashtbl.replace incoming b (Hashtbl.find incoming b + 1))
-      edges;
-
-    let queue =
-      Hashtbl.fold (fun p deg acc -> if deg = 0 then p :: acc else acc) incoming []
-    in
-
-    let rec visit acc = function
-      | [] -> List.rev acc
-      | p :: rest ->
-         let next =
-           List.fold_left
-             (fun acc n ->
-               let deg = Hashtbl.find incoming n - 1 in
-               Hashtbl.replace incoming n deg;
-               if deg = 0 then n :: acc else acc)
-             rest
-             (Hashtbl.find outgoing p)
-         in
-         visit (p :: acc) next
-    in
-    let order = visit [] queue in
-    if List.length order < Hashtbl.length phases then
-      invalid_arg "Pipeline: cycle detected in phase dependencies";
-    order
-
-  let sorted_phases t =
-    match t.order_cache with
-    | Some order -> order
-    | None ->
-        let order = topo_sort t.edges t.phases in
-        t.order_cache <- Some order;
-        order
+  let sorted_phases t = Dependency_graph.topo_sort t.graph
 
   (* ================================================================ *)
   (* 🔹 Execution helpers *)

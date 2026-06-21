@@ -3,6 +3,7 @@ module Component = Component
 module World = World
 module Query = Query
 module Clock = Clock
+module Dependency_graph = Dependency_graph
 
 (* -------------------------------------------------------------------------- *)
 (* 🧩 Buses *)
