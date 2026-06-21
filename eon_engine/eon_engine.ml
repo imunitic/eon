@@ -11,6 +11,16 @@ module Sparse_set_backend = Sparse_set_backend
 module Query = Query
 module View = View
 
+module Bus        = Bus
+module Single_bus = Single_bus
+module Double_bus = Double_bus
+module Signals    = Single_bus
+module Events     = Double_bus
+module Commands   = Single_bus
+
+module World_cap = World_cap
+module Executor  = Executor
+
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t
 
