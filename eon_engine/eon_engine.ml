@@ -28,6 +28,14 @@ module System = struct
   module Default       = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
 end
 
+module Pipeline = struct
+  module type S = Pipeline.S
+  module Make    = Pipeline.Make
+  (* Default is wired here (not in pipeline.ml) so System.Default.t unifies
+     with Pipeline.Default.system_t — same functor application, not a copy. *)
+  module Default = Pipeline.Make(System.Default)(Executor.Sequential)
+end
+
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t
 
