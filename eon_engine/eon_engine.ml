@@ -36,6 +36,8 @@ module Pipeline = struct
   module Default = Pipeline.Make(System.Default)(Executor.Sequential)
 end
 
+module Loop_buses = Loop_buses
+
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t
 

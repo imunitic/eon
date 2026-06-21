@@ -141,3 +141,15 @@ module Pipeline : sig
     with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.Default.t
      and type kind = System.Default.kind
 end
+
+(** {2 Loop buses} *)
+
+(** Engine bus orchestration for [Eon_ecs.Loop.Make].
+
+    Satisfies [Eon_ecs.Loop.BUSES with type world = World.t]. Register
+    [Single_bus] / [Double_bus] instances under [`` `Signals ``],
+    [`` `Events ``], [`` `Commands ``] in the world before calling
+    [Loop.run]. *)
+module Loop_buses : sig
+  include module type of Loop_buses
+end
