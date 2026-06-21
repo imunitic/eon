@@ -1,7 +1,7 @@
-type world = World.t
+type world = Eon_ecs.World.t
 
 let require_service world name =
-  match World.get_service world name with
+  match Eon_ecs.World.get_service world name with
   | Some service -> service
   | None ->
     failwith (Printf.sprintf "Loop_buses: missing service (hash:%d)"

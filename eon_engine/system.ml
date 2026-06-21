@@ -21,8 +21,8 @@ module type DISPATCH = sig
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
-  val register    : ('s, 'e, 'c) t -> World.t -> unit
-  val attach      : ('s, 'e, 'c) t -> World.t -> unit
+  val register    : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
+  val attach      : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
 end
 
 module Make (Core_system : Eon_ecs.System.S) : DISPATCH
@@ -35,7 +35,7 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
     (Core_system.make_reactive () : (unit, unit, unit) Core_system.reactive).kind
 
   type ('s, 'e, 'c) t = {
-    register    : World.t -> unit;
+    register    : Eon_ecs.World.t -> unit;
     update_kind : update_kind;
     kind        : kind;
     on_signal   : World_cap.rw World_cap.t -> 's -> unit;
@@ -66,14 +66,13 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
     | Exclusive f -> f rw dt
     | Parallel _ -> ()
 
-  let register t world = t.register world
+  let register t raw = t.register raw
 
   (* Reads bus instances from world services (same service-locator pattern as
      Eon_ecs.System.attach_handlers) and registers closures that convert the
-     engine world into a World_cap.rw before calling the user handler. *)
-  let attach t world =
-    let rw = World_cap.wrap world in
-    let raw = World.to_raw world in
+     raw world into a World_cap.rw before calling the user handler. *)
+  let attach t raw =
+    let rw = World_cap.wrap raw in
     (match Eon_ecs.World.get_service raw `Signals with
      | None -> ()
      | Some (bus : 's Core_system.Signal_bus.t) ->
