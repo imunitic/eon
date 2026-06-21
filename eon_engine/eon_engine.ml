@@ -21,6 +21,13 @@ module Commands   = Single_bus
 module World_cap = World_cap
 module Executor  = Executor
 
+module System = struct
+  module type S        = System.S
+  module type DISPATCH = System.DISPATCH
+  module Make          = System.Make
+  module Default       = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
+end
+
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t
 

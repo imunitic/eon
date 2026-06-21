@@ -92,3 +92,25 @@ module Executor : sig
   module type S = Executor.S
   module Sequential : Executor.S
 end
+
+(** {2 System} *)
+
+(** Engine system — wraps any [Eon_ecs.System.S] with [World_cap] capabilities.
+
+    Game code constructs systems via [System.Default.make]. Pass the result to
+    [Pipeline.Default.add_system]. [System.Make] is for custom bus wiring. *)
+module System : sig
+  module type S        = System.S
+  module type DISPATCH = System.DISPATCH
+
+  (** Build an engine system module over a custom [Eon_ecs.System.S].
+      Returns [DISPATCH] so it can be passed directly to [Pipeline.Make]. *)
+  module Make (C : Eon_ecs.System.S) : System.DISPATCH
+    with type kind = C.kind
+
+  (** Default engine system wired with engine [Single_bus] / [Double_bus].
+      Constrained to [S]; dispatch ops are pipeline-internal only. Use
+      [System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))] explicitly
+      when you need to pass the system module to [Pipeline.Make]. *)
+  module Default : System.S
+end
