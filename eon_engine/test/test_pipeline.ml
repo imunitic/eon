@@ -2,9 +2,7 @@
 
 open Eon_engine
 
-(* Sets up a world with engine bus services registered under the standard keys.
-   Returns (raw_world, signals_bus, events_bus, commands_bus).
-   Pipeline.Default.register_all and run both take Eon_ecs.World.t. *)
+(* Sets up a world with engine bus services registered under the standard keys. *)
 let setup_world () =
   let w = World.create () in
   let signals  = Single_bus.create () in
@@ -13,7 +11,7 @@ let setup_world () =
   World.add_service w `Signals  signals;
   World.add_service w `Events   events;
   World.add_service w `Commands commands;
-  (Backend.World.to_raw w, signals, events, commands)
+  (w, signals, events, commands)
 
 let make_pipe phases systems =
   let base =
@@ -29,7 +27,7 @@ let make_pipe phases systems =
 (* ---- phase ordering ---- *)
 
 let test_phase_ordering () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let order = ref [] in
   let push s = order := !order @ [s] in
   let pipe =
@@ -42,12 +40,12 @@ let test_phase_ordering () =
     |> Pipeline.Default.add_system `B
          (System.Default.make (Exclusive (fun _rw _dt -> push "B")))
   in
-  Pipeline.Default.register_all pipe raw;
-  ignore (Pipeline.Default.run pipe raw 0.016);
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run pipe w 0.016);
   Alcotest.(check (list string)) "A runs before B" ["A"; "B"] !order
 
 let test_after_ordering () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let order = ref [] in
   let push s = order := !order @ [s] in
   let pipe =
@@ -60,8 +58,8 @@ let test_after_ordering () =
     |> Pipeline.Default.add_system `B
          (System.Default.make (Exclusive (fun _rw _dt -> push "B")))
   in
-  Pipeline.Default.register_all pipe raw;
-  ignore (Pipeline.Default.run pipe raw 0.016);
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run pipe w 0.016);
   Alcotest.(check (list string)) "after: A still before B" ["A"; "B"] !order
 
 (* ---- add_system raises on unregistered phase ---- *)
@@ -79,20 +77,20 @@ let test_add_system_unregistered_phase () =
 (* ---- parallel systems run ---- *)
 
 let test_parallel_runs () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let count = ref 0 in
   let pipe =
     make_pipe [`Update]
       [`Update, System.Default.make (Parallel (fun _ro _dt -> incr count))]
   in
-  Pipeline.Default.register_all pipe raw;
-  ignore (Pipeline.Default.run pipe raw 0.016);
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run pipe w 0.016);
   Alcotest.(check int) "parallel system ran once" 1 !count
 
 (* ---- exclusive systems run AFTER parallel in the same phase ---- *)
 
 let test_exclusive_after_parallel () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let order = ref [] in
   let push s = order := !order @ [s] in
   let pipe =
@@ -103,55 +101,51 @@ let test_exclusive_after_parallel () =
     |> Pipeline.Default.add_system `Update
          (System.Default.make (Exclusive (fun _rw _dt -> push "exclusive")))
   in
-  Pipeline.Default.register_all pipe raw;
-  ignore (Pipeline.Default.run pipe raw 0.016);
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run pipe w 0.016);
   Alcotest.(check (list string)) "parallel before exclusive"
     ["parallel"; "exclusive"] !order
 
 (* ---- exclusive system can mutate world (rw access) ---- *)
 
 let test_exclusive_writes () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let pipe =
     make_pipe [`Update]
       [`Update, System.Default.make
                   (Exclusive (fun rw _dt ->
                      ignore (World_cap.create_entity rw)))]
   in
-  Pipeline.Default.register_all pipe raw;
-  let before = Eon_ecs.World.count_entities raw in
-  ignore (Pipeline.Default.run pipe raw 0.016);
-  let after = Eon_ecs.World.count_entities raw in
+  Pipeline.Default.register_all pipe w;
+  let before = World.count_entities w in
+  ignore (Pipeline.Default.run pipe w 0.016);
+  let after = World.count_entities w in
   Alcotest.(check int) "entity created by exclusive system" (before + 1) after
 
 (* ---- run_by_filter skips non-matching kinds ---- *)
 
-(* System.Default.kind is abstract in the public API (constrained to System.S).
-   Use System.Make + Pipeline.Make directly to get the concrete kind type
-   ([ `Fixed | `Variable ]) and pass kind values explicitly. *)
+(* Pipeline.Default.kind is [ `Fixed | `Variable ] (exposed in public API).
+   We can construct kind values and use run_by_filter directly. *)
 let test_run_by_filter () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let fired = ref [] in
   let push s = fired := s :: !fired in
-  let module Core = Eon_ecs.System.Make(Single_bus)(Double_bus)(Single_bus) in
-  let module Sys  = System.Make(Core) in
-  let module Pipe = Pipeline.Make(Sys)(Executor.Sequential) in
   let pipe =
-    Pipe.create ()
-    |> Pipe.add_phase `Update
-    |> Pipe.add_system `Update
-         (Sys.make ~kind:`Fixed    (Exclusive (fun _rw _dt -> push "fixed")))
-    |> Pipe.add_system `Update
-         (Sys.make ~kind:`Variable (Exclusive (fun _rw _dt -> push "variable")))
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Update
+    |> Pipeline.Default.add_system `Update
+         (System.Default.make ~kind:`Fixed    (Exclusive (fun _rw _dt -> push "fixed")))
+    |> Pipeline.Default.add_system `Update
+         (System.Default.make ~kind:`Variable (Exclusive (fun _rw _dt -> push "variable")))
   in
-  Pipe.register_all pipe raw;
-  ignore (Pipe.run_by_filter ~filter:(fun k -> k = `Fixed) pipe raw 0.016);
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run_by_filter ~filter:(fun k -> k = `Fixed) pipe w 0.016);
   Alcotest.(check (list string)) "only fixed fires" ["fixed"] !fired
 
 (* ---- register_all wires bus handlers: on_command fires on drain ---- *)
 
 let test_handler_dispatch () =
-  let raw, _, _, commands = setup_world () in
+  let w, _, _, commands = setup_world () in
   let fired = ref false in
   let pipe =
     make_pipe [`Update]
@@ -159,7 +153,7 @@ let test_handler_dispatch () =
                   ~on_command:(fun _rw () -> fired := true)
                   (Exclusive (fun _ _ -> ()))]
   in
-  Pipeline.Default.register_all pipe raw;
+  Pipeline.Default.register_all pipe w;
   Single_bus.emit commands ();
   Single_bus.drain commands;
   Alcotest.(check bool) "on_command handler fired after drain" true !fired
@@ -167,7 +161,7 @@ let test_handler_dispatch () =
 (* ---- multiple systems per phase all run ---- *)
 
 let test_multiple_systems_per_phase () =
-  let raw, _, _, _ = setup_world () in
+  let w, _, _, _ = setup_world () in
   let count = ref 0 in
   let pipe =
     Pipeline.Default.create ()
@@ -179,8 +173,8 @@ let test_multiple_systems_per_phase () =
     |> Pipeline.Default.add_system `Update
          (System.Default.make (Exclusive (fun _rw _dt -> incr count)))
   in
-  Pipeline.Default.register_all pipe raw;
-  ignore (Pipeline.Default.run pipe raw 0.016);
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run pipe w 0.016);
   Alcotest.(check int) "all three systems ran" 3 !count
 
 (* ---- phases returns the registered phases ---- *)

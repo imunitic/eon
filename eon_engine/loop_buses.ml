@@ -2,10 +2,10 @@ module Signals  = Single_bus
 module Events   = Double_bus
 module Commands = Single_bus
 
-type world = Eon_ecs.World.t
+type world = World.t
 
 let require_service world name =
-  match Eon_ecs.World.get_service world name with
+  match World.get_service world name with
   | Some service -> service
   | None ->
     failwith (Printf.sprintf "Loop_buses: missing service (hash:%d)"

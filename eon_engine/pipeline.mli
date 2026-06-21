@@ -19,11 +19,11 @@ module type S = sig
   val before       : earlier:'phase -> later:'phase -> 'phase t -> 'phase t
   val after        : later:'phase  -> earlier:'phase -> 'phase t -> 'phase t
   val add_system   : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
-  val register_all : 'phase t -> Eon_ecs.World.t -> unit
-  val run          : 'phase t -> Eon_ecs.World.t -> float -> Eon_ecs.World.t
+  val register_all : 'phase t -> World.t -> unit
+  val run          : 'phase t -> World.t -> float -> World.t
   val run_by_filter :
     filter:(kind -> bool) ->
-    'phase t -> Eon_ecs.World.t -> float -> Eon_ecs.World.t
+    'phase t -> World.t -> float -> World.t
   val phases       : 'phase t -> 'phase list
 end
 
