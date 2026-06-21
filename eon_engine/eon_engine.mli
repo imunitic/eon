@@ -114,3 +114,30 @@ module System : sig
       when you need to pass the system module to [Pipeline.Make]. *)
   module Default : System.S
 end
+
+(** {2 Pipeline} *)
+
+(** Engine parallel pipeline — two-step dispatch per phase.
+
+    Parallel systems run via [Executor.run_all] with read-only world access;
+    exclusive systems run sequentially after, with read-write access. *)
+module Pipeline : sig
+  module type S = Pipeline.S
+
+  [@@@warning "-67"]
+  (* Build a parallel pipeline over any System.DISPATCH and Executor.
+     Pass System.Make(Core) as the system argument; System.Default is
+     constrained to S and cannot be passed here directly. *)
+  module Make
+      (System   : System.DISPATCH)
+      (Executor : Executor.S)
+    : Pipeline.S
+      with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
+       and type kind = System.kind
+  [@@@warning "+67"]
+
+  (** Default pipeline: engine [System.Default] with [Executor.Sequential]. *)
+  module Default : Pipeline.S
+    with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.Default.t
+     and type kind = System.Default.kind
+end
