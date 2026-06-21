@@ -15,6 +15,7 @@ val create   : unit -> 'node t
 val add_node : 'node -> 'node t -> 'node t
 
 (** [before ~earlier ~later g] records that [earlier] must precede [later].
+    Both nodes are implicitly added if not already present.
     No-op if the edge already exists. *)
 val before   : earlier:'node -> later:'node -> 'node t -> 'node t
 

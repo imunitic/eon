@@ -40,7 +40,6 @@ module type DISPATCH = sig
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
-  val register    : ('s, 'e, 'c) t -> World.t -> unit
   val attach      : ('s, 'e, 'c) t -> World.t -> unit
 end
 

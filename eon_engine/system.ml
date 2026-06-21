@@ -21,7 +21,6 @@ module type DISPATCH = sig
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
-  val register    : ('s, 'e, 'c) t -> World.t -> unit
   val attach      : ('s, 'e, 'c) t -> World.t -> unit
 end
 
@@ -35,7 +34,6 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
     (Core_system.make_reactive () : (unit, unit, unit) Core_system.reactive).kind
 
   type ('s, 'e, 'c) t = {
-    register    : World.t -> unit;
     update_kind : update_kind;
     kind        : kind;
     on_signal   : World_cap.rw World_cap.t -> 's -> unit;
@@ -50,7 +48,7 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
       ?(kind = default_kind)
       update_kind
     =
-    { register = (fun _ -> ()); update_kind; kind; on_signal; on_event; on_command }
+    { update_kind; kind; on_signal; on_event; on_command }
 
   let kind_of t = t.kind
 
@@ -65,8 +63,6 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
     match t.update_kind with
     | Exclusive f -> f rw dt
     | Parallel _ -> ()
-
-  let register t world = t.register world
 
   (* Reads bus instances from world services and registers closures that wrap
      the engine world in a World_cap.rw before calling the user handler. *)

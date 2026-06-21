@@ -68,7 +68,7 @@ module Make
         | None -> ()
         | Some entries ->
           List.iter
-            (fun (Entry s) -> System.register s world; System.attach s world)
+            (fun (Entry s) -> System.attach s world)
             (List.rev entries))
       (sorted_phases t)
 
