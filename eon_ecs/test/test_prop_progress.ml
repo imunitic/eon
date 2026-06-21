@@ -5,10 +5,11 @@ module Kind = Eon_ecs__System.Base_kind
 
 type call = Kind.kind * float
 
-module DummyPipeline : Pipeline_sig.S with type kind = Kind.kind = struct
+module DummyPipeline : Pipeline_sig.S with type kind = Kind.kind and type world = World.t = struct
   type 'phase t = unit
   type ('s, 'e, 'c) system_t = unit
   type kind = Kind.kind
+  type world = World.t
 
   let create () = ()
   let add_phase _ _ = ()

@@ -25,16 +25,17 @@ module type S = sig
   *)
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
 
+  (** World type this pipeline operates on. *)
+  type world
   (** Execute [register] callback of every system in phase order. *)
-  val register_all : 'phase t -> World.t -> unit
-(** Run systems filtered by a predicate on their kind.
-    This is used internally by the Progress module. *)
-val run_by_filter :
-  filter:(kind -> bool) ->
-  'phase t -> World.t -> float -> World.t
-
+  val register_all : 'phase t -> world -> unit
+  (** Run systems filtered by a predicate on their kind.
+      Used internally by the Progress module. *)
+  val run_by_filter :
+    filter:(kind -> bool) ->
+    'phase t -> world -> float -> world
   (** Run all systems in topological phase order. *)
-  val run : 'phase t -> World.t -> float -> World.t
+  val run : 'phase t -> world -> float -> world
   (** Return phases in resolved topological order. *)
   val phases : 'phase t -> 'phase list
 end
@@ -46,6 +47,7 @@ end
 module Make (System : System.S) = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
   type kind = System.kind
+  type world = World.t
 
   type system_entry = {
       kind : System.kind;

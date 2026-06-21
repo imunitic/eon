@@ -16,11 +16,14 @@
 (** {1 Abstract Time Modes} *)
 
 module type TIME_MODE = sig
-  (** Opaque type representing the mode’s internal accumulator/state. *)
+  (** Opaque type representing the mode's internal accumulator/state. *)
   type t
 
   (** Kind tag used to dispatch systems within the pipeline. *)
   type kind
+
+  (** World type this mode operates on. *)
+  type world
 
   (** Create a new mode instance. *)
   val create : unit -> t
@@ -32,10 +35,10 @@ module type TIME_MODE = sig
       @return the updated mode state and world *)
   val advance :
     t ->
-    world:World.t ->
+    world:world ->
     dt:float ->
-    run:(world:World.t -> kind:kind -> dt:float -> World.t) ->
-    t * World.t
+    run:(world:world -> kind:kind -> dt:float -> world) ->
+    t * world
 end
 
 (** {1 Concrete Time Modes} *)
@@ -49,52 +52,43 @@ module Variable : sig
     (** Tag associated with variable-step system execution. *)
     val variable : kind
   end
-  (** Functor producing a variable-step mode for a custom kind mapping. *)
-  module Make : functor (K : KIND) -> TIME_MODE with type kind = K.kind
+  (** Functor producing a variable-step mode for a custom kind and world type. *)
+  module Make (K : KIND) (W : sig type t end) :
+    TIME_MODE with type kind = K.kind and type world = W.t
 
-  (** Default variable-step mode using {!System.kind} tags. *)
-  include TIME_MODE with type kind = System.kind
+  (** Default variable-step mode using {!System.kind} tags and {!World.t}. *)
+  include TIME_MODE with type kind = System.kind and type world = World.t
 end
 
 module Fixed : sig
   module type KIND = sig
-    (** Abstract mapping of fixed/variable kinds to pipeline tags. *)
     type kind
-    (** Tag associated with fixed-step system execution. *)
     val fixed : kind
-    (** Tag associated with variable-step system execution. *)
     val variable : kind
   end
-  module Make : functor (K : KIND) -> sig
-    include TIME_MODE with type kind = K.kind
+  module Make (K : KIND) (W : sig type t end) : sig
+    include TIME_MODE with type kind = K.kind and type world = W.t
     (** Instantiate a fixed-step mode with the provided step duration. *)
     val with_step : float -> t
   end
-  (** Default fixed-step mode using {!System.kind} tags. *)
-  include TIME_MODE with type kind = System.kind
-
-  (** Instantiate the default fixed-step mode with a step duration in seconds. *)
+  (** Default fixed-step mode using {!System.kind} tags and {!World.t}. *)
+  include TIME_MODE with type kind = System.kind and type world = World.t
   val with_step : float -> t
 end
 
 module Hybrid : sig
   module type KIND = sig
-    (** Abstract mapping of fixed/variable kinds to pipeline tags. *)
     type kind
-    (** Tag associated with fixed-step system execution. *)
     val fixed : kind
-    (** Tag associated with variable-step system execution. *)
     val variable : kind
   end
-  module Make : functor (K : KIND) -> sig
-    include TIME_MODE with type kind = K.kind
+  module Make (K : KIND) (W : sig type t end) : sig
+    include TIME_MODE with type kind = K.kind and type world = W.t
     (** Instantiate a hybrid mode with the provided fixed-step duration. *)
     val with_step : float -> t
   end
-  (** Default hybrid mode using {!System.kind} tags. *)
-  include TIME_MODE with type kind = System.kind
-
-  (** Instantiate the default hybrid mode with a fixed-step duration. *)
+  (** Default hybrid mode using {!System.kind} tags and {!World.t}. *)
+  include TIME_MODE with type kind = System.kind and type world = World.t
   val with_step : float -> t
 end
 
@@ -110,10 +104,10 @@ module Make_with_kind
           init : unit -> 'state;
           advance :
             'state ->
-            world:World.t ->
+            world:Pipeline.world ->
             dt:float ->
-            run:(world:World.t -> kind:Pipeline.kind -> dt:float -> World.t) ->
-            'state * World.t;
+            run:(world:Pipeline.world -> kind:Pipeline.kind -> dt:float -> Pipeline.world) ->
+            'state * Pipeline.world;
         } -> custom_mode
 
   (** Supported simulation modes. *)
@@ -126,6 +120,8 @@ module Make_with_kind
   (** Progress controller state. *)
   type 'phase t
 
+  type world = Pipeline.world
+
   (** Create a progress controller for a pipeline and chosen mode. *)
   val create : ?mode:mode -> 'phase Pipeline.t -> 'phase t
 
@@ -133,14 +129,8 @@ module Make_with_kind
       @param t progress controller
       @param world the ECS world
       @param dt delta time (in seconds)
-      @return updated world after all pipeline systems have run
-
-      Example:
-      {[
-        let world' = Progress.tick progress ~world ~dt:0.016
-      ]}
-  *)
-  val tick : 'phase t -> world:World.t -> dt:float -> World.t
+      @return updated world after all pipeline systems have run *)
+  val tick : 'phase t -> world:Pipeline.world -> dt:float -> Pipeline.world
 end
 
 (** Convenience functor wiring the progress controller to the default kinds. *)

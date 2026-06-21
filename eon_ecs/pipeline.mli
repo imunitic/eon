@@ -27,6 +27,9 @@ module type S = sig
   (** Kind tag used for filtered execution. *)
   type kind
 
+  (** World type this pipeline operates on. *)
+  type world
+
   (** Create an empty pipeline. *)
   val create : unit -> 'phase t
 
@@ -45,17 +48,17 @@ module type S = sig
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
 
   (** Execute the [register] callback of every system in topological phase order. *)
-  val register_all : 'phase t -> World.t -> unit
+  val register_all : 'phase t -> world -> unit
 
   (** Run systems whose kind satisfies [filter], in topological phase order.
 
       Used internally by {!Progress} to dispatch fixed or variable systems. *)
   val run_by_filter :
     filter:(kind -> bool) ->
-    'phase t -> World.t -> float -> World.t
+    'phase t -> world -> float -> world
 
   (** Run all systems in topological phase order regardless of kind. *)
-  val run : 'phase t -> World.t -> float -> World.t
+  val run : 'phase t -> world -> float -> world
 
   (** Return phases in resolved topological order. *)
   val phases : 'phase t -> 'phase list
@@ -65,3 +68,4 @@ end
 module Make (System : System.S) : S
   with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
    and type kind = System.kind
+   and type world = World.t
