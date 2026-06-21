@@ -146,7 +146,7 @@ end
 
 (** Engine bus orchestration for [Eon_ecs.Loop.Make].
 
-    Satisfies [Eon_ecs.Loop.BUSES with type world = World.t]. Register
+    Satisfies [Eon_ecs.Loop.BUSES with type world = Eon_ecs.World.t]. Register
     [Single_bus] / [Double_bus] instances under [`` `Signals ``],
     [`` `Events ``], [`` `Commands ``] in the world before calling
     [Loop.run]. *)

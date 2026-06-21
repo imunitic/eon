@@ -20,9 +20,9 @@ type rw = [ `R | `W ]
 (** Capability-wrapped world. ['perm] is phantom. *)
 type 'perm t
 
-(** Wrap a world with full read-write capability.
+(** Wrap a core world with full read-write capability.
     Pipeline-internal; game code never calls this directly. *)
-val wrap     : World.t -> rw t
+val wrap     : Eon_ecs.World.t -> rw t
 
 (** Downgrade a read-write capability to read-only. Zero cost. *)
 val readonly : rw t -> ro t
