@@ -42,12 +42,6 @@ module World : sig
   val has_component : t -> entity_id -> string -> bool
 end
 
-module Backend : sig
-  module World : sig
-    val to_raw : World.t -> Eon_ecs.World.t
-  end
-end
-
 val component : string -> 'a Components.t
 
 (** {2 Buses} *)
