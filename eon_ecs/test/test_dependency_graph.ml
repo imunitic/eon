@@ -1,25 +1,13 @@
 open Alcotest
 module G = Eon_ecs.Dependency_graph
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 1: empty graph *)
-(* -------------------------------------------------------------------------- *)
-
 let test_empty () =
   let order = G.create () |> G.topo_sort in
   check (list string) "empty" [] order
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 2: single node *)
-(* -------------------------------------------------------------------------- *)
-
 let test_single_node () =
   let order = G.create () |> G.add_node "A" |> G.topo_sort in
   check (list string) "singleton" ["A"] order
-
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 3: linear chain *)
-(* -------------------------------------------------------------------------- *)
 
 let test_linear_chain () =
   let g =
@@ -30,14 +18,9 @@ let test_linear_chain () =
     |> G.before ~earlier:"A" ~later:"B"
     |> G.before ~earlier:"B" ~later:"C"
   in
-  let order = G.topo_sort g in
-  check (list string) "linear" ["A"; "B"; "C"] order
+  check (list string) "linear" ["A"; "B"; "C"] (G.topo_sort g)
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 4: diamond DAG *)
-(* -------------------------------------------------------------------------- *)
-
-(* A → B, A → C, B → D, C → D  *)
+(* A -> B, A -> C, B -> D, C -> D *)
 let test_diamond () =
   let g =
     G.create ()
@@ -63,10 +46,6 @@ let test_diamond () =
   check bool "B before D" true (pos "B" < pos "D");
   check bool "C before D" true (pos "C" < pos "D")
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 5: cycle raises Invalid_argument *)
-(* -------------------------------------------------------------------------- *)
-
 let test_cycle () =
   let g =
     G.create ()
@@ -78,17 +57,9 @@ let test_cycle () =
   check_raises "cycle" (Invalid_argument "Dependency_graph: cycle detected")
     (fun () -> ignore (G.topo_sort g))
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 6: cache invalidation *)
-(* -------------------------------------------------------------------------- *)
-
 let test_cache_invalidation () =
-  let g =
-    G.create ()
-    |> G.add_node "A"
-    |> G.add_node "B"
-  in
-  let _order = G.topo_sort g in
+  let g = G.create () |> G.add_node "A" |> G.add_node "B" in
+  ignore (G.topo_sort g);
   check bool "clean after sort" true (G.is_clean g);
   let g2 = G.before ~earlier:"A" ~later:"B" g in
   check bool "dirty after new edge" false (G.is_clean g2);
@@ -96,16 +67,12 @@ let test_cache_invalidation () =
   check bool "clean after re-sort" true (G.is_clean g2);
   check (list string) "correct after re-sort" ["A"; "B"] order2
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Suite *)
-(* -------------------------------------------------------------------------- *)
-
 let tests =
   [
-    test_case "empty graph"         `Quick test_empty;
-    test_case "single node"         `Quick test_single_node;
-    test_case "linear chain"        `Quick test_linear_chain;
-    test_case "diamond DAG"         `Quick test_diamond;
-    test_case "cycle raises"        `Quick test_cycle;
-    test_case "cache invalidation"  `Quick test_cache_invalidation;
+    test_case "empty graph"        `Quick test_empty;
+    test_case "single node"        `Quick test_single_node;
+    test_case "linear chain"       `Quick test_linear_chain;
+    test_case "diamond DAG"        `Quick test_diamond;
+    test_case "cycle raises"       `Quick test_cycle;
+    test_case "cache invalidation" `Quick test_cache_invalidation;
   ]

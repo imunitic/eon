@@ -40,8 +40,8 @@ module type DISPATCH = sig
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
-  val register    : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
-  val attach      : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
+  val register    : ('s, 'e, 'c) t -> World.t -> unit
+  val attach      : ('s, 'e, 'c) t -> World.t -> unit
 end
 
 (** Build an engine system module over any [Eon_ecs.System.S] implementation.

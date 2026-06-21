@@ -36,6 +36,8 @@ module Pipeline = struct
   module Default = Pipeline.Make(System.Default)(Executor.Sequential)
 end
 
+module Progress  = Progress
+module Loop      = Loop
 module Loop_buses = Loop_buses
 
 (** Entity identifier type. *)

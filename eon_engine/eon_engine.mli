@@ -112,7 +112,7 @@ module System : sig
       Constrained to [S]; dispatch ops are pipeline-internal only. Use
       [System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))] explicitly
       when you need to pass the system module to [Pipeline.Make]. *)
-  module Default : System.S
+  module Default : System.S with type kind = [ `Fixed | `Variable ]
 end
 
 (** {2 Pipeline} *)
@@ -136,17 +136,36 @@ module Pipeline : sig
        and type kind = System.kind
   [@@@warning "+67"]
 
-  (** Default pipeline: engine [System.Default] with [Executor.Sequential]. *)
+  (** Default pipeline: engine [System.Default] with [Executor.Sequential].
+      [kind] is concrete so [run_by_filter ~filter:(fun k -> k = `Fixed)] works
+      directly without reaching for [System.Make] / [Pipeline.Make]. *)
   module Default : Pipeline.S
     with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.Default.t
-     and type kind = System.Default.kind
+     and type kind = [ `Fixed | `Variable ]
+end
+
+(** {2 Progress} *)
+
+(** Time-step progression manager for engine pipelines.
+    Typed for [World.t]; mirrors [Eon_ecs.Progress]. *)
+module Progress : sig
+  include module type of Progress
+end
+
+(** {2 Loop} *)
+
+(** Game loop builder for the engine layer.
+    Delegates to [Eon_ecs.Loop.Make]; typed for [World.t] via [Progress] and
+    [Loop_buses]. *)
+module Loop : sig
+  include module type of Loop
 end
 
 (** {2 Loop buses} *)
 
-(** Engine bus orchestration for [Eon_ecs.Loop.Make].
+(** Engine bus orchestration for [Loop.Make].
 
-    Satisfies [Eon_ecs.Loop.BUSES with type world = Eon_ecs.World.t]. Register
+    Satisfies [Loop.BUSES with type world = World.t]. Register
     [Single_bus] / [Double_bus] instances under [`` `Signals ``],
     [`` `Events ``], [`` `Commands ``] in the world before calling
     [Loop.run]. *)
