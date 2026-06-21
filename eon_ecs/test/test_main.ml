@@ -13,6 +13,7 @@ let () =
       "Buses", Test_bus.tests;
       "Buses (QCheck)", Test_prop_bus.tests;
       "Systems", Test_system.tests;
+      "Dependency_graph", Test_dependency_graph.tests;
       "Pipeline", Test_pipeline.tests;
       "Pipeline (QCheck)", Test_prop_pipeline.tests;
       "Query", Test_query.tests;

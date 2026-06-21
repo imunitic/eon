@@ -131,6 +131,31 @@ module Events = Double_bus
  *)
 module Commands = Single_bus
 
+module Dependency_graph : sig
+  (** Generic directed acyclic graph with topological sort.
+
+      Used internally by {!Pipeline.Make} for phase ordering and exposed as a
+      public primitive so higher-level layers ({e e.g.} [eon_engine]) can reuse
+      the same topo-sort logic without duplicating it.
+
+      Example:
+      {[
+        open Eon_ecs.Dependency_graph
+
+        let g =
+          create ()
+          |> add_node `A
+          |> add_node `B
+          |> add_node `C
+          |> before ~earlier:`A ~later:`B
+          |> before ~earlier:`B ~later:`C
+
+        let order = topo_sort g  (* [`A; `B; `C] *)
+      ]}
+  *)
+  include module type of Dependency_graph
+end
+
 module System : sig
   (** System definitions and reactive bus handlers.
 
