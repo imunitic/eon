@@ -235,9 +235,9 @@ replacing them. Summary of what ecs-021 delivers:
 
 - `Eon_ecs.Dependency_graph` — extracted topo-sort primitive (the **only** `eon_ecs` change)
 - `Eon_engine.Bus` / `Single_bus` / `Double_bus` — standalone mutex-aware buses
-- `Eon_engine.World_cap` — phantom `ro`/`rw` capability wrapper
+- `Eon_engine.World` — `'perm t` phantom types (`ro`/`rw`) now live here directly (ecs-023)
 - `Eon_engine.Executor` — threading-substrate seam; `Sequential` ships first
-- `Eon_engine.System.Make(Core_system)` — wraps any `Eon_ecs.System.S` with `World_cap` (functor; `Default = Make(Eon_ecs.System.Default)`)
+- `Eon_engine.System.Make(Core_system)` — wraps any `Eon_ecs.System.S` with `World.ro`/`World.rw` (functor; `Default = Make(Eon_ecs.System.Default)`)
 - `Eon_engine.Pipeline.Make(System)(Executor)` — parallel dispatch via Executor, reuses `Eon_ecs.Dependency_graph`; output satisfies `Eon_ecs.Pipeline.S`
 - `Eon_engine.Loop_buses` — `BUSES` module reading engine bus instances from world services for collect/drain
 
@@ -309,6 +309,6 @@ See `docs/design/rendering_layer_design.md` for the complete rendering layer des
 
 ## 7. Conclusion
 
-Eon Engine provides a typed, ergonomic layer on top of the stable Eon ECS core: typed component registration, a query builder with `View`-based reads, a `World` wrapper with per-world id allocation and the data/service plane, and (ecs-021) a parallel pipeline with phantom-typed `World_cap` safety.
+Eon Engine provides a typed, ergonomic layer on top of the stable Eon ECS core: typed component registration, a query builder with `View`-based reads, a `World` wrapper with per-world id allocation, data/service plane, and phantom `ro`/`rw` capability types, and (ecs-021) a parallel pipeline with compile-time read/write safety.
 
 The design maintains the core Eon principles of minimalism, extensibility, purity, and determinism while providing developer-friendly abstractions for common game development patterns.
