@@ -1,5 +1,6 @@
 # Eon project tasks
 BENCH_NAMES := "sparse_set entity_manager query world loop"
+ENGINE_BENCH_NAMES := "executor"
 
 # Build project
 build:
@@ -62,6 +63,14 @@ bench-compare name:
       i=$((i+1)); \
     done; \
     echo "Saved benchmark runs to $out_dir"
+
+# Run an engine benchmark by name: executor
+engine-bench name:
+    case " {{ENGINE_BENCH_NAMES}} " in \
+      *" {{name}} "*) ;; \
+      *) echo "Unknown engine benchmark: {{name}}"; exit 1 ;; \
+    esac
+    opam exec -- dune exec --profile=release eon_engine/bench/bench_{{name}}.exe
 
 # Run snake non-reactive example
 snake_nonreactive:

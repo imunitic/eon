@@ -81,6 +81,12 @@ end
 module Executor : sig
   module type S = Executor.S
   module Sequential : Executor.S
+  module Domain_pool : sig
+    val recommended_size : unit -> int
+    [@@@warning "-67"]
+    module Make (Config : sig val size : int end) : Executor.S
+    [@@@warning "+67"]
+  end
 end
 
 (** {2 System} *)

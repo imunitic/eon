@@ -1,0 +1,9 @@
+(include_subdirs no)
+
+(executable
+ (name bench_executor)
+ (public_name eon-engine-bench-executor)
+ (modules bench_executor)
+ (libraries bechamel unix eon-engine benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-engine))

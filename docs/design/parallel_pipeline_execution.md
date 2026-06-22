@@ -2,8 +2,13 @@
 
 ## Status
 
-**IMPLEMENTED (ecs-021).** Modules shipped, tested, and committed. The
-concurrency philosophy, invariants, and frame-order constraints live in
+**IMPLEMENTED (ecs-021).** Sequential executor, parallel pipeline, World_cap,
+engine buses — all shipped, tested, and committed.
+
+**IN PROGRESS (ecs-022).** `Executor.Domain_pool` — persistent OCaml 5 Domain
+worker pool. Design is finalised in §4.2; §9.2 is resolved.
+
+The concurrency philosophy, invariants, and frame-order constraints live in
 [thread_safety_design.md](thread_safety_design.md). This document is the
 authoritative reference for the parallel pipeline design.
 
@@ -146,13 +151,149 @@ Use this as the default and for testing.
 
 ### 4.2 `Domain_pool` (parallel, OCaml 5)
 
-A pool of `n` OCaml 5 `Domain`s that dequeues and runs jobs concurrently.
-`run_all` blocks (e.g. via `Mutex`/`Condition` or `Domain.join`) until the
-queue is empty and all workers are idle.
+A sub-module `Domain_pool` containing a `Make` functor, consistent with the
+codebase convention that all functors are named `Make`:
 
-The concrete implementation is intentionally deferred (open decision §9.2).
-The executor module boundary is what matters: it is the only place a Domain
-or thread ever appears in the pipeline code.
+```ocaml
+module Domain_pool : sig
+  val recommended_size : unit -> int
+  module Make (Config : sig val size : int end) : S
+end
+```
+
+OCaml 5 Domains map 1:1 to OS threads; the OS scheduler pins them to CPU cores,
+giving true CPU parallelism with no GIL and no cooperative yielding.
+
+**Domain 0 is the main program domain** and counts toward the core budget.
+`Domain.recommended_domain_count ()` (OCaml 5.1+) returns total recommended
+domains including Domain 0 — so the right worker count to fill all cores without
+oversubscribing is:
+
+```ocaml
+let recommended_size () = max 1 (Domain.recommended_domain_count () - 1)
+```
+
+For a game, leave extra headroom for the render thread, audio, and OS scheduler:
+
+```ocaml
+max 1 (Executor.Domain_pool.recommended_size () - 1)
+```
+
+`Domain_pool.recommended_size` is exported so callers can use a hardware-aware
+default without recomputing this arithmetic themselves.
+
+Usage at pipeline construction:
+
+```ocaml
+(* Explicit size *)
+module Pipeline =
+  Eon_engine.Pipeline.Make
+    (Eon_engine.System.Default)
+    (Eon_engine.Executor.Domain_pool.Make(struct let size = 4 end))
+
+(* Hardware-aware default — fills all cores minus main domain *)
+module Pipeline =
+  Eon_engine.Pipeline.Make
+    (Eon_engine.System.Default)
+    (Eon_engine.Executor.Domain_pool.Make(
+      struct let size = Eon_engine.Executor.Domain_pool.recommended_size () end))
+```
+
+`Config.size` worker domains are spawned once when the module is first touched.
+Each domain runs a persistent worker loop: sleep on a `Condition.t` when the
+job queue is empty, pop and run one job at a time, signal the caller when
+`pending` reaches zero.
+
+#### Internal state
+
+```ocaml
+type pool = {
+  mutex     : Mutex.t;
+  not_empty : Condition.t;   (* workers sleep here when queue is empty *)
+  all_done  : Condition.t;   (* run_all caller waits here *)
+  queue     : (unit -> unit) Queue.t;
+  pending   : int ref;       (* queued + in-flight jobs *)
+  exns      : exn list ref;  (* exceptions captured from workers *)
+  shutdown  : bool ref;
+}
+```
+
+#### Worker loop
+
+```ocaml
+let worker_loop pool =
+  let rec loop () =
+    let job = Mutex.protect pool.mutex (fun () ->
+      while Queue.is_empty pool.queue && not !(pool.shutdown) do
+        Condition.wait pool.not_empty pool.mutex
+      done;
+      if !(pool.shutdown) && Queue.is_empty pool.queue then None
+      else Some (Queue.pop pool.queue))
+    in
+    match job with
+    | None -> ()   (* shutdown *)
+    | Some f ->
+      (try f ()
+       with e ->
+         Mutex.protect pool.mutex (fun () ->
+           pool.exns := e :: !(pool.exns)));
+      Mutex.protect pool.mutex (fun () ->
+        decr pool.pending;
+        if !(pool.pending) = 0 then Condition.signal pool.all_done);
+      loop ()
+  in
+  loop ()
+```
+
+#### `run_all`
+
+```ocaml
+let run_all jobs =
+  match jobs with
+  | [] -> ()
+  | _ ->
+    Mutex.protect pool.mutex (fun () ->
+      pool.pending := List.length jobs;
+      List.iter (Queue.push pool.queue) jobs;
+      Condition.broadcast pool.not_empty);
+    Mutex.protect pool.mutex (fun () ->
+      while !(pool.pending) > 0 do
+        Condition.wait pool.all_done pool.mutex
+      done;
+      match !(pool.exns) with
+      | [] -> ()
+      | e :: _ ->
+        pool.exns := [];
+        raise e)
+```
+
+Exception contract: `run_all` re-raises the first captured worker exception
+(non-deterministic which one if multiple jobs raise) after all jobs have
+completed. Other exceptions are discarded. This satisfies "must not swallow
+exceptions" while keeping the API synchronous. See §9.2.
+
+#### Outer module structure
+
+```ocaml
+module Domain_pool = struct
+  let recommended_size () =
+    max 1 (Domain.recommended_domain_count () - 1)
+
+  module Make (Config : sig val size : int end) : S = struct
+    let pool = make_pool ()
+    let () =
+      for _ = 1 to Config.size do
+        ignore (Domain.spawn (fun () -> worker_loop pool))
+      done
+    let run_all jobs = run_pool pool jobs
+  end
+end
+```
+
+`Domain_pool` is a plain module (not itself a functor) so `recommended_size` has
+a stable call path. `Make` is the functor, consistent with the codebase convention
+that all functors are named `Make`. The executor module boundary is the only place
+a `Domain` ever appears in the pipeline code.
 
 ---
 
@@ -315,7 +456,7 @@ The default `kind` is borrowed from `Core_system.make_reactive ()` so that
 
 ```ocaml
 module System   = Eon_engine.System.Default
-(* Sequential execution — swap Domain_pool for parallelism, no system changes *)
+(* Sequential execution — swap Domain_pool.Make for parallelism, no system changes *)
 module Pipeline = Eon_engine.Pipeline.Make(System)(Eon_engine.Executor.Sequential)
 
 (* Parallel system — read-only update, writes via on_command *)
@@ -509,7 +650,7 @@ Eon_engine.System.Default.make → ('s, 'e, 'c) Eon_engine.System.Default.t
   │
   └──→ Eon_engine.Pipeline.Make(System)(Executor)
          Executor.Sequential   ← sequential, same World_cap interface
-         Executor.Domain_pool  ← parallel, same World_cap interface
+         Executor.Domain_pool.Make  ← parallel, same World_cap interface
          World_cap wrapping happens once at start of run
 ```
 
@@ -659,16 +800,22 @@ passes `ro t` into every system `update`. Full design is captured in
 
 ### 9.2 Concrete `Executor` implementations
 
-Ship `Sequential` first (always). Then decide:
+**Decided (ecs-022).**
 
-- **OCaml 5 `Domain_pool`:** natural fit given OCaml 5-only baseline. `n`
-  domains created once at pipeline construction; `run_all` distributes jobs
-  via a `Mutex`-guarded deque and waits for all workers.
-- **`Thread_pool`:** POSIX threads via `Thread`; broader compatibility but
-  OCaml 5 GIL still limits true CPU parallelism for compute-bound tasks.
-- **User-supplied executor:** should the `Executor` module type be a
-  documented public extension point from day one? If so, document the
-  exception-safety contract (`run_all` must not swallow exceptions from jobs).
+- **`Sequential`**: shipped with ecs-021. Always available; degrades to core
+  sequential behaviour. Use as default and for testing.
+- **`Domain_pool`**: ships with ecs-022. Concrete design in §4.2. `Thread_pool`
+  is not planned — OCaml 5 GIL makes it inferior to `Domain_pool` for
+  compute-bound work, and the `Executor.S` seam lets users supply their own
+  if needed.
+- **`Executor.S` is a public extension point**: `module type S` is exported in
+  `executor.mli`. The only contract: `run_all` must not swallow exceptions from
+  jobs — re-raise the first after all complete, or let the exception propagate
+  synchronously. Implementations that swallow exceptions violate this contract
+  and break caller error handling.
+- **No `Thread_pool` planned**: OCaml 5 `Domain_pool` is the right choice for
+  the OCaml 5-only baseline. `Thread` would share the GIL and offer no CPU
+  parallelism for pure OCaml compute.
 
 ---
 

@@ -13,4 +13,5 @@ let () =
     ("API Structure", Test_api_structure.tests);
     ("World", Test_world.tests);
     ("Pipeline", Test_pipeline.tests);
+    ("Executor", Test_executor.tests);
   ]
