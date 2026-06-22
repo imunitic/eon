@@ -18,36 +18,38 @@
     ]}
 *)
 
-module Make (B : Query_backend.S with type world = World.t) : sig
-  type query
-  (** Accumulated query constraints. Not resolved until [iter] or [count] is called. *)
+module Make (B : Query_backend.S with type 'perm world = 'perm World.t) : sig
+  type 'perm query
+  (** Accumulated query constraints. Not resolved until [iter] or [count] is called.
+      The ['perm] parameter tracks the world capability from [from]. *)
 
-  val from : B.world -> query
-  (** Entry point. Captures the world, starts an empty query. *)
+  val from : 'perm B.world -> 'perm query
+  (** Entry point. Captures the world, starts an empty query.
+      Accepts both [ro] and [rw] worlds — queries are always read-only. *)
 
   (** {2 Filters} *)
 
-  val having     : string -> query -> query
+  val having     : string -> 'perm query -> 'perm query
   (** Require the named component to be present.
       Use for components you will read via [View.get] and for marker components
       you will not read — both are just "must be present." *)
 
-  val having_all : string list -> query -> query
+  val having_all : string list -> 'perm query -> 'perm query
   (** Require all named components to be present. *)
 
-  val not_having     : string -> query -> query
+  val not_having     : string -> 'perm query -> 'perm query
   (** Require the named component to be absent. *)
 
-  val not_having_any : string list -> query -> query
+  val not_having_any : string list -> 'perm query -> 'perm query
   (** Require all named components to be absent. *)
 
   (** {2 Execution} *)
 
-  val iter  : (View.t -> unit) -> query -> unit
+  val iter  : (View.t -> unit) -> 'perm query -> unit
   (** Iterate every matching entity. The callback receives a [View.t] cursor;
       use [View.get] / [View.get_opt] to read component values and
       [View.entity] to get the entity id. *)
 
-  val count : query -> int
+  val count : 'perm query -> int
   (** Count matching entities without a callback. *)
 end

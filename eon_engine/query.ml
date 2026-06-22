@@ -1,6 +1,6 @@
-module Make (B : Query_backend.S with type world = World.t) = struct
-  type query = {
-    world    : B.world;
+module Make (B : Query_backend.S with type 'perm world = 'perm World.t) = struct
+  type 'perm query = {
+    world    : 'perm B.world;
     required : string list;
     excludes : string list;
   }

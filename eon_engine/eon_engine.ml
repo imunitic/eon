@@ -18,7 +18,6 @@ module Signals    = Single_bus
 module Events     = Double_bus
 module Commands   = Single_bus
 
-module World_cap = World_cap
 module Executor  = Executor
 
 module System = struct

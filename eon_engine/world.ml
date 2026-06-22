@@ -1,48 +1,41 @@
 type entity_id = Eon_ecs.Entity_id.t
 
+type ro = [ `R ]
+type rw = [ `R | `W ]
+
 (* ================================================================ *)
 (* World.S — Backend signature                                       *)
 (* ================================================================ *)
 
 module type S = sig
-  type t
+  type 'perm t
 
-  val create               : unit -> t
-  val create_entity        : t -> entity_id
-  val add_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-  val set_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-  val get_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a option
-  val remove_component     : t -> entity_id -> 'a Component_descriptor.t -> unit
-  val remove_all_components: t -> entity_id -> unit
-  val destroy_entity       : t -> entity_id -> unit
-  val register             : t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
-  val is_registered        : t -> 'a Component_descriptor.t -> bool
-  val count_entities       : t -> int
-  val is_alive             : t -> entity_id -> bool
-
-  val add_data      : t -> [> ] -> 'a -> unit
-  val set_data      : t -> [> ] -> 'a -> unit
-  val get_data      : t -> [> ] -> 'a option
-  val count_data    : t -> int
-  val add_service   : t -> [> ] -> 'a -> unit
-  val get_service   : t -> [> ] -> 'a option
-  val list_services : t -> int list
-
-  val iter_entities : t -> string list -> (entity_id -> unit) -> unit
-  val has_component : t -> entity_id -> string -> bool
+  val get_component    : 'perm t -> entity_id -> 'a Component_descriptor.t -> 'a option
+  val is_alive         : 'perm t -> entity_id -> bool
+  val is_registered    : 'perm t -> 'a Component_descriptor.t -> bool
+  val count_entities   : 'perm t -> int
+  val get_data         : 'perm t -> [> ] -> 'a option
+  val count_data       : 'perm t -> int
+  val get_service      : 'perm t -> [> ] -> 'a option
+  val list_services    : 'perm t -> int list
+  val iter_entities    : 'perm t -> string list -> (entity_id -> unit) -> unit
+  val has_component    : 'perm t -> entity_id -> string -> bool
 end
 
 (* ================================================================ *)
 (* Concrete World module                                             *)
 (* ================================================================ *)
 
-type t = {
+type 'perm t = {
   core              : Eon_ecs.World.t;
   mutable next_id   : int [@atomic];
 }
 
 let create () =
   { core = Eon_ecs.World.create (); next_id = 0 }
+
+external readonly : rw t -> ro t = "%identity"
+external as_ro : 'perm t -> ro t = "%identity"
 
 let create_entity world =
   Eon_ecs.World.create_entity world.core

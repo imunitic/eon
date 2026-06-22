@@ -3,80 +3,84 @@
 (** Entity identifier — alias for [Eon_ecs.Entity_id.t]. *)
 type entity_id = Eon_ecs.Entity_id.t
 
+(** Read-only capability. *)
+type ro = [ `R ]
+
+(** Read-write capability. *)
+type rw = [ `R | `W ]
+
 (* ================================================================ *)
 (* World.S — Backend signature                                       *)
 (* ================================================================ *)
 
-(** Uniform world signature that all backends and engine code depend on.
-    Has no reference to [Eon_ecs.World.t] — backends work with [W.t] throughout
-    and call [W.iter_entities] / [W.has_component] for query operations. *)
+(** Uniform world signature that query backends depend on.
+    Only exposes read operations so any ['perm t] is accepted.
+    Backends call [iter_entities] and [has_component] exclusively. *)
 module type S = sig
-  type t
+  type 'perm t
 
-  val create               : unit -> t
+  val get_component    : 'perm t -> entity_id -> 'a Component_descriptor.t -> 'a option
+  val is_alive         : 'perm t -> entity_id -> bool
+  val is_registered    : 'perm t -> 'a Component_descriptor.t -> bool
+  val count_entities   : 'perm t -> int
+  val get_data         : 'perm t -> [> ] -> 'a option
+  val count_data       : 'perm t -> int
+  val get_service      : 'perm t -> [> ] -> 'a option
+  val list_services    : 'perm t -> int list
 
-  val create_entity        : t -> entity_id
-  val add_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-  val set_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-  val get_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a option
-  val remove_component     : t -> entity_id -> 'a Component_descriptor.t -> unit
-  val remove_all_components: t -> entity_id -> unit
-  val destroy_entity       : t -> entity_id -> unit
-  val register             : t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
-  val is_registered        : t -> 'a Component_descriptor.t -> bool
-  val count_entities       : t -> int
-  val is_alive             : t -> entity_id -> bool
-
-  val add_data      : t -> [> ] -> 'a -> unit
-  val set_data      : t -> [> ] -> 'a -> unit
-  val get_data      : t -> [> ] -> 'a option
-  val count_data    : t -> int
-  val add_service   : t -> [> ] -> 'a -> unit
-  val get_service   : t -> [> ] -> 'a option
-  val list_services : t -> int list
-
-  (** Backend query primitives — not for game code. *)
-
-  val iter_entities : t -> string list -> (entity_id -> unit) -> unit
+  val iter_entities : 'perm t -> string list -> (entity_id -> unit) -> unit
   (** Iterate every alive entity that has all of the named components, using the
       smallest sparse set as the iteration base. Raises [Invalid_argument] if any
       name was never registered. *)
 
-  val has_component : t -> entity_id -> string -> bool
+  val has_component : 'perm t -> entity_id -> string -> bool
   (** Return [true] if the entity currently holds the named component.
-      Returns [false] if the component is not registered or is absent on the entity.
-      Used by backends to apply excludes post-filters by string name. *)
+      Returns [false] if the component is not registered or is absent on the entity. *)
 end
 
 (* ================================================================ *)
 (* Concrete World module                                             *)
 (* ================================================================ *)
 
-(** Opaque handle to the engine world. *)
-type t
+(** Opaque handle to the engine world. ['perm] is phantom: [ro] for
+    read-only access, [rw] for full read-write access. *)
+type 'perm t
 
-(** Create a new empty world. *)
-val create : unit -> t
+(** Create a new empty world with full read-write capability. *)
+val create : unit -> rw t
 
-val create_entity        : t -> entity_id
-val add_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-val set_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-val get_component        : t -> entity_id -> 'a Component_descriptor.t -> 'a option
-val remove_component     : t -> entity_id -> 'a Component_descriptor.t -> unit
-val remove_all_components: t -> entity_id -> unit
-val destroy_entity       : t -> entity_id -> unit
-val register             : t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
-val is_registered        : t -> 'a Component_descriptor.t -> bool
-val count_entities       : t -> int
-val is_alive             : t -> entity_id -> bool
+(** Downgrade to read-only. Zero cost — only the phantom type changes. *)
+val readonly : rw t -> ro t
 
-val add_data      : t -> [> ] -> 'a -> unit
-val set_data      : t -> [> ] -> 'a -> unit
-val get_data      : t -> [> ] -> 'a option
-val count_data    : t -> int
-val add_service   : t -> [> ] -> 'a -> unit
-val get_service   : t -> [> ] -> 'a option
-val list_services : t -> int list
+(** Downgrade any capability level to read-only. Zero cost.
+    Safe because [ro t] is a strict subset of any ['perm t]'s operations. *)
+val as_ro : 'perm t -> ro t
 
-val iter_entities : t -> string list -> (entity_id -> unit) -> unit
-val has_component : t -> entity_id -> string -> bool
+(** {2 Read operations — accept any capability} *)
+
+val get_component        : 'perm t -> entity_id -> 'a Component_descriptor.t -> 'a option
+val is_alive             : 'perm t -> entity_id -> bool
+val is_registered        : 'perm t -> 'a Component_descriptor.t -> bool
+val count_entities       : 'perm t -> int
+
+val get_data      : 'perm t -> [> ] -> 'a option
+val count_data    : 'perm t -> int
+val get_service   : 'perm t -> [> ] -> 'a option
+val list_services : 'perm t -> int list
+
+val iter_entities : 'perm t -> string list -> (entity_id -> unit) -> unit
+val has_component : 'perm t -> entity_id -> string -> bool
+
+(** {2 Write operations — require [rw] capability} *)
+
+val create_entity        : rw t -> entity_id
+val destroy_entity       : rw t -> entity_id -> unit
+val add_component        : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+val set_component        : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+val remove_component     : rw t -> entity_id -> 'a Component_descriptor.t -> unit
+val remove_all_components: rw t -> entity_id -> unit
+val register             : rw t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
+
+val add_data    : rw t -> [> ] -> 'a -> unit
+val set_data    : rw t -> [> ] -> 'a -> unit
+val add_service : rw t -> [> ] -> 'a -> unit

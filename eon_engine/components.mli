@@ -83,5 +83,5 @@ module Engine_components : sig
       Registers Position, Velocity, Rotation, Scale, Sprite, Animation,
       Camera, Collider, and Tag components.
   *)
-  val register_all : World.t -> unit
+  val register_all : World.rw World.t -> unit
 end

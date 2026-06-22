@@ -15,31 +15,41 @@ type entity_id = Eon_ecs.Entity_id.t
 module World : sig
   module type S = World.S
 
-  type t = World.t
+  type ro = World.ro
+  type rw = World.rw
+  type 'perm t = 'perm World.t
 
-  val create : unit -> t
-  val create_entity : t -> entity_id
-  val add_component : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-  val set_component : t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
-  val get_component : t -> entity_id -> 'a Component_descriptor.t -> 'a option
-  val remove_component : t -> entity_id -> 'a Component_descriptor.t -> unit
-  val remove_all_components : t -> entity_id -> unit
-  val destroy_entity : t -> entity_id -> unit
-  val register : t -> 'a Component_descriptor.t -> Components.registration_result
-  val is_registered : t -> 'a Component_descriptor.t -> bool
-  val count_entities : t -> int
-  val is_alive : t -> entity_id -> bool
+  val create   : unit -> rw t
+  val readonly : rw t -> ro t
 
-  val add_data : t -> [> ] -> 'a -> unit
-  val set_data : t -> [> ] -> 'a -> unit
-  val get_data : t -> [> ] -> 'a option
-  val count_data : t -> int
-  val add_service : t -> [> ] -> 'a -> unit
-  val get_service : t -> [> ] -> 'a option
-  val list_services : t -> int list
+  (** {2 Read operations — accept any capability} *)
 
-  val iter_entities : t -> string list -> (entity_id -> unit) -> unit
-  val has_component : t -> entity_id -> string -> bool
+  val get_component        : 'perm t -> entity_id -> 'a Component_descriptor.t -> 'a option
+  val is_alive             : 'perm t -> entity_id -> bool
+  val is_registered        : 'perm t -> 'a Component_descriptor.t -> bool
+  val count_entities       : 'perm t -> int
+
+  val get_data      : 'perm t -> [> ] -> 'a option
+  val count_data    : 'perm t -> int
+  val get_service   : 'perm t -> [> ] -> 'a option
+  val list_services : 'perm t -> int list
+
+  val iter_entities : 'perm t -> string list -> (entity_id -> unit) -> unit
+  val has_component : 'perm t -> entity_id -> string -> bool
+
+  (** {2 Write operations — require [rw] capability} *)
+
+  val create_entity        : rw t -> entity_id
+  val destroy_entity       : rw t -> entity_id -> unit
+  val add_component        : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+  val set_component        : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+  val remove_component     : rw t -> entity_id -> 'a Component_descriptor.t -> unit
+  val remove_all_components: rw t -> entity_id -> unit
+  val register             : rw t -> 'a Component_descriptor.t -> Components.registration_result
+
+  val add_data    : rw t -> [> ] -> 'a -> unit
+  val set_data    : rw t -> [> ] -> 'a -> unit
+  val add_service : rw t -> [> ] -> 'a -> unit
 end
 
 val component : string -> 'a Components.t
@@ -67,14 +77,6 @@ module Events   : module type of Double_bus
 (** Alias: same-frame commands bus. Same type as [Single_bus]. *)
 module Commands : module type of Single_bus
 
-(** {2 World capability} *)
-
-(** Phantom capability wrapper around [World.t].
-    Enforces read-only vs read-write access at compile time. *)
-module World_cap : sig
-  include module type of World_cap
-end
-
 (** {2 Executor} *)
 
 (** Threading-substrate seam for the parallel pipeline. *)
@@ -91,7 +93,7 @@ end
 
 (** {2 System} *)
 
-(** Engine system — wraps any [Eon_ecs.System.S] with [World_cap] capabilities.
+(** Engine system — wraps any [Eon_ecs.System.S] with [World] capability types.
 
     Game code constructs systems via [System.Default.make]. Pass the result to
     [Pipeline.Default.add_system]. [System.Make] is for custom bus wiring. *)
@@ -132,7 +134,7 @@ module Pipeline : sig
     : Pipeline.S
       with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
-       and type world = World.t
+       and type world = World.rw World.t
   [@@@warning "+67"]
 
   (** Default pipeline: engine [System.Default] with [Executor.Sequential].
@@ -141,13 +143,13 @@ module Pipeline : sig
   module Default : Pipeline.S
     with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.Default.t
      and type kind = [ `Fixed | `Variable ]
-     and type world = World.t
+     and type world = World.rw World.t
 end
 
 (** {2 Progress} *)
 
 (** Time-step progression manager for engine pipelines.
-    Typed for [World.t]; mirrors [Eon_ecs.Progress]. *)
+    Typed for [World.rw World.t]; mirrors [Eon_ecs.Progress]. *)
 module Progress : sig
   include module type of Progress
 end
@@ -155,7 +157,7 @@ end
 (** {2 Loop} *)
 
 (** Game loop builder for the engine layer.
-    Delegates to [Eon_ecs.Loop.Make]; typed for [World.t] via [Progress] and
+    Delegates to [Eon_ecs.Loop.Make]; typed for [World.rw World.t] via [Progress] and
     [Loop_buses]. *)
 module Loop : sig
   include module type of Loop
@@ -165,7 +167,7 @@ end
 
 (** Engine bus orchestration for [Loop.Make].
 
-    Satisfies [Loop.BUSES with type world = World.t]. Register
+    Satisfies [Loop.BUSES with type world = World.rw World.t]. Register
     [Single_bus] / [Double_bus] instances under [`` `Signals ``],
     [`` `Events ``], [`` `Commands ``] in the world before calling
     [Loop.run]. *)
