@@ -5,8 +5,9 @@
 **IMPLEMENTED (ecs-021).** Sequential executor, parallel pipeline, World_cap,
 engine buses — all shipped, tested, and committed.
 
-**IN PROGRESS (ecs-022).** `Executor.Domain_pool` — persistent OCaml 5 Domain
-worker pool. Design is finalised in §4.2; §9.2 is resolved.
+**IMPLEMENTED (ecs-022).** `Executor.Domain_pool` — persistent OCaml 5 Domain
+worker pool. Shipped, tested, and benchmarked. §4.2 is the authoritative design;
+§9.2 is resolved.
 
 The concurrency philosophy, invariants, and frame-order constraints live in
 [thread_safety_design.md](thread_safety_design.md). This document is the
@@ -254,8 +255,8 @@ let run_all jobs =
   | _ ->
     Mutex.protect pool.mutex (fun () ->
       pool.pending := List.length jobs;
-      List.iter (Queue.push pool.queue) jobs;
-      Condition.broadcast pool.not_empty);
+      List.iter (fun f -> Queue.push f pool.queue) jobs;
+      List.iter (fun _ -> Condition.signal pool.not_empty) jobs);
     Mutex.protect pool.mutex (fun () ->
       while !(pool.pending) > 0 do
         Condition.wait pool.all_done pool.mutex
