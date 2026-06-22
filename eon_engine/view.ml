@@ -1,5 +1,5 @@
 type t = {
-  world  : World.t;
+  world  : World.ro World.t;
   entity : Eon_ecs.Entity_id.t;
 }
 
@@ -14,4 +14,4 @@ let get v comp =
 let get_opt v comp =
   World.get_component v.world v.entity comp
 
-let make world entity = { world; entity }
+let make world entity = { world = World.as_ro world; entity }

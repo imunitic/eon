@@ -10,7 +10,7 @@ Visual reference for the embedding and wrapping relationships between `eon_ecs` 
 | `-.->` dashed | nominal: **type alias, full re-export, or functor delegation** |
 | `-->` plain | **depends on** (uses, calls into) |
 
-The key integration seam is `eon_engine.World`, which embeds `Eon_ecs.World.t` and adds component-descriptor-based addressing. `World_cap` then layers phantom `ro`/`rw` capability types on top for compile-time access control.
+The key integration seam is `eon_engine.World`, which embeds `Eon_ecs.World.t`, adds component-descriptor-based addressing, and carries phantom `ro`/`rw` capability types for compile-time access control.
 
 ## Diagram
 
@@ -91,8 +91,7 @@ graph TD
 
         subgraph ENG_WORLD["World layer"]
             direction TB
-            ENG_World["World\ncore: Eon_ecs.World.t\nnext_id: int"]
-            ENG_WorldCap["World_cap\n'perm t = {world: World.t}\nphantom:  ro=[R]  rw=[R|W]"]
+            ENG_World["World\ncore: Eon_ecs.World.t\nnext_id: int\n+'perm t  ro=[R]  rw=[R|W]"]
         end
 
         subgraph ENG_QUERY["Query system"]
@@ -116,7 +115,7 @@ graph TD
             direction TB
             ENG_ExecutorS["Executor.S\nrun_all interface (threading seam)\nSequential (default)"]
             ENG_DomainPool["Domain_pool\nMake(Config) : Executor.S\npersistent OCaml 5 Domain workers\nrecommended_size ()"]
-            ENG_System["System\nParallel: ro World_cap → float → unit\nExclusive: rw World_cap → float → unit"]
+            ENG_System["System\nParallel: World.ro → float → unit\nExclusive: World.rw → float → unit"]
             ENG_Pipeline["Pipeline\nMake(System.DISPATCH)(Executor.S)"]
             ENG_Progress["Progress\n≡ Eon_ecs.Progress  (full re-export)"]
             ENG_Loop["Loop\ndelegates to Eon_ecs.Loop.Make"]
@@ -125,7 +124,6 @@ graph TD
     end
 
     ENG_World --> ENG_CompDesc
-    ENG_WorldCap --> ENG_World
     ENG_View --> ENG_World
     ENG_View --> ENG_CompDesc
     ENG_Backend --> ENG_CompDesc
@@ -139,7 +137,6 @@ graph TD
     ENG_Single --> ENG_BusSig
     ENG_Double --> ENG_BusSig
     ENG_DomainPool --> ENG_ExecutorS
-    ENG_System --> ENG_WorldCap
     ENG_System --> ENG_World
     ENG_System --> ENG_Single
     ENG_System --> ENG_Double
@@ -153,7 +150,6 @@ graph TD
 
     %% Cross-package: eon_engine → eon_ecs
     ENG_World == "embeds  core: Eon_ecs.World.t" ==> ECS_World
-    ENG_WorldCap == "wraps World.t\n(which embeds Eon_ecs.World.t)" ==> ENG_World
     ENG_View -. "entity: Eon_ecs.Entity_id.t\n(transparent alias)" .-> ECS_EntityId
     ENG_Backend -. "key type: Eon_ecs.Entity_id.t" .-> ECS_EntityId
     ENG_BusSig -. "S = Eon_ecs.Bus.BUS\n(module type alias)" .-> ECS_BusSig
@@ -169,6 +165,6 @@ graph TD
     classDef legendNode fill:#f3f4f6,stroke:#9ca3af,color:#374151
 
     class ECS_EntityId,ECS_SparseSet,ECS_Component,ECS_CompReg,ECS_EntityMgr,ECS_Resource,ECS_World,ECS_Query,ECS_DepGraph,ECS_BusSig,ECS_Single,ECS_Double,ECS_Clock,ECS_System,ECS_Pipeline,ECS_Progress,ECS_Loop,ECS_LoopBuses ecsNode
-    class ENG_World,ENG_WorldCap,ENG_CompDesc,ENG_View,ENG_Backend,ENG_SSBackend,ENG_Query,ENG_Components,ENG_BusSig,ENG_Single,ENG_Double,ENG_ExecutorS,ENG_DomainPool,ENG_System,ENG_Pipeline,ENG_Progress,ENG_Loop,ENG_LoopBuses engNode
+    class ENG_World,ENG_CompDesc,ENG_View,ENG_Backend,ENG_SSBackend,ENG_Query,ENG_Components,ENG_BusSig,ENG_Single,ENG_Double,ENG_ExecutorS,ENG_DomainPool,ENG_System,ENG_Pipeline,ENG_Progress,ENG_Loop,ENG_LoopBuses engNode
     class L1,L2,L3,L4,L5,L6 legendNode
 ```

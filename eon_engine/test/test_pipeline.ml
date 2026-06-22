@@ -114,7 +114,7 @@ let test_exclusive_writes () =
     make_pipe [`Update]
       [`Update, System.Default.make
                   (Exclusive (fun rw _dt ->
-                     ignore (World_cap.create_entity rw)))]
+                     ignore (World.create_entity rw)))]
   in
   Pipeline.Default.register_all pipe w;
   let before = World.count_entities w in

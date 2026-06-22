@@ -41,13 +41,13 @@ solution baked into the core.
   build on. If the core left phase ordering loose, the engine could not promise
   the barriers the parallel model depends on.
 - **`eon_engine` ships its own pipeline** with sequential *phases* but optionally
-  *parallel systems within a phase*, enforced by `World_cap` phantom capability
-  types (`ro`/`rw`). This is opt-in and layered on top of the sequential core.
+  *parallel systems within a phase*, enforced by `World.ro`/`World.rw` phantom
+  capability types. This is opt-in and layered on top of the sequential core.
 
 ```
 game code
     ↓
-Engine parallel pipeline   ← World_cap ro/rw phantom types, parallel systems (eon_engine)
+Engine parallel pipeline   ← World.ro/rw phantom types, parallel systems (eon_engine)
     ↓
 Sequential primitives      ← Pipeline/System, strictly sequential (eon_ecs, unchanged)
 ```
@@ -68,23 +68,23 @@ System updates within a phase: parallel → the only concurrency
 
 ---
 
-## 4. No phase tags — `World_cap` does the job
+## 4. No phase tags — `World.ro`/`World.rw` does the job
 
 Earlier designs proposed `Read_only` / `Read_write` phase tags to distinguish
 parallel-safe from parallel-unsafe phases. **These are dropped.**
 
 The parallel pipeline only accepts **reactive systems**, whose `update` always
-takes `World_cap.ro World_cap.t`. Since all updates are read-only by the type
+takes `World.ro World.t`. Since all updates are read-only by the type
 system, every phase's updates are safe to run in parallel — no per-phase tag
-is needed to make that determination. `World_cap` enforces the invariant at
+is needed to make that determination. The phantom type enforces the invariant at
 compile time; a phase tag would only document a promise the compiler already
 checks.
 
 ```
-update    : World_cap.ro World_cap.t → float → unit   (* all phases, parallel *)
-on_signal : World_cap.rw World_cap.t → 's → unit      (* always sequential *)
-on_event  : World_cap.rw World_cap.t → 'e → unit      (* always sequential *)
-on_command: World_cap.rw World_cap.t → 'c → unit      (* always sequential *)
+update    : World.ro World.t → float → unit   (* all phases, parallel *)
+on_signal : World.rw World.t → 's → unit      (* always sequential *)
+on_event  : World.rw World.t → 'e → unit      (* always sequential *)
+on_command: World.rw World.t → 'c → unit      (* always sequential *)
 ```
 
 Phases still exist for **ordering** — controlling which groups of systems run
@@ -159,124 +159,43 @@ are fully independent:
 
 | Stack | World type | When to use |
 |---|---|---|
-| Sequential | `Eon_engine.World.t` | `Eon_ecs.Pipeline` or sequential `Eon_engine.Pipeline` |
-| Parallel | `World_cap.ro/rw World_cap.t` | `Eon_engine.Pipeline` (parallel) |
+| Sequential | `World.rw World.t` | `Eon_ecs.Pipeline` or sequential `Eon_engine.Pipeline` |
+| Parallel | `World.ro World.t` / `World.rw World.t` | `Eon_engine.Pipeline` (parallel) |
 
-A game that never needs parallelism never sees `World_cap`. The parallel
-pipeline is the only code that calls `World_cap.wrap` and `World_cap.readonly`.
+A game that never uses parallel systems only ever sees `World.rw World.t`.
+The pipeline internally calls `World.readonly` once per `run` call.
 
-### Shape — Option A (decided)
+### Shape — implemented in `World` directly (ecs-023)
 
-`ro` and `rw` are type aliases for polymorphic variants. This keeps the API
-readable while making a future upgrade to full phantom contravariance (Option B)
-a one-line change with zero call-site impact:
-
-```ocaml
-type ro = [ `R ]
-type rw = [ `R | `W ]
-```
-
-- `update : ro World_cap.t -> float -> unit` — systems only read.
-- `on_command : rw World_cap.t -> ... -> unit` — handlers may write.
-
-### Option B (deferred — upgrade path)
-
-Full phantom contravariance — mark `type -'perm t` and use `[> `R ]` /
-`[> `R | `W ]` constraints directly. `rw t` coerces to `ro t` automatically,
-no explicit `readonly` call needed. Because `ro` and `rw` are already aliases
-for the variant types, switching is a one-line change; call sites are unaffected.
-
-### Full `World_cap` interface
+`ro` and `rw` are type aliases for polymorphic variants, defined directly on
+`World`:
 
 ```ocaml
-(* eon_engine/world_cap.mli *)
-
-(* ================================================================ *)
-(* Capability types                                                   *)
-(* ================================================================ *)
-
+(* eon_engine/world.mli *)
 type ro = [ `R ]
 type rw = [ `R | `W ]
+type 'perm t       (* phantom — 'perm has no runtime representation *)
 
-(* ================================================================ *)
-(* Capability-wrapped world                                           *)
-(* ================================================================ *)
+val create   : unit -> rw t
+val readonly : rw t -> ro t   (* zero-cost: external "%identity" *)
 
-type 'perm t  (* phantom — 'perm has no runtime representation *)
+(* read operations — accept any 'perm *)
+val get_component    : 'perm t -> entity_id -> 'a Component_descriptor.t -> 'a option
+val is_alive         : 'perm t -> entity_id -> bool
+(* ... all read ops ... *)
 
-(* ================================================================ *)
-(* Construction — parallel pipeline internal; game code never calls  *)
-(* ================================================================ *)
-
-val wrap     : World.t -> rw t   (* pipeline wraps before dispatch *)
-val readonly : rw t -> ro t      (* pipeline calls before Read_only phase *)
-
-(* ================================================================ *)
-(* Read operations — both perms                                       *)
-(* ================================================================ *)
-
-val get_component         : _ t -> Entity_id.t -> 'a Component_descriptor.t -> 'a option
-val is_alive              : _ t -> Entity_id.t -> bool
-val count_entities        : _ t -> int
-val is_registered         : _ t -> 'a Component_descriptor.t -> bool
-val get_data              : _ t -> [> ] -> 'a option
-val get_service           : _ t -> [> ] -> 'a option
-val list_services         : _ t -> int list
-val iter_entities         : _ t -> string list -> (Entity_id.t -> unit) -> unit
-val has_component         : _ t -> Entity_id.t -> string -> bool
-
-(* ================================================================ *)
-(* Write operations — rw only                                         *)
-(* ================================================================ *)
-
-val create_entity         : rw t -> Entity_id.t
-val destroy_entity        : rw t -> Entity_id.t -> unit
-val add_component         : rw t -> Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
-val set_component         : rw t -> Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
-val remove_component      : rw t -> Entity_id.t -> 'a Component_descriptor.t -> unit
-val remove_all_components : rw t -> Entity_id.t -> unit
-val register              : rw t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
-val add_data              : rw t -> [> ] -> 'a -> unit
-val set_data              : rw t -> [> ] -> 'a -> unit
-val add_service           : rw t -> [> ] -> 'a -> unit
+(* write operations — rw only *)
+val create_entity    : rw t -> entity_id
+val add_component    : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+(* ... all write ops ... *)
 ```
 
-The implementation is pure delegation to `World` with zero runtime overhead:
+- `update : World.ro World.t -> float -> unit` — parallel systems only read.
+- `on_command : World.rw World.t -> ... -> unit` — handlers may write.
 
-```ocaml
-(* eon_engine/world_cap.ml *)
-
-type ro = [ `R ]
-type rw = [ `R | `W ]
-
-type 'perm t = { raw : World.t }
-
-let wrap w     = { raw = w }
-let readonly w = { raw = w.raw }
-
-(* reads — accept any perm *)
-let get_component w e c        = World.get_component w.raw e c
-let is_alive w e               = World.is_alive w.raw e
-let count_entities w           = World.count_entities w.raw
-let is_registered w c          = World.is_registered w.raw c
-let get_data w k               = World.get_data w.raw k
-let get_service w k            = World.get_service w.raw k
-let list_services w            = World.list_services w.raw
-let iter_entities w names f    = World.iter_entities w.raw names f
-let has_component w e name     = World.has_component w.raw e name
-
-(* writes — rw only; type system rejects ro at call site *)
-let create_entity w            = World.create_entity w.raw
-let destroy_entity w e         = World.destroy_entity w.raw e
-let add_component w e c v      = World.add_component w.raw e c v
-let set_component w e c v      = World.set_component w.raw e c v
-let remove_component w e c     = World.remove_component w.raw e c
-let remove_all_components w e  = World.remove_all_components w.raw e
-let register w c               = World.register w.raw c
-let add_data w k v             = World.add_data w.raw k v
-let set_data w k v             = World.set_data w.raw k v
-let add_service w k v          = World.add_service w.raw k v
-```
+`World_cap` was a separate wrapper module (ecs-021). It was removed in ecs-023:
+the phantom types now live directly on `World`, eliminating one layer of
+indirection and removing `World_cap` from all developer-facing signatures.
 
 ### Limits (what "enforced" means)
 
@@ -332,14 +251,14 @@ The parallel `tick` is safe **iff** all of these hold:
 
 1. **Phases run sequentially** (§3) — the barriers exist.
 2. **All system `update` functions are read-only** (§4) — enforced at compile
-   time by `World_cap.ro World_cap.t` (§7).
+   time by `World.ro World.t` (§7).
 3. **No structural mutations (`add_component`, `remove_component`,
    `destroy_entity`) are in flight during `tick`** — they are confined to
    `on_*` handlers in `collect`/`drain`, outside the parallel window (§6).
 4. **Bus `emit` is `Mutex`-protected; dispatch stays sequential** (§8).
 
 Invariants (1), (3), and (4) are structural guarantees from the pipeline and
-frame order. Invariant (2) is a compile-time guarantee enforced by `World_cap`.
+frame order. Invariant (2) is a compile-time guarantee enforced by `World.ro World.t`.
 
 ---
 
@@ -352,10 +271,10 @@ frame order. Invariant (2) is a compile-time guarantee enforced by `World_cap`.
   barrier.
 - **Do not call `add_component`, `remove_component`, or `destroy_entity` inside
   `update`.** Structural mutations must stay in `on_*` handlers that fire during
-  `collect`/`drain`, never during the parallel `tick`. `World_cap.ro` enforces
+  `collect`/`drain`, never during the parallel `tick`. `World.ro World.t` enforces
   this at the type level.
-- **Do not phantom-type the core `World.t`.** `World_cap` lives in `eon_engine`
-  and wraps `World.t`; the core stays unparametrized.
+- **Do not phantom-type `Eon_ecs.World.t`.** The phantom capability types live
+  in `Eon_engine.World` only; `eon_ecs` stays unparametrized.
 
 ---
 
@@ -383,7 +302,7 @@ system embeds a core `Eon_ecs.System.Default.t` — fully compatible with
 
 - **No phase tags.** All phases dispatch via `Executor` — `Sequential` gives
   the sequential fallback, `Domain_pool` gives parallelism. Phase tags were
-  dropped: since all system `update` functions must take `World_cap.ro World_cap.t`,
+  dropped: since all system `update` functions must take `World.ro World.t`,
   every phase is always safe to run in parallel. A per-phase tag would only
   re-state what the type system already guarantees. See §4.
 

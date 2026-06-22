@@ -1,9 +1,9 @@
 (** Engine parallel pipeline — two-step dispatch via Executor.
 
     Each phase runs parallel systems first (via [Executor.run_all] with
-    [ro World_cap.t]) then exclusive systems sequentially ([rw World_cap.t]).
-    [World_cap] wrapping is entirely internal; [Progress] and [Loop] see only
-    [World.t].
+    [World.ro World.t]) then exclusive systems sequentially ([World.rw World.t]).
+    Capability management is entirely internal; [Progress] and [Loop] see only
+    [World.rw World.t].
 
     Phase ordering uses [Eon_ecs.Dependency_graph] — the same topo-sort
     primitive as the core pipeline. *)
@@ -37,5 +37,5 @@ module Make
     (Executor : Executor.S)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
-       and type world = World.t
+       and type world = World.rw World.t
 [@@@warning "+67"]

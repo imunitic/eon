@@ -2,12 +2,15 @@
 
 ## Status
 
-**IMPLEMENTED (ecs-021).** Sequential executor, parallel pipeline, World_cap,
-engine buses — all shipped, tested, and committed.
+**IMPLEMENTED (ecs-021).** Sequential executor, parallel pipeline, engine buses — all shipped, tested, and committed.
 
 **IMPLEMENTED (ecs-022).** `Executor.Domain_pool` — persistent OCaml 5 Domain
 worker pool. Shipped, tested, and benchmarked. §4.2 is the authoritative design;
 §9.2 is resolved.
+
+**IMPLEMENTED (ecs-023).** `World_cap` removed; phantom `ro`/`rw` capability
+types moved directly into `World`. Developers now see `World.ro World.t` /
+`World.rw World.t` instead of `World.ro World.t`.
 
 The concurrency philosophy, invariants, and frame-order constraints live in
 [thread_safety_design.md](thread_safety_design.md). This document is the
@@ -22,9 +25,9 @@ entirely an `eon_engine` concern that **builds upon** the core rather than
 replacing it:
 
 - **`Eon_engine.System.Make(Core_system)`** wraps `Core_system.make_reactive`
-  internally. The user's closures receive `World_cap.ro`/`rw` typed world views;
-  the wrapper stores `update_kind` alongside the embedded core. The returned type
-  is the engine system type — a new record, not `Core_system.t`.
+  internally. The user's closures receive `World.ro World.t` / `World.rw World.t`
+  typed views; the wrapper stores `update_kind` alongside the embedded core. The
+  returned type is the engine system type — a new record, not `Core_system.t`.
 - **`Eon_engine.Pipeline.Make(System)(Executor)`** is the single pipeline for
   engine systems. `Executor.Sequential` gives sequential execution; `Executor.Domain_pool`
   gives parallel execution. Same system definitions work with both — swap the
@@ -36,10 +39,10 @@ The only `eon_ecs` change is extracting `topo_sort` into a public
 
 ```
 eon_engine (new modules — extends, does not replace)
-  Eon_engine.World_cap                         ← phantom capability wrapper
+  Eon_engine.World (ro/rw phantom types)       ← phantom capability types (ecs-023)
   Eon_engine.Bus / Single_bus / Double_bus     ← mutex-on-emit bus implementations
   Eon_engine.Executor.S / Sequential           ← threading-substrate seam
-  Eon_engine.System.make                       ← wraps Eon_ecs.System.make_reactive + World_cap
+  Eon_engine.System.make                       ← wraps Eon_ecs.System.make_reactive + World.ro/rw
   Eon_engine.Pipeline.Make(System)(Executor)   ← parallel dispatch; satisfies Pipeline.S
   Eon_engine.Loop_buses                        ← BUSES module for engine bus collect/drain
 
@@ -51,7 +54,7 @@ eon_ecs (one additive change only)
 
 This is the established extension pattern in the codebase: `Eon_engine.World`
 wraps `Eon_ecs.World` with typed component descriptors; `Eon_engine.System.make`
-wraps `Eon_ecs.System.make_reactive` with `World_cap` capabilities. The core
+wraps `Eon_ecs.System.make_reactive` with `World.ro`/`World.rw` capabilities. The core
 is never replaced — it is wrapped and extended.
 
 ---
@@ -106,9 +109,9 @@ Earlier designs proposed `Read_only` / `Read_write` phase tags to control
 parallel vs sequential dispatch. **These are dropped.**
 
 The parallel pipeline only accepts reactive systems whose `update` always takes
-`World_cap.ro World_cap.t`. Since `World_cap` enforces read-only at compile
+`World.ro World.t`. Since the type system enforces read-only at compile
 time, every phase's updates are safe to run in parallel — a per-phase tag
-would only re-state what the type system already guarantees.
+would only re-state what the type already guarantees.
 
 Phases still exist for **ordering** (which groups of systems run before others),
 using the same `before`/`after` edges as the core pipeline. The phase table
@@ -298,7 +301,7 @@ a `Domain` ever appears in the pipeline code.
 
 ---
 
-## 5. `Eon_engine.System` — Wraps Core System with `World_cap`
+## 5. `Eon_engine.System` — Wraps Core System with World Capability Types
 
 The engine's system module **wraps** any `Eon_ecs.System.S` implementation,
 following the same pattern as `Eon_engine.World` wrapping `Eon_ecs.World`:
@@ -327,9 +330,9 @@ developer constructs.
 ### 5.1 Implementation structure
 
 The engine system record stores user handlers directly alongside `update_kind`.
-This avoids the `World.t`/`World_cap.t` mismatch that would arise from embedding
+This avoids the `Eon_ecs.World.t`/`World.rw World.t` mismatch that would arise from embedding
 a `Core_system.t` (which expects `Eon_ecs.World.t`) inside a type whose handlers
-expect `World_cap.rw World_cap.t`:
+expect `World.rw World.t`:
 
 ```ocaml
 (* eon_engine/system.ml — inside Make(Core_system) *)
@@ -337,9 +340,9 @@ type ('s, 'e, 'c) t = {
   register    : Eon_ecs.World.t -> unit;
   update_kind : update_kind;
   kind        : kind;
-  on_signal   : World_cap.rw World_cap.t -> 's -> unit;
-  on_event    : World_cap.rw World_cap.t -> 'e -> unit;
-  on_command  : World_cap.rw World_cap.t -> 'c -> unit;
+  on_signal   : World.rw World.t -> 's -> unit;
+  on_event    : World.rw World.t -> 'e -> unit;
+  on_command  : World.rw World.t -> 'c -> unit;
 }
 ```
 
@@ -366,8 +369,8 @@ Two module types govern the system module:
 (* eon_engine/system.mli *)
 
 type update_kind =
-  | Parallel  of (World_cap.ro World_cap.t -> float -> unit)
-  | Exclusive of (World_cap.rw World_cap.t -> float -> unit)
+  | Parallel  of (World.ro World.t -> float -> unit)
+  | Exclusive of (World.rw World.t -> float -> unit)
 
 (** User-facing interface — the only part game code ever sees. *)
 module type S = sig
@@ -375,9 +378,9 @@ module type S = sig
   type kind
 
   val make :
-    ?on_signal:(World_cap.rw World_cap.t -> 's -> unit) ->
-    ?on_event:(World_cap.rw World_cap.t -> 'e -> unit) ->
-    ?on_command:(World_cap.rw World_cap.t -> 'c -> unit) ->
+    ?on_signal:(World.rw World.t -> 's -> unit) ->
+    ?on_event:(World.rw World.t -> 'e -> unit) ->
+    ?on_command:(World.rw World.t -> 'c -> unit) ->
     ?kind:kind ->
     update_kind ->
     ('s, 'e, 'c) t
@@ -387,8 +390,8 @@ end
 module type DISPATCH = sig
   include S
   val is_parallel : ('s, 'e, 'c) t -> bool
-  val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
-  val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
+  val update_ro   : ('s, 'e, 'c) t -> World.ro World.t -> float -> unit
+  val update_rw   : ('s, 'e, 'c) t -> World.rw World.t -> float -> unit
   val register    : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
   val attach      : ('s, 'e, 'c) t -> Eon_ecs.World.t -> unit
 end
@@ -402,11 +405,11 @@ so it is shared across all functor instantiations. `Parallel` and `Exclusive`
 constructors are the same type regardless of which `Core_system` was used.
 
 `update_kind` determines how the system's update function is dispatched:
-- `Parallel` — receives `ro World_cap.t`, runs via `Executor.run_all`
-- `Exclusive` — receives `rw World_cap.t`, runs sequentially after parallel systems
+- `Parallel` — receives `World.ro World.t`, runs via `Executor.run_all`
+- `Exclusive` — receives `World.rw World.t`, runs sequentially after parallel systems
 
 The type system enforces the invariant: `Parallel` closures can't write
-(`ro World_cap.t` doesn't expose write operations), and `Exclusive` closures
+(`World.ro World.t` doesn't expose write operations), and `Exclusive` closures
 are always dispatched sequentially by the pipeline.
 
 `eon_engine.mli` constrains the public view — `System.Make` returns `DISPATCH`
@@ -445,10 +448,10 @@ let make ?(on_signal  = fun _ _ -> ())
 ```
 
 `make` is O(1) — it stores the user's closures directly without wrapping them.
-The `World_cap` conversion happens later, at dispatch time:
-- `update_ro` — extracts the `Parallel` closure from `update_kind`, passes `ro World_cap.t`
-- `update_rw` — extracts the `Exclusive` closure from `update_kind`, passes `rw World_cap.t`
-- `attach` — wraps the raw world into `rw World_cap.t` and subscribes `on_*` closures to bus instances
+Dispatch is straightforward:
+- `update_ro` — extracts the `Parallel` closure from `update_kind`, passes `World.ro World.t`
+- `update_rw` — extracts the `Exclusive` closure from `update_kind`, passes `World.rw World.t`
+- `attach` — subscribes `on_*` closures to bus instances read from world services
 
 The default `kind` is borrowed from `Core_system.make_reactive ()` so that
 `System.Default.make` inherits the same default kind as the underlying core system.
@@ -464,18 +467,18 @@ module Pipeline = Eon_engine.Pipeline.Make(System)(Eon_engine.Executor.Sequentia
 let physics =
   System.make
     ~on_command:(fun rw cmd -> match cmd with
-      | Move (e, vel) -> World_cap.set_component rw e Velocity.component vel
+      | Move (e, vel) -> World.set_component rw e Velocity.component vel
       | _ -> ())
     (Parallel (fun ro dt ->
-      (* ro : World_cap.ro World_cap.t — writes are compile-time errors *)
+      (* ro : World.ro World.t — writes are compile-time errors *)
       Query.iter (fun view -> ...)))
 
 (* Exclusive system — read-write update, runs sequentially *)
 let inventory_ui =
   System.make
     (Exclusive (fun rw dt ->
-      (* rw : World_cap.rw World_cap.t — writes allowed *)
-      World_cap.set_component rw entity Inventory.component new_inv))
+      (* rw : World.rw World.t — writes allowed *)
+      World.set_component rw entity Inventory.component new_inv))
 
 let pipeline =
   Pipeline.create ()
@@ -510,8 +513,8 @@ tools) use `Exclusive`:
 let inventory_ui =
   System.Default.make
     (Exclusive (fun rw dt ->
-      (* rw : World_cap.rw World_cap.t — writes allowed *)
-      World_cap.set_component rw entity Inventory.component new_inv))
+      (* rw : World.rw World.t — writes allowed *)
+      World.set_component rw entity Inventory.component new_inv))
 ```
 
 Systems that only read use `Parallel`:
@@ -567,9 +570,9 @@ The explicit `type system_t` and `type kind` aliases mean the output satisfies
 `Eon_ecs.Progress.Make(Eon_engine.Pipeline.Default)` work directly — no adapter
 needed.
 
-`run` and `register_all` take `Eon_ecs.World.t` — identical to `Eon_ecs.Pipeline.S`.
-`World_cap` wrapping is entirely internal to the pipeline; `Progress` and `Loop`
-never see it and require no changes. See §7.4.
+`run` and `register_all` take `World.rw World.t`. `Progress` and `Loop` pass
+the `rw` world through; capability management is internal to the pipeline.
+See §7.4.
 
 The pipeline uses `Eon_ecs.Dependency_graph` internally for phase ordering —
 the same primitive used by `Eon_ecs.Pipeline.Make`. No duplication of topo-sort
@@ -582,10 +585,9 @@ logic across the package boundary.
 ### 7.1 Phase-level loop
 
 ```ocaml
-let run t (world : Eon_ecs.World.t) dt =
-  let rw = World_cap.wrap world in
-  let ro = World_cap.readonly rw in
-  (* World_cap.wrap and readonly happen once — zero cost per phase *)
+let run t (world : World.rw World.t) dt =
+  let ro = World.readonly world in
+  (* readonly is zero-cost — only the phantom type changes *)
   List.iter (fun phase ->
     match Hashtbl.find_opt t.systems phase with
     | None -> ()
@@ -597,7 +599,7 @@ let run t (world : Eon_ecs.World.t) dt =
       Executor.run_all
         (List.map (fun s -> fun () -> System.update_ro s ro dt) parallel);
       (* 2. Exclusive systems sequentially *)
-      List.iter (fun s -> System.update_exclusive s rw dt) exclusive)
+      List.iter (fun s -> System.update_exclusive s world dt) exclusive)
     (Dependency_graph.topo_sort t.graph)
 ```
 
@@ -605,10 +607,10 @@ Two-step dispatch per phase:
 
 1. **Parallel systems** — partitioned by `update_kind`, dispatched via
    `Executor.run_all`. With `Sequential`, they run one by one. With
-   `Domain_pool`, they run concurrently. All receive `ro World_cap.t`.
+   `Domain_pool`, they run concurrently. All receive `World.ro World.t`.
 
 2. **Exclusive systems** — run sequentially AFTER all parallel systems in the
-   phase complete. Receive `rw World_cap.t`. The phase barrier guarantees no
+   phase complete. Receive `World.rw World.t`. The phase barrier guarantees no
    parallel system is running when an exclusive system writes.
 
 This is the same model Bevy calls "exclusive systems." The type system enforces
@@ -650,9 +652,9 @@ whether dispatch is sequential or parallel:
 Eon_engine.System.Default.make → ('s, 'e, 'c) Eon_engine.System.Default.t
   │
   └──→ Eon_engine.Pipeline.Make(System)(Executor)
-         Executor.Sequential   ← sequential, same World_cap interface
-         Executor.Domain_pool.Make  ← parallel, same World_cap interface
-         World_cap wrapping happens once at start of run
+         Executor.Sequential        ← sequential dispatch
+         Executor.Domain_pool.Make  ← parallel dispatch
+         World.readonly called once at start of run
 ```
 
 Swapping executors requires no system changes — the same `System.Default.make`
@@ -660,15 +662,15 @@ call works with both. `Exclusive` systems run sequentially in both cases; the
 executor only controls dispatch of `Parallel` systems.
 
 ```
-Loop (World.t)
-  → Progress.Make(Engine_pipeline).tick (World.t)   ← standard Progress; no adapter needed
-    → Engine.Pipeline.run_by_filter (World.t)       ← wraps World_cap internally
-        → Executor.run_all                          ← Parallel systems see ro World_cap.t
-        → sequential Exclusive dispatch             ← Exclusive systems see rw World_cap.t
+Loop (World.rw World.t)
+  → Progress.Make(Engine_pipeline).tick (World.rw World.t)
+    → Engine.Pipeline.run_by_filter (World.rw World.t)
+        → Executor.run_all             ← Parallel systems see World.ro World.t
+        → sequential Exclusive dispatch ← Exclusive systems see World.rw World.t
 ```
 
-Pure core code that does not need `World_cap` continues to use
-`Eon_ecs.Pipeline.Make(Eon_ecs.System.Default)` directly — no engine involvement.
+Pure core code uses `Eon_ecs.Pipeline.Make(Eon_ecs.System.Default)` directly
+— no engine involvement.
 
 ---
 
@@ -784,20 +786,22 @@ implementations and are not exposed to game code at the engine layer.
 
 **Decided: ship with the first parallel pipeline, using Option A.**
 
-Implemented as `Eon_engine.World_cap` — a dedicated module wrapping
-`Eon_engine.World.t` with phantom capability types. `ro` and `rw` are aliases
-for polymorphic variant types so switching to full phantom contravariance
-(Option B) later is a one-line change with zero call-site impact:
+**Decided (ecs-021): separate `World_cap` module. Revised (ecs-023): folded
+into `World` directly.**
+
+`World.ro` and `World.rw` are the phantom capability types. `World.t` is now
+`'perm World.t`; the pipeline receives `World.rw World.t`, calls `World.readonly`
+once at the start of `run`, and passes `World.ro World.t` to every parallel
+system `update`. `World_cap` no longer exists as a separate module.
 
 ```ocaml
 type ro = [ `R ]
 type rw = [ `R | `W ]
+type 'perm t          (* phantom — underlying record unchanged *)
+val readonly : rw t -> ro t   (* zero-cost identity, external "%identity" *)
 ```
 
-A one-way `readonly : rw t -> ro t` downgrade is provided explicitly. The
-pipeline receives `rw t`, calls `readonly` once at the start of `run`, and
-passes `ro t` into every system `update`. Full design is captured in
-[thread_safety_design.md §7](thread_safety_design.md).
+Full design is captured in [thread_safety_design.md §7](thread_safety_design.md).
 
 ### 9.2 Concrete `Executor` implementations
 
@@ -827,9 +831,9 @@ The parallel execution is safe iff:
 1. **Phases are sequential** — each `Executor.run_all` returns before the
    next phase begins. (`Pipeline.run` enforces this structurally.)
 2. **All `Parallel` system `update` functions are read-only** — enforced at
-   compile time by `World_cap.ro World_cap.t` (§9.1,
+   compile time by `World.ro World.t` (§9.1,
    [thread_safety_design.md §7](thread_safety_design.md)). `Exclusive` systems
-   receive `rw World_cap.t` but run sequentially after all parallel systems
+   receive `World.rw World.t` but run sequentially after all parallel systems
    in the phase complete.
 3. **No structural mutations are in flight during `Progress.tick`** — they
    are confined to `on_*` handlers in `collect`/`drain`
@@ -848,8 +852,8 @@ The `update_kind` union type ships with the first parallel pipeline:
 
 ```ocaml
 type update_kind =
-  | Parallel  of (World_cap.ro World_cap.t -> float -> unit)
-  | Exclusive of (World_cap.rw World_cap.t -> float -> unit)
+  | Parallel  of (World.ro World.t -> float -> unit)
+  | Exclusive of (World.rw World.t -> float -> unit)
 ```
 
 The pipeline runs all `Parallel` systems in the current phase via
@@ -884,7 +888,7 @@ scheduling machinery required.
 
 The engine follows the established wrapping pattern in the codebase:
 `Eon_engine.World` wraps `Eon_ecs.World` with typed component descriptors;
-`Eon_engine.System.make` wraps `Eon_ecs.System.make_reactive` with `World_cap`
+`Eon_engine.System.make` wraps `Eon_ecs.System.make_reactive` with `World.ro`/`World.rw`
 capabilities. The core is never replaced — it is wrapped and extended.
 
 ### 12.1 What "build upon" means concretely
@@ -898,8 +902,8 @@ capabilities. The core is never replaced — it is wrapped and extended.
 | `Eon_ecs.Loop.Make` | Used **directly** with `Progress.Make(Engine_pipeline)` and `Loop_buses` |
 
 The engine adds capabilities that the core deliberately does not have:
-`World_cap` phantom types, mutex-aware buses, `Executor`-based parallel dispatch.
-These are layered on top of the core, not baked into it.
+`World.ro`/`World.rw` phantom types, mutex-aware buses, `Executor`-based parallel
+dispatch. These are layered on top of the core, not baked into it.
 
 ### 12.2 Why this matters
 
@@ -914,11 +918,7 @@ their own capabilities on top.
 
 ### 12.3 Performance
 
-Wrapping is O(1) at construction time. `World_cap.wrap` is `{ raw = world }` —
-one record allocation per system, not per frame. At dispatch time:
-- **Core pipeline path**: one extra closure indirection (the wrapped `core.update`
-  calls `World_cap.readonly (World_cap.wrap world)` then delegates to the user's
-  `update_ro`). ~10 ns overhead per system per frame.
-- **Engine pipeline path**: `World_cap.wrap` and `readonly` happen once at the
-  start of `run`, then `update_ro` is called directly via `Executor.run_all`.
-  Zero overhead beyond the one-time conversion.
+Wrapping is zero-cost. `World.readonly` is `external "%identity"` — the phantom
+type changes but the underlying record is untouched. At dispatch time:
+- **Engine pipeline path**: `World.readonly` is called once at the start of `run`,
+  then `update_ro` is called directly via `Executor.run_all`. Zero allocation per frame.

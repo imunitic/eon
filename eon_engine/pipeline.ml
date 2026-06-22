@@ -22,11 +22,11 @@ module Make
     (Executor : Executor.S)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
-       and type world = World.t
+       and type world = World.rw World.t
 = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
   type kind = System.kind
-  type world = World.t
+  type world = World.rw World.t
 
   (* Existential wrapper hiding the signal/event/command type parameters. *)
   type entry = Entry : ('s, 'e, 'c) System.t -> entry
@@ -76,8 +76,8 @@ module Make
       (sorted_phases t)
 
   (* Builds parallel job list and exclusive dispatch list for one phase.
-     Parallel systems run via Executor with ro World_cap; exclusive systems run
-     sequentially after Executor.run_all returns, with rw World_cap. *)
+     Parallel systems run via Executor with ro World.t; exclusive systems run
+     sequentially after Executor.run_all returns, with rw World.t. *)
   let dispatch_phase entries ro rw dt =
     let revd = List.rev entries in
     let parallel_jobs = List.filter_map
@@ -111,24 +111,22 @@ module Make
       revd
 
   let run t world dt =
-    let rw = World_cap.wrap world in
-    let ro = World_cap.readonly rw in
+    let ro = World.readonly world in
     List.iter
       (fun phase ->
         match Hashtbl.find_opt t.systems phase with
         | None -> ()
-        | Some entries -> dispatch_phase entries ro rw dt)
+        | Some entries -> dispatch_phase entries ro world dt)
       (sorted_phases t);
     world
 
   let run_by_filter ~filter t world dt =
-    let rw = World_cap.wrap world in
-    let ro = World_cap.readonly rw in
+    let ro = World.readonly world in
     List.iter
       (fun phase ->
         match Hashtbl.find_opt t.systems phase with
         | None -> ()
-        | Some entries -> dispatch_phase_filtered ~filter entries ro rw dt)
+        | Some entries -> dispatch_phase_filtered ~filter entries ro world dt)
       (sorted_phases t);
     world
 

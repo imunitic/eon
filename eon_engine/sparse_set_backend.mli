@@ -16,6 +16,6 @@
     ]}
 *)
 
-module Make (W : World.S) : Query_backend.S with type world = W.t
+module Make (W : World.S) : Query_backend.S with type 'perm world = 'perm W.t
 
-module Default : Query_backend.S with type world = World.t
+module Default : Query_backend.S with type 'perm world = 'perm World.t

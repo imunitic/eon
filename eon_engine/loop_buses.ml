@@ -2,7 +2,7 @@ module Signals  = Single_bus
 module Events   = Double_bus
 module Commands = Single_bus
 
-type world = World.t
+type world = World.rw World.t
 
 let require_service world name =
   match World.get_service world name with

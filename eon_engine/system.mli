@@ -1,4 +1,4 @@
-(** Engine system — wraps any [Eon_ecs.System.S] with [World_cap] capabilities.
+(** Engine system — wraps any [Eon_ecs.System.S] with [World] capabilities.
 
     Each system declares whether its update runs in parallel ([ro] world view,
     via [Executor]) or exclusively ([rw] world view, sequential after parallel
@@ -6,14 +6,14 @@
 
 (** Determines how a system's update is dispatched by the pipeline.
 
-    - [Parallel]: update receives [ro World_cap.t]; runs concurrently via
+    - [Parallel]: update receives [World.ro World.t]; runs concurrently via
       [Executor]. Multiple parallel systems in a phase run in parallel.
-    - [Exclusive]: update receives [rw World_cap.t]; runs sequentially after
+    - [Exclusive]: update receives [World.rw World.t]; runs sequentially after
       all parallel systems in the phase have completed. Same model as Bevy's
       exclusive systems. *)
 type update_kind =
-  | Parallel  of (World_cap.ro World_cap.t -> float -> unit)
-  | Exclusive of (World_cap.rw World_cap.t -> float -> unit)
+  | Parallel  of (World.ro World.t -> float -> unit)
+  | Exclusive of (World.rw World.t -> float -> unit)
 
 (** User-facing interface. Game code only ever sees [make], [type t], and
     [type kind] through this signature — dispatch operations are hidden. *)
@@ -22,9 +22,9 @@ module type S = sig
   type kind
 
   val make :
-    ?on_signal:(World_cap.rw World_cap.t -> 's -> unit) ->
-    ?on_event:(World_cap.rw World_cap.t -> 'e -> unit) ->
-    ?on_command:(World_cap.rw World_cap.t -> 'c -> unit) ->
+    ?on_signal:(World.rw World.t -> 's -> unit) ->
+    ?on_event:(World.rw World.t -> 'e -> unit) ->
+    ?on_command:(World.rw World.t -> 'c -> unit) ->
     ?kind:kind ->
     update_kind ->
     ('s, 'e, 'c) t
@@ -38,9 +38,9 @@ module type DISPATCH = sig
 
   val kind_of     : ('s, 'e, 'c) t -> kind
   val is_parallel : ('s, 'e, 'c) t -> bool
-  val update_ro   : ('s, 'e, 'c) t -> World_cap.ro World_cap.t -> float -> unit
-  val update_rw   : ('s, 'e, 'c) t -> World_cap.rw World_cap.t -> float -> unit
-  val attach      : ('s, 'e, 'c) t -> World.t -> unit
+  val update_ro   : ('s, 'e, 'c) t -> World.ro World.t -> float -> unit
+  val update_rw   : ('s, 'e, 'c) t -> World.rw World.t -> float -> unit
+  val attach      : ('s, 'e, 'c) t -> World.rw World.t -> unit
 end
 
 (** Build an engine system module over any [Eon_ecs.System.S] implementation.

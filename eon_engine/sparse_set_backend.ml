@@ -1,5 +1,5 @@
-module Make (W : World.S) : Query_backend.S with type world = W.t = struct
-  type world = W.t
+module Make (W : World.S) : Query_backend.S with type 'perm world = 'perm W.t = struct
+  type 'perm world = 'perm W.t
 
   let iter_entities world ~required ~excludes f =
     W.iter_entities world required (fun entity ->

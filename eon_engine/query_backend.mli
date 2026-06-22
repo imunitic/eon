@@ -4,12 +4,13 @@
     is the caller's responsibility via [View]. *)
 
 module type S = sig
-  type world
-  (** Abstract world type — decouples backend from [Eon_ecs.World.t].
-      A future archetype backend sets this to its own world type. *)
+  type 'perm world
+  (** Abstract world type parameterised by capability — decouples backend from
+      [Eon_ecs.World.t]. Read-only and read-write worlds both satisfy backends
+      since query operations are reads only. *)
 
   val iter_entities :
-    world ->
+    'perm world ->
     required:string list ->
     excludes:string list ->
     (Eon_ecs.Entity_id.t -> unit) ->
@@ -18,7 +19,7 @@ module type S = sig
       the [excludes] components. *)
 
   val count :
-    world ->
+    'perm world ->
     required:string list ->
     excludes:string list ->
     int

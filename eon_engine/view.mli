@@ -30,5 +30,5 @@ val get_opt : t -> 'a Component_descriptor.t -> 'a option
 (** Typed optional read. Returns [None] if the component is absent.
     Use for components not listed in the query's [having] filters. *)
 
-val make : World.t -> Eon_ecs.Entity_id.t -> t
+val make : 'perm World.t -> Eon_ecs.Entity_id.t -> t
 (** Internal constructor — used by [Query.Make]. Not for game code. *)
