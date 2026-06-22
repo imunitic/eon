@@ -114,7 +114,8 @@ graph TD
 
         subgraph ENG_RUNTIME["Runtime"]
             direction TB
-            ENG_Executor["Executor.S\nSequential (default) | custom parallel"]
+            ENG_ExecutorS["Executor.S\nrun_all interface (threading seam)\nSequential (default)"]
+            ENG_DomainPool["Domain_pool\nMake(Config) : Executor.S\npersistent OCaml 5 Domain workers\nrecommended_size ()"]
             ENG_System["System\nParallel: ro World_cap → float → unit\nExclusive: rw World_cap → float → unit"]
             ENG_Pipeline["Pipeline\nMake(System.DISPATCH)(Executor.S)"]
             ENG_Progress["Progress\n≡ Eon_ecs.Progress  (full re-export)"]
@@ -137,12 +138,13 @@ graph TD
     ENG_Components --> ENG_CompDesc
     ENG_Single --> ENG_BusSig
     ENG_Double --> ENG_BusSig
+    ENG_DomainPool --> ENG_ExecutorS
     ENG_System --> ENG_WorldCap
     ENG_System --> ENG_World
     ENG_System --> ENG_Single
     ENG_System --> ENG_Double
     ENG_Pipeline --> ENG_System
-    ENG_Pipeline --> ENG_Executor
+    ENG_Pipeline --> ENG_ExecutorS
     ENG_Progress --> ENG_Pipeline
     ENG_Loop --> ENG_Progress
     ENG_LoopBuses --> ENG_World
@@ -167,6 +169,6 @@ graph TD
     classDef legendNode fill:#f3f4f6,stroke:#9ca3af,color:#374151
 
     class ECS_EntityId,ECS_SparseSet,ECS_Component,ECS_CompReg,ECS_EntityMgr,ECS_Resource,ECS_World,ECS_Query,ECS_DepGraph,ECS_BusSig,ECS_Single,ECS_Double,ECS_Clock,ECS_System,ECS_Pipeline,ECS_Progress,ECS_Loop,ECS_LoopBuses ecsNode
-    class ENG_World,ENG_WorldCap,ENG_CompDesc,ENG_View,ENG_Backend,ENG_SSBackend,ENG_Query,ENG_Components,ENG_BusSig,ENG_Single,ENG_Double,ENG_Executor,ENG_System,ENG_Pipeline,ENG_Progress,ENG_Loop,ENG_LoopBuses engNode
+    class ENG_World,ENG_WorldCap,ENG_CompDesc,ENG_View,ENG_Backend,ENG_SSBackend,ENG_Query,ENG_Components,ENG_BusSig,ENG_Single,ENG_Double,ENG_ExecutorS,ENG_DomainPool,ENG_System,ENG_Pipeline,ENG_Progress,ENG_Loop,ENG_LoopBuses engNode
     class L1,L2,L3,L4,L5,L6 legendNode
 ```
