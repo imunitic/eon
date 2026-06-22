@@ -68,3 +68,6 @@ jobs:
 
       - name: Run world component benchmark
         run: just bench world
+
+      - name: Run executor benchmark
+        run: just engine-bench executor
