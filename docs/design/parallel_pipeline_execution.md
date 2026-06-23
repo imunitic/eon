@@ -12,6 +12,11 @@ worker pool. Shipped, tested, and benchmarked. §4.2 is the authoritative design
 types moved directly into `World`. Developers now see `World.ro World.t` /
 `World.rw World.t` instead of `World.ro World.t`.
 
+**IMPLEMENTED (ecs-026).** Buses redesigned as standalone infrastructure.
+`Buses.Make`/`Buses.Default` replace the world-service bus pattern. `Pipeline.register_all`
+auto-attaches bus handlers. `System.make` unifies `make_reactive`/`make_core`/`from_core`.
+`Bus.BUS` renamed to `Bus.S`. See §8.1 for updated bus design.
+
 The concurrency philosophy, invariants, and frame-order constraints live in
 [thread_safety_design.md](thread_safety_design.md). This document is the
 authoritative reference for the parallel pipeline design.
@@ -24,7 +29,7 @@ authoritative reference for the parallel pipeline design.
 entirely an `eon_engine` concern that **builds upon** the core rather than
 replacing it:
 
-- **`Eon_engine.System.Make(Core_system)`** wraps `Core_system.make_reactive`
+- **`Eon_engine.System.Make(Core_system)`** wraps `Core_system.make`
   internally. The user's closures receive `World.ro World.t` / `World.rw World.t`
   typed views; the wrapper stores `update_kind` alongside the embedded core. The
   returned type is the engine system type — a new record, not `Core_system.t`.
@@ -42,7 +47,7 @@ eon_engine (new modules — extends, does not replace)
   Eon_engine.World (ro/rw phantom types)       ← phantom capability types (ecs-023)
   Eon_engine.Bus / Single_bus / Double_bus     ← mutex-on-emit bus implementations
   Eon_engine.Executor.S / Sequential           ← threading-substrate seam
-  Eon_engine.System.make                       ← wraps Eon_ecs.System.make_reactive + World.ro/rw
+  Eon_engine.System.make                       ← wraps Eon_ecs.System.make + World.ro/rw
   Eon_engine.Pipeline.Make(System)(Executor)   ← parallel dispatch; satisfies Pipeline.S
   Eon_engine.Loop_buses                        ← BUSES module for engine bus collect/drain
 
@@ -54,7 +59,7 @@ eon_ecs (one additive change only)
 
 This is the established extension pattern in the codebase: `Eon_engine.World`
 wraps `Eon_ecs.World` with typed component descriptors; `Eon_engine.System.make`
-wraps `Eon_ecs.System.make_reactive` with `World.ro`/`World.rw` capabilities. The core
+wraps `Eon_ecs.System.make` with `World.ro`/`World.rw` capabilities. The core
 is never replaced — it is wrapped and extended.
 
 ---
@@ -347,9 +352,9 @@ type ('s, 'e, 'c) t = {
 ```
 
 `update_ro` and `update_rw` dispatch from `update_kind` directly. `attach`
-(called by `register_all`) reads bus instances from world services and wires the
-stored handlers as subscribers — the same service-locator pattern as
-`Eon_ecs.System.attach_handlers`. `register` is a no-op placeholder; component
+(called by `register_all`) takes bus instances directly from `Buses.Default` and
+wires the stored handlers as subscribers — the same pattern as
+`Eon_ecs.System.attach`. `register` is a no-op placeholder; component
 pre-registration happens at world setup time via `World.register`, not per-system.
 The `.mli` exports `module type S` (§5.2) with an abstract `type t` — the record
 fields are not visible to callers.
@@ -453,7 +458,7 @@ Dispatch is straightforward:
 - `update_rw` — extracts the `Exclusive` closure from `update_kind`, passes `World.rw World.t`
 - `attach` — subscribes `on_*` closures to bus instances read from world services
 
-The default `kind` is borrowed from `Core_system.make_reactive ()` so that
+The default `kind` is obtained from `Core_system.variable` so that
 `System.Default.make` inherits the same default kind as the underlying core system.
 
 ### 5.4 Usage — Parallel and Exclusive systems
@@ -686,15 +691,15 @@ mutable OCaml value; concurrent appends from multiple Domains can corrupt it.
 The fix is a **`Mutex` on `emit`** — self-contained in the bus, no changes to
 the Executor, Pipeline, World, or system interface.
 
-### 8.1 `Eon_engine.Bus`
+### 8.1 `Eon_engine.Bus` and `Eon_engine.Buses`
 
-`Eon_engine` defines its own `Bus.S` signature (identical to `Eon_ecs.Bus.BUS`
-for now — a clean extension point if engine buses ever need engine-specific
-capabilities) and provides two standalone implementations:
+`Eon_engine` defines its own `Bus.S` signature (identical to `Eon_ecs.Bus.S` —
+a clean extension point if engine buses ever need engine-specific capabilities)
+and provides two standalone implementations:
 
 ```ocaml
 (* eon_engine/bus.mli *)
-module type S = Eon_ecs.Bus.BUS
+module type S = Eon_ecs.Bus.S
 
 module Single_bus : S  (* same-frame; drain = collect; mutex on emit *)
 module Double_bus : S  (* next-frame; emit → next queue; mutex on emit *)
@@ -722,17 +727,21 @@ the inner type; `emit` delegates to the inner bus's `emit` under the mutex;
 `drain` delegates to the inner bus's `drain` — both sequentially, no locking
 needed.
 
-Bus instances are threaded through the world as services — the same
-service-locator pattern as the core. Before calling `register_all`, the user
-registers engine bus instances in the world under `` `Signals ``, `` `Events ``,
-`` `Commands ``. `register_all` calls `System.attach s world` on each system;
-`attach` reads those instances from world services and registers handlers onto
-them. Identical to `Eon_ecs.System.attach_handlers` — same mechanism, engine bus
-types instead of core bus types.
+**ecs-026:** Bus instances are no longer threaded through the world as services.
+`Eon_engine.Buses.Make`/`Buses.Default` hold singleton instances as module-level
+accessor functions (`unit -> 'a t`). `Pipeline.Make` gains a `Buses` parameter;
+`register_all` calls `System.attach` with `Buses.Default.signals ()` etc. — no
+per-frame world lookups, no user-side bus registration.
+
+```ocaml
+(* eon_engine/buses.ml *)
+module Default = Make(Single_bus)(Double_bus)(Single_bus)
+(* instances: Buses.Default.signals (), .events (), .commands () *)
+```
 
 The engine also provides `Eon_engine.Loop_buses` (analogous to
-`Eon_ecs.Loop_default_buses`) — a `BUSES` module that reads engine bus instances
-from world services to drive `collect` / `drain` in `Loop.Make`.
+`Eon_ecs.Loop_default_buses`) — a `BUSES` module whose `collect`/`drain` are
+`unit -> unit` and close over `Buses.Default` instances at module init.
 
 `eon_ecs.Single_bus` and `eon_ecs.Double_bus` are never touched.
 
@@ -888,7 +897,7 @@ scheduling machinery required.
 
 The engine follows the established wrapping pattern in the codebase:
 `Eon_engine.World` wraps `Eon_ecs.World` with typed component descriptors;
-`Eon_engine.System.make` wraps `Eon_ecs.System.make_reactive` with `World.ro`/`World.rw`
+`Eon_engine.System.make` wraps `Eon_ecs.System.make` with `World.ro`/`World.rw`
 capabilities. The core is never replaced — it is wrapped and extended.
 
 ### 12.1 What "build upon" means concretely
