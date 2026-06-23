@@ -179,6 +179,56 @@ let test_phases_returns_all () =
   Alcotest.(check int) "three phases" 3
     (List.length (Pipeline.Default.phases pipe))
 
+(* ---- make_system (module Def) wires correctly ---- *)
+
+module Counter_system = struct
+  type signal  = unit
+  type event   = unit
+  type command = [ `Inc ]
+
+  let count = ref 0
+
+  let on_signal  _ _ = ()
+  let on_event   _ _ = ()
+  let on_command _rw = function `Inc -> incr count
+
+  let update (_rw : World.rw World.t) _dt = ()
+end
+
+let test_make_exclusive_wires () =
+  let w = setup_world () in
+  Counter_system.count := 0;
+  let pipe =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Update
+    |> Pipeline.Default.add_system `Update (System.make_exclusive (module Counter_system))
+  in
+  Pipeline.Default.register_all pipe w;
+  Single_bus.emit (Buses.Default.commands ()) `Inc;
+  Single_bus.drain (Buses.Default.commands ());
+  Alcotest.(check int) "on_command fired via make_exclusive" 1 !Counter_system.count
+
+let test_make_parallel_update_runs () =
+  let w = setup_world () in
+  let ran = ref false in
+  let module M = struct
+    type signal  = unit
+    type event   = unit
+    type command = unit
+    let on_signal  _ _ = ()
+    let on_event   _ _ = ()
+    let on_command _ _ = ()
+    let update (_ro : World.ro World.t) _dt = ran := true
+  end in
+  let pipe =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Update
+    |> Pipeline.Default.add_system `Update (System.make_parallel (module M))
+  in
+  Pipeline.Default.register_all pipe w;
+  ignore (Pipeline.Default.run pipe w 0.016);
+  Alcotest.(check bool) "update ran via make_parallel" true !ran
+
 let tests =
   [
     ("phase ordering via before",          `Quick, test_phase_ordering);
@@ -191,4 +241,6 @@ let tests =
     ("on_command fires after drain",       `Quick, test_handler_dispatch);
     ("multiple systems per phase all run", `Quick, test_multiple_systems_per_phase);
     ("phases returns all registered",      `Quick, test_phases_returns_all);
+    ("make_exclusive wires on_command",    `Quick, test_make_exclusive_wires);
+    ("make_parallel runs update",          `Quick, test_make_parallel_update_runs);
   ]

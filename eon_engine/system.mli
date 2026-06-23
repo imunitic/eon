@@ -66,3 +66,49 @@ module Default : DISPATCH
    and module Signal_bus  = Single_bus
    and module Event_bus   = Double_bus
    and module Command_bus = Single_bus
+
+(** Interface for parallel system definition modules.
+
+    [update] receives a read-only world view; the pipeline dispatches it
+    concurrently with other parallel systems in the same phase.
+    Systems that do not use a bus implement the handler as [let on_signal _ _ = ()]. *)
+module type Parallel_def = sig
+  type signal
+  type event
+  type command
+  val on_signal  : World.rw World.t -> signal  -> unit
+  val on_event   : World.rw World.t -> event   -> unit
+  val on_command : World.rw World.t -> command -> unit
+  val update     : World.ro World.t -> float -> unit
+end
+
+(** Interface for exclusive system definition modules.
+
+    [update] receives a read-write world view; the pipeline runs it
+    sequentially after all parallel systems in the same phase have completed. *)
+module type Exclusive_def = sig
+  type signal
+  type event
+  type command
+  val on_signal  : World.rw World.t -> signal  -> unit
+  val on_event   : World.rw World.t -> event   -> unit
+  val on_command : World.rw World.t -> command -> unit
+  val update     : World.rw World.t -> float -> unit
+end
+
+(** Build parallel/exclusive [make] functions for any [DISPATCH] implementation. *)
+module Make_factory (Sys : DISPATCH) : sig
+  val make_parallel :
+    (module Parallel_def
+       with type signal  = 's
+        and type event   = 'e
+        and type command = 'c) ->
+    ('s, 'e, 'c) Sys.t
+
+  val make_exclusive :
+    (module Exclusive_def
+       with type signal  = 's
+        and type event   = 'e
+        and type command = 'c) ->
+    ('s, 'e, 'c) Sys.t
+end

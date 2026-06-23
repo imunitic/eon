@@ -286,18 +286,63 @@ to `Eon_ecs.Pipeline.Make`.
 
 All systems in the parallel pipeline follow the reactive model:
 
-- `update_kind = Parallel of (World_cap.ro World_cap.t -> float -> unit)` — **always read-only**, enforced at compile time. Runs in parallel across all systems in a phase.
-- `update_kind = Exclusive of (World_cap.rw World_cap.t -> float -> unit)` — **always sequential**, runs after parallel systems in the same phase. Can write world state directly.
-- `on_signal / on_event / on_command : World_cap.rw World_cap.t -> ... -> unit` — **always read-write**, always sequential (fire during `collect`/`drain`, never during `tick`).
+- `update_kind = Parallel of (World.ro World.t -> float -> unit)` — **always read-only**, enforced at compile time. Runs in parallel across all systems in a phase.
+- `update_kind = Exclusive of (World.rw World.t -> float -> unit)` — **always sequential**, runs after parallel systems in the same phase. Can write world state directly.
+- `on_signal / on_event / on_command : World.rw World.t -> ... -> unit` — **always read-write**, always sequential (fire during `collect`/`drain`, never during `tick`).
 
 `on_*` handlers are optional — defaulting to no-ops makes a non-reactive system.
 
-### `World_cap` — pipeline-internal
+`update_kind` is re-exported at the top level of `eon_engine.mli` so that system
+definition modules can write `let update = Parallel (...)` without qualification.
 
-`World_cap` is constructed and managed by the parallel pipeline. Game code
-never calls `World_cap.wrap`. Game code sees `World_cap.ro World_cap.t` in
-`update` and `World_cap.rw World_cap.t` in `on_*` handlers — it does not
-construct these values.
+### `Parallel_def` / `Exclusive_def` / `make_parallel` / `make_exclusive` — declarative system modules
 
-`World_cap` lives in `eon_engine` only. Never add `'perm` phantom types to
-`Eon_ecs.World.t`.
+Two module signatures cover the two dispatch kinds. The `update` signature
+encodes the kind — no `update_kind` constructor needed in game code:
+
+```ocaml
+(* systems/movement_system.ml — parallel: ro world, runs concurrently *)
+type signal  = unit
+type event   = unit
+type command = [ `Move of entity_id * float * float ]
+
+let on_signal  _ _ = ()
+let on_event   _ _ = ()
+let on_command world = function `Move (e, dx, dy) -> ...
+
+let update (world : World.ro World.t) dt =
+  Query.from world |> Query.iter (fun view -> ...)
+```
+
+```ocaml
+(* systems/spawn_system.ml — exclusive: rw world, runs after parallel *)
+type signal  = unit
+type event   = unit
+type command = unit
+
+let on_signal  _ _ = ()
+let on_event   _ _ = ()
+let on_command _ _ = ()
+
+let update (world : World.rw World.t) _dt =
+  ignore (World.create_entity world)
+```
+
+```ocaml
+(* game.ml *)
+let pipeline =
+  Pipeline.Default.create ()
+  |> Pipeline.Default.add_phase `Gameplay
+  |> Pipeline.Default.add_system `Gameplay (System.make_parallel  (module Movement_system))
+  |> Pipeline.Default.add_system `Gameplay (System.make_exclusive (module Spawn_system))
+```
+
+`System.Default.make (Parallel ...)` / `System.Default.make (Exclusive ...)` still
+works for inline systems — the two styles are interchangeable in the same pipeline.
+
+`System.Make_factory(Sys)` produces equivalent `make_parallel`/`make_exclusive`
+for any custom `DISPATCH` substrate.
+
+`make_parallel`/`make_exclusive` are defined in `eon_engine.ml` (not `system.ml`)
+so their return types use the same `System.Default` functor application as
+`Pipeline.Default`. Two separate `Make(...)` applications in OCaml are not the same type.

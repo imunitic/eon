@@ -81,3 +81,45 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
 end
 
 module Default = Make(Eon_ecs.System.Make(Single_bus)(Double_bus)(Single_bus))
+
+module type Parallel_def = sig
+  type signal
+  type event
+  type command
+  val on_signal  : World.rw World.t -> signal  -> unit
+  val on_event   : World.rw World.t -> event   -> unit
+  val on_command : World.rw World.t -> command -> unit
+  val update     : World.ro World.t -> float -> unit
+end
+
+module type Exclusive_def = sig
+  type signal
+  type event
+  type command
+  val on_signal  : World.rw World.t -> signal  -> unit
+  val on_event   : World.rw World.t -> event   -> unit
+  val on_command : World.rw World.t -> command -> unit
+  val update     : World.rw World.t -> float -> unit
+end
+
+module Make_factory (Sys : DISPATCH) = struct
+  let make_parallel (type s e c)
+      (module S : Parallel_def with type signal  = s
+                                and type event    = e
+                                and type command  = c) =
+    Sys.make
+      ~on_signal:S.on_signal
+      ~on_event:S.on_event
+      ~on_command:S.on_command
+      (Parallel S.update)
+
+  let make_exclusive (type s e c)
+      (module S : Exclusive_def with type signal  = s
+                                  and type event    = e
+                                  and type command  = c) =
+    Sys.make
+      ~on_signal:S.on_signal
+      ~on_event:S.on_event
+      ~on_command:S.on_command
+      (Exclusive S.update)
+end
