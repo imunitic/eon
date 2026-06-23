@@ -117,6 +117,75 @@ module System : sig
       [System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))] explicitly
       when you need to pass the system module to [Pipeline.Make]. *)
   module Default : System.S with type kind = [ `Fixed | `Variable ]
+
+  (** Module signature for parallel system definition files.
+
+      [update] receives [World.ro World.t]; the pipeline dispatches it
+      concurrently with other parallel systems in the phase.
+      {[
+        (* systems/query_system.ml *)
+        type signal  = unit
+        type event   = unit
+        type command = [ `Move of entity_id * float * float ]
+
+        let on_signal  _ _ = ()
+        let on_event   _ _ = ()
+        let on_command world = function `Move (e, dx, dy) -> ...
+
+        let update (world : World.ro World.t) dt =
+          Query.from world |> Query.iter (fun view -> ...)
+      ]} *)
+  module type Parallel_def = System.Parallel_def
+
+  (** Module signature for exclusive system definition files.
+
+      [update] receives [World.rw World.t]; runs sequentially after all
+      parallel systems in the same phase have completed.
+      {[
+        (* systems/spawn_system.ml *)
+        let update (world : World.rw World.t) dt =
+          ignore (World.create_entity world)
+      ]} *)
+  module type Exclusive_def = System.Exclusive_def
+
+  (** Build parallel/exclusive [make] functions for a custom [DISPATCH] implementation. *)
+  module Make_factory (Sys : DISPATCH) : sig
+    val make_parallel :
+      (module Parallel_def
+         with type signal  = 's
+          and type event   = 'e
+          and type command = 'c) ->
+      ('s, 'e, 'c) Sys.t
+
+    val make_exclusive :
+      (module Exclusive_def
+         with type signal  = 's
+          and type event   = 'e
+          and type command = 'c) ->
+      ('s, 'e, 'c) Sys.t
+  end
+
+  (** Assemble a parallel system module into a [Default.t].
+      {[
+        |> Pipeline.Default.add_system `Gameplay (System.make_parallel (module Movement_system))
+      ]} *)
+  val make_parallel :
+    (module Parallel_def
+       with type signal  = 's
+        and type event   = 'e
+        and type command = 'c) ->
+    ('s, 'e, 'c) Default.t
+
+  (** Assemble an exclusive system module into a [Default.t].
+      {[
+        |> Pipeline.Default.add_system `Gameplay (System.make_exclusive (module Spawn_system))
+      ]} *)
+  val make_exclusive :
+    (module Exclusive_def
+       with type signal  = 's
+        and type event   = 'e
+        and type command = 'c) ->
+    ('s, 'e, 'c) Default.t
 end
 
 (** {2 Pipeline} *)

@@ -27,6 +27,15 @@ module System = struct
   module type DISPATCH = System.DISPATCH
   module Make          = System.Make
   module Default       = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
+  module type Parallel_def  = System.Parallel_def
+  module type Exclusive_def = System.Exclusive_def
+  module Make_factory       = System.Make_factory
+  (* Default_factory and make_system are defined here (not in system.ml) so the
+     return type of make_system uses this Default — same functor application as
+     Pipeline.Default. *)
+  module Default_factory  = System.Make_factory(Default)
+  let make_parallel       = Default_factory.make_parallel
+  let make_exclusive      = Default_factory.make_exclusive
 end
 
 module Pipeline = struct
