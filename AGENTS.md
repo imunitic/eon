@@ -286,14 +286,17 @@ to `Eon_ecs.Pipeline.Make`.
 
 All systems in the parallel pipeline follow the reactive model:
 
-- `update_kind = Parallel of (World.ro World.t -> float -> unit)` — **always read-only**, enforced at compile time. Runs in parallel across all systems in a phase.
-- `update_kind = Exclusive of (World.rw World.t -> float -> unit)` — **always sequential**, runs after parallel systems in the same phase. Can write world state directly.
+- **Parallel** (`World.ro World.t -> float -> unit`) — always read-only, enforced at compile time. Runs concurrently with other parallel systems in the phase.
+- **Exclusive** (`World.rw World.t -> float -> unit`) — always sequential, runs after all parallel systems in the same phase. Can write world state directly.
 - `on_signal / on_event / on_command : World.rw World.t -> ... -> unit` — **always read-write**, always sequential (fire during `collect`/`drain`, never during `tick`).
 
 `on_*` handlers are optional — defaulting to no-ops makes a non-reactive system.
 
-`update_kind` is re-exported at the top level of `eon_engine.mli` so that system
-definition modules can write `let update = Parallel (...)` without qualification.
+`update_kind` is the internal discriminator type in `system.ml`. Game code using
+`Parallel_def` / `Exclusive_def` module signatures never references it directly —
+the world permission type on `update` is sufficient. Only inline `System.Default.make
+(Parallel ...)` / `System.Default.make (Exclusive ...)` call sites need the constructors,
+and OCaml's type-directed disambiguation resolves them from context.
 
 ### `Parallel_def` / `Exclusive_def` / `make_parallel` / `make_exclusive` — declarative system modules
 
