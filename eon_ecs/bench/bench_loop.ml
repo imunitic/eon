@@ -3,10 +3,11 @@ open Staged
 
 module Loop = Eon_ecs__Loop
 module World = Eon_ecs__World
-module Signals_bus = Eon_ecs__Single_bus
-module Events_bus = Eon_ecs__Double_bus
+module Signals_bus  = Eon_ecs__Single_bus
+module Events_bus   = Eon_ecs__Double_bus
 module Commands_bus = Eon_ecs__Single_bus
 module Default_buses = Eon_ecs__Loop_default_buses
+module Buses = Eon_ecs__Buses
 
 let fixed_should_continue _ _ = false
 
@@ -31,10 +32,8 @@ module Mini_renderer = struct
 end
 
 module Mini_buses = struct
-  type world = mini_world
-
-  let collect _ = ()
-  let drain _ = ()
+  let collect () = ()
+  let drain   () = ()
 end
 
 module Mini_loop = Loop.Make (struct let now () = 0.0 end) (Mini_progress)
@@ -60,30 +59,22 @@ module Empty_loop =
 
 module Traffic_progress = struct
   type 'phase t = {
-    signals_per_step : int;
+    signals_per_step  : int;
     commands_per_step : int;
-    events_per_step : int;
+    events_per_step   : int;
   }
 
   type world = World.t
 
-  let require world key =
-    match World.get_service world key with
-    | Some bus -> bus
-    | None -> failwith "Missing bus service for traffic benchmark"
-
   let tick cfg ~world ~dt:_ =
-    let signals : int Signals_bus.t = require world `Signals in
-    let commands : int Commands_bus.t = require world `Commands in
-    let events : int Events_bus.t = require world `Events in
     for i = 1 to cfg.signals_per_step do
-      Signals_bus.emit signals i
+      Signals_bus.emit (Buses.Default.signals ()) i
     done;
     for i = 1 to cfg.commands_per_step do
-      Commands_bus.emit commands i
+      Commands_bus.emit (Buses.Default.commands ()) i
     done;
     for i = 1 to cfg.events_per_step do
-      Events_bus.emit events i
+      Events_bus.emit (Buses.Default.events ()) i
     done;
     world
 end
@@ -98,13 +89,6 @@ end
 module Traffic_loop =
   Loop.Make (struct let now () = 0.0 end) (Traffic_progress) (Traffic_renderer)
     (Default_buses)
-
-let make_world_with_default_buses () =
-  let world = World.create () in
-  World.add_service world `Signals (Signals_bus.create ());
-  World.add_service world `Commands (Commands_bus.create ());
-  World.add_service world `Events (Events_bus.create ());
-  world
 
 let mk_loop_step_minimal ~cycles =
   if cycles <= 0 then invalid_arg "cycles must be > 0";
@@ -127,7 +111,7 @@ let mk_loop_step_default_buses_empty ~cycles =
   let name = Printf.sprintf "loop-step-default-buses-empty-cyc%d" cycles in
   Test.make ~name
     (stage (fun () ->
-         let world = make_world_with_default_buses () in
+         let world = World.create () in
          let progress = () in
          let last_time = 0.0 in
          let now = 0.016 in
@@ -146,7 +130,7 @@ let mk_loop_step_default_buses_traffic ~messages ~cycles =
   in
   Test.make ~name
     (stage (fun () ->
-         let world = make_world_with_default_buses () in
+         let world = World.create () in
          let progress =
            {
              Traffic_progress.signals_per_step = messages;

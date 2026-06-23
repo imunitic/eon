@@ -69,6 +69,13 @@ Bus semantics:
 - **Events** (`Double_bus`): `emit` → `next` queue; `drain` runs `collect` on `current`, then swaps `next → current`. Previous-frame emissions become visible the next frame.
 - **Commands** (`Single_bus`): same drain=collect semantics as Signals; intended for world-mutating operations. Handlers run synchronously during `drain`.
 
+Bus instances:
+- Buses live in `Buses.Default` (eon_ecs) / `Buses.Default` (eon_engine) — **not** in the world service plane.
+- Access via accessor functions: `Buses.Default.signals ()`, `Buses.Default.events ()`, `Buses.Default.commands ()`.
+- `Pipeline.register_all` auto-attaches handlers to all registered systems — no manual `System.attach` calls needed.
+- Per-world buses are an opt-in: add bus instances to the world service plane and wire manually. Not the default path.
+- Bus module type in eon_ecs is `Bus.S` (canonical name); `Bus.BUS` is a deprecated alias.
+
 Component rules:
 - Register component names before `add_component` or `set_component`.
 - `World.get_component` returns `Some v` if the component is present on the entity, `None` if absent — **but raises** if the component name was never registered. Do not use the exception for control flow.
@@ -81,8 +88,9 @@ Pipeline:
 
 Use the default stack unless customization is required:
 - `Eon_ecs.World`
+- `Eon_ecs.Buses.Default` — singleton bus instances (signals, events, commands)
 - `Eon_ecs.System.Default`
-- `Eon_ecs.Pipeline.Default`
+- `Eon_ecs.Pipeline.Default` — wired to `Buses.Default`; auto-attaches handlers via `register_all`
 - `Eon_ecs.Progress.Default`
 - `Eon_ecs.Loop.Default`
 - `Eon_ecs.Signals`, `Eon_ecs.Events`, `Eon_ecs.Commands`

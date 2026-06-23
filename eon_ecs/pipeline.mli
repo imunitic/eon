@@ -64,8 +64,20 @@ module type S = sig
   val phases : 'phase t -> 'phase list
 end
 
-(** Build a pipeline implementation over a concrete system module. *)
-module Make (System : System.S) : S
-  with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
-   and type kind = System.kind
-   and type world = World.t
+(** Build a pipeline implementation over a concrete system module and bus family.
+
+    [Buses] provides the singleton bus instances used by [register_all] when
+    attaching handlers. Use [Buses.Default] for the standard local buses or
+    apply [Buses.Make] to supply custom transport instances. *)
+[@@@warning "-67"]
+module Make
+    (System : System.S)
+    (Buses : sig
+      val signals  : unit -> 'a System.Signal_bus.t
+      val events   : unit -> 'a System.Event_bus.t
+      val commands : unit -> 'a System.Command_bus.t
+    end)
+  : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
+       and type kind = System.kind
+       and type world = World.t
+[@@@warning "+67"]

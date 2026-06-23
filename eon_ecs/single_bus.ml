@@ -20,4 +20,4 @@ let collect (bus: 'msg t) : unit =
   done
 
 let drain = collect
-end : Bus.BUS)
+end : Bus.S)

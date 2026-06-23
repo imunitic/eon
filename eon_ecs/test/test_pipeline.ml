@@ -9,7 +9,8 @@ module Single_bus = Eon_ecs__.Single_bus
 module Double_bus = Eon_ecs__.Double_bus
 module System = Eon_ecs__System
 module Sys = System.Make(Single_bus)(Double_bus)(Single_bus)
-module Pipeline = Eon_ecs__.Pipeline.Make(Sys)
+module Buses = Eon_ecs__.Buses.Make(Single_bus)(Double_bus)(Single_bus)
+module Pipeline = Eon_ecs__.Pipeline.Make(Sys)(Buses)
 
 (* -------------------------------------------------------------------------- *)
 (* 🔹 Test 1: add_phase *)
@@ -51,15 +52,15 @@ let test_run_order () =
   let record msg = logs := !logs @ [ msg ] in
 
   let mk_sys name =
-    Sys.make_core
+    Sys.make
       ~register:(fun _ -> record ("register:" ^ name))
       ~update:(fun _ _ -> record ("update:" ^ name))
       ()
   in
 
-  let sys_a = Sys.from_core (mk_sys "A")
-  and sys_b = Sys.from_core (mk_sys "B")
-  and sys_c = Sys.from_core (mk_sys "C") in
+  let sys_a = mk_sys "A"
+  and sys_b = mk_sys "B"
+  and sys_c = mk_sys "C" in
 
   let p =
     Pipeline.create ()

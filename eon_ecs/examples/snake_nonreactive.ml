@@ -180,7 +180,7 @@ let build_game () =
   in
 
   let input_system =
-    System.make_reactive
+    System.make
       ~update:(fun world _dt ->
         match World.get_data world term_key with
         | None -> ()
@@ -200,7 +200,7 @@ let build_game () =
   in
 
   let movement_system =
-    System.make_reactive
+    System.make
       ~update:(fun world _dt ->
         if is_paused world then ()
         else begin
@@ -269,7 +269,7 @@ let build_game () =
   in
 
   let alive_system =
-    System.make_reactive
+    System.make
       ~update:(fun world _dt ->
         let any_alive = ref false in
         Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
@@ -362,9 +362,8 @@ end
 
 (* Loop wiring *)
 module Noop_buses = struct
-  type world = World.t
-  let collect _ = ()
-  let drain _ = ()
+  let collect () = ()
+  let drain   () = ()
 end
 
 module Snake_loop = Eon_ecs.Loop.Make

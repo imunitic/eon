@@ -1,4 +1,4 @@
-module type BUS = sig
+module type S = sig
   (** Message bus abstraction with deterministic collect/drain semantics.
 
       Bus implementations differ in when emitted messages become visible:

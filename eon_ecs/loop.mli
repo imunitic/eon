@@ -10,11 +10,13 @@ module type RENDERER = sig
   val render : world -> dt:float -> result
 end
 
-(** Message bus orchestration used to collect/drain transient data. *)
+(** Message bus orchestration used to collect/drain transient data.
+
+    Bus instances are closed over at module definition time; [collect] and
+    [drain] take no world argument. *)
 module type BUSES = sig
-  type world
-  val collect : world -> unit
-  val drain   : world -> unit
+  val collect : unit -> unit
+  val drain   : unit -> unit
 end
 
 (** Generic loop builder combining a clock, progress mode, renderer, and buses.
@@ -33,7 +35,7 @@ module Make
        val tick : 'phase t -> world:world -> dt:float -> world
      end)
     (Renderer : RENDERER with type world = Progress.world)
-    (_ : BUSES with type world = Progress.world)
+    (_ : BUSES)
 : sig
   (** Execute a single iteration of the loop.
       @param progress progress controller to advance

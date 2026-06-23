@@ -47,19 +47,20 @@ graph TD
 
         subgraph ECS_BUS["Bus layer"]
             direction LR
-            ECS_BusSig["Bus.BUS\n(module type)"]
+            ECS_BusSig["Bus.S\n(module type)"]
             ECS_Single["Single_bus\ndrain = collect  same-frame"]
             ECS_Double["Double_bus\nemit→next  drain swaps  next-frame"]
+            ECS_Buses["Buses\nMake(S,E,C)  Default\npolymorphic singleton instances"]
         end
 
         subgraph ECS_RUNTIME["Runtime"]
             direction TB
             ECS_Clock["Clock · Clock.Mtime"]
             ECS_System["System\nMake(Signals)(Events)(Commands)"]
-            ECS_Pipeline["Pipeline\nMake(System.S)  phase graph"]
+            ECS_Pipeline["Pipeline\nMake(System.S)(Buses)  phase graph"]
             ECS_Progress["Progress\nVariable · Fixed · Hybrid · Custom"]
             ECS_Loop["Loop\nMake(Clock)(Progress)(Renderer)(Buses)"]
-            ECS_LoopBuses["Loop_default_buses\ncollect/drain ordering"]
+            ECS_LoopBuses["Loop_default_buses\ncollect/drain  closed over Buses.Default"]
         end
     end
 
@@ -76,15 +77,17 @@ graph TD
     ECS_Query --> ECS_Component
     ECS_Single --> ECS_BusSig
     ECS_Double --> ECS_BusSig
+    ECS_Buses --> ECS_Single
+    ECS_Buses --> ECS_Double
     ECS_System --> ECS_BusSig
     ECS_System --> ECS_World
     ECS_Pipeline --> ECS_System
+    ECS_Pipeline --> ECS_Buses
     ECS_Pipeline --> ECS_DepGraph
     ECS_Progress --> ECS_Pipeline
     ECS_Loop --> ECS_Progress
     ECS_Loop --> ECS_Clock
-    ECS_LoopBuses --> ECS_Single
-    ECS_LoopBuses --> ECS_Double
+    ECS_LoopBuses --> ECS_Buses
 
     subgraph ENG["📦 eon_engine"]
         direction TB
@@ -106,9 +109,10 @@ graph TD
 
         subgraph ENG_BUS["Bus layer"]
             direction LR
-            ENG_BusSig["Bus.S\n= Eon_ecs.Bus.BUS"]
+            ENG_BusSig["Bus.S\n= Eon_ecs.Bus.S"]
             ENG_Single["Single_bus\n+ mutex  (Signals / Commands)"]
             ENG_Double["Double_bus\n+ mutex  (Events)"]
+            ENG_Buses["Buses\nMake(S,E,C)  Default\nmutex-wrapped singleton instances"]
         end
 
         subgraph ENG_RUNTIME["Runtime"]
@@ -117,10 +121,10 @@ graph TD
             ENG_Sequential["Sequential\ndefault single-threaded executor"]
             ENG_DomainPool["Domain_pool\nMake(Config) : Executor.S\npersistent OCaml 5 Domain workers\nrecommended_size ()"]
             ENG_System["System\nParallel: World.ro → float → unit\nExclusive: World.rw → float → unit"]
-            ENG_Pipeline["Pipeline\nMake(System.DISPATCH)(Executor.S)"]
+            ENG_Pipeline["Pipeline\nMake(System.DISPATCH)(Executor.S)(Buses)"]
             ENG_Progress["Progress\n≡ Eon_ecs.Progress  (full re-export)"]
             ENG_Loop["Loop\ndelegates to Eon_ecs.Loop.Make"]
-            ENG_LoopBuses["Loop_buses\ncollect/drain via World services"]
+            ENG_LoopBuses["Loop_buses\ncollect/drain  closed over Buses.Default"]
         end
     end
 
@@ -137,24 +141,25 @@ graph TD
     ENG_Components --> ENG_CompDesc
     ENG_Single --> ENG_BusSig
     ENG_Double --> ENG_BusSig
+    ENG_Buses --> ENG_Single
+    ENG_Buses --> ENG_Double
     ENG_Sequential -. "implements" .-> ENG_ExecutorS
     ENG_DomainPool -. "implements" .-> ENG_ExecutorS
     ENG_System --> ENG_World
     ENG_System --> ENG_Single
     ENG_System --> ENG_Double
     ENG_Pipeline --> ENG_System
+    ENG_Pipeline --> ENG_Buses
     ENG_Pipeline --> ENG_ExecutorS
     ENG_Progress --> ENG_Pipeline
     ENG_Loop --> ENG_Progress
-    ENG_LoopBuses --> ENG_World
-    ENG_LoopBuses --> ENG_Single
-    ENG_LoopBuses --> ENG_Double
+    ENG_LoopBuses --> ENG_Buses
 
     %% Cross-package: eon_engine → eon_ecs
     ENG_World == "embeds  core: Eon_ecs.World.t" ==> ECS_World
     ENG_View -. "entity: Eon_ecs.Entity_id.t\n(transparent alias)" .-> ECS_EntityId
     ENG_Backend -. "key type: Eon_ecs.Entity_id.t" .-> ECS_EntityId
-    ENG_BusSig -. "S = Eon_ecs.Bus.BUS\n(module type alias)" .-> ECS_BusSig
+    ENG_BusSig -. "S = Eon_ecs.Bus.S\n(module type alias)" .-> ECS_BusSig
     ENG_Single == "wraps Eon_ecs.Single_bus\n(adds mutex)" ==> ECS_Single
     ENG_Double == "wraps Eon_ecs.Double_bus\n(adds mutex)" ==> ECS_Double
     ENG_System == "Make(Core: Eon_ecs.System.S)\nfunctor argument" ==> ECS_System
@@ -166,7 +171,7 @@ graph TD
     classDef engNode fill:#dcfce7,stroke:#16a34a,color:#14532d
     classDef legendNode fill:#f3f4f6,stroke:#9ca3af,color:#374151
 
-    class ECS_EntityId,ECS_SparseSet,ECS_Component,ECS_CompReg,ECS_EntityMgr,ECS_Resource,ECS_World,ECS_Query,ECS_DepGraph,ECS_BusSig,ECS_Single,ECS_Double,ECS_Clock,ECS_System,ECS_Pipeline,ECS_Progress,ECS_Loop,ECS_LoopBuses ecsNode
-    class ENG_World,ENG_CompDesc,ENG_View,ENG_Backend,ENG_SSBackend,ENG_Query,ENG_Components,ENG_BusSig,ENG_Single,ENG_Double,ENG_ExecutorS,ENG_Sequential,ENG_DomainPool,ENG_System,ENG_Pipeline,ENG_Progress,ENG_Loop,ENG_LoopBuses engNode
+    class ECS_EntityId,ECS_SparseSet,ECS_Component,ECS_CompReg,ECS_EntityMgr,ECS_Resource,ECS_World,ECS_Query,ECS_DepGraph,ECS_BusSig,ECS_Single,ECS_Double,ECS_Buses,ECS_Clock,ECS_System,ECS_Pipeline,ECS_Progress,ECS_Loop,ECS_LoopBuses ecsNode
+    class ENG_World,ENG_CompDesc,ENG_View,ENG_Backend,ENG_SSBackend,ENG_Query,ENG_Components,ENG_BusSig,ENG_Single,ENG_Double,ENG_Buses,ENG_ExecutorS,ENG_Sequential,ENG_DomainPool,ENG_System,ENG_Pipeline,ENG_Progress,ENG_Loop,ENG_LoopBuses engNode
     class L1,L2,L3,L4,L5,L6 legendNode
 ```

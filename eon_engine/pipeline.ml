@@ -20,6 +20,11 @@ end
 module Make
     (System   : System.DISPATCH)
     (Executor : Executor.S)
+    (Buses : sig
+      val signals  : unit -> 'a System.Signal_bus.t
+      val events   : unit -> 'a System.Event_bus.t
+      val commands : unit -> 'a System.Command_bus.t
+    end)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
        and type world = World.rw World.t
@@ -28,7 +33,6 @@ module Make
   type kind = System.kind
   type world = World.rw World.t
 
-  (* Existential wrapper hiding the signal/event/command type parameters. *)
   type entry = Entry : ('s, 'e, 'c) System.t -> entry
 
   type 'phase t = {
@@ -71,13 +75,14 @@ module Make
         | None -> ()
         | Some entries ->
           List.iter
-            (fun (Entry s) -> System.attach s world)
+            (fun (Entry s) ->
+              System.attach s world
+                ~signals:(Buses.signals ())
+                ~events:(Buses.events ())
+                ~commands:(Buses.commands ()))
             (List.rev entries))
       (sorted_phases t)
 
-  (* Builds parallel job list and exclusive dispatch list for one phase.
-     Parallel systems run via Executor with ro World.t; exclusive systems run
-     sequentially after Executor.run_all returns, with rw World.t. *)
   let dispatch_phase entries ro rw dt =
     let revd = List.rev entries in
     let parallel_jobs = List.filter_map
@@ -132,4 +137,3 @@ module Make
 
   let phases t = sorted_phases t
 end
-

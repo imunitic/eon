@@ -10,7 +10,7 @@ module Dependency_graph = Dependency_graph
 (* -------------------------------------------------------------------------- *)
 
 module Bus = struct
-  module type S = Bus.BUS
+  module type S = Bus.S
   module Single = Single_bus
   module Double = Double_bus
 end
@@ -18,6 +18,8 @@ end
 module Signals  = Single_bus
 module Events   = Double_bus
 module Commands = Single_bus
+
+module Buses = Buses
 
 (* -------------------------------------------------------------------------- *)
 (* 🧩 Systems *)
@@ -40,7 +42,7 @@ end
 module Pipeline = struct
   module type S = Pipeline.S
   module Make = Pipeline.Make
-  module Default = Make (System.Default)
+  module Default = Make (System.Default) (Buses.Default)
 end
 
 (* -------------------------------------------------------------------------- *)

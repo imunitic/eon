@@ -20,6 +20,8 @@ module Commands   = Single_bus
 
 module Executor  = Executor
 
+module Buses = Buses
+
 module System = struct
   module type S        = System.S
   module type DISPATCH = System.DISPATCH
@@ -32,7 +34,7 @@ module Pipeline = struct
   module Make    = Pipeline.Make
   (* Default is wired here (not in pipeline.ml) so System.Default.t unifies
      with Pipeline.Default.system_t — same functor application, not a copy. *)
-  module Default = Pipeline.Make(System.Default)(Executor.Sequential)
+  module Default = Pipeline.Make(System.Default)(Executor.Sequential)(Buses.Default)
 end
 
 module Progress  = Progress

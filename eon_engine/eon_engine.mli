@@ -62,6 +62,12 @@ module Bus : sig
   module type S = Bus.S
 end
 
+(** Engine bus family — mutex-wrapped singleton instances. *)
+module Buses : sig
+  module Make = Buses.Make
+  module Default : module type of Buses.Default
+end
+
 (** Same-frame bus with mutex-protected [emit]. Satisfies [Bus.S]. *)
 module Single_bus : module type of Single_bus
 
@@ -131,6 +137,11 @@ module Pipeline : sig
   module Make
       (System   : System.DISPATCH)
       (Executor : Executor.S)
+      (Buses : sig
+        val signals  : unit -> 'a System.Signal_bus.t
+        val events   : unit -> 'a System.Event_bus.t
+        val commands : unit -> 'a System.Command_bus.t
+      end)
     : Pipeline.S
       with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
@@ -167,10 +178,8 @@ end
 
 (** Engine bus orchestration for [Loop.Make].
 
-    Satisfies [Loop.BUSES with type world = World.rw World.t]. Register
-    [Single_bus] / [Double_bus] instances under [`` `Signals ``],
-    [`` `Events ``], [`` `Commands ``] in the world before calling
-    [Loop.run]. *)
+    Satisfies [Loop.BUSES]. Bus instances are closed over from [Buses.Default]
+    at module init time — no world argument required. *)
 module Loop_buses : sig
   include module type of Loop_buses
 end

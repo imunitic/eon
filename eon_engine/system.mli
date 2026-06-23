@@ -35,12 +35,17 @@ end
     sees these operations directly. *)
 module type DISPATCH = sig
   include S
-
+  module Signal_bus  : Bus.S
+  module Event_bus   : Bus.S
+  module Command_bus : Bus.S
   val kind_of     : ('s, 'e, 'c) t -> kind
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World.ro World.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World.rw World.t -> float -> unit
-  val attach      : ('s, 'e, 'c) t -> World.rw World.t -> unit
+  val attach      : ('s, 'e, 'c) t -> World.rw World.t
+                    -> signals:'s Signal_bus.t
+                    -> events:'e Event_bus.t
+                    -> commands:'c Command_bus.t -> unit
 end
 
 (** Build an engine system module over any [Eon_ecs.System.S] implementation.
@@ -49,8 +54,15 @@ end
     signal / event / command buses. *)
 module Make (Core_system : Eon_ecs.System.S) : DISPATCH
   with type kind = Core_system.kind
+   and module Signal_bus  = Core_system.Signal_bus
+   and module Event_bus   = Core_system.Event_bus
+   and module Command_bus = Core_system.Command_bus
 
 (** Default engine system wired with [Single_bus] (signals, commands) and
     [Double_bus] (events). Satisfies [DISPATCH]; constrained to [S] in
     [eon_engine.mli] so game code only sees [make]. *)
 module Default : DISPATCH
+  with type kind = [ `Fixed | `Variable ]
+   and module Signal_bus  = Single_bus
+   and module Event_bus   = Double_bus
+   and module Command_bus = Single_bus

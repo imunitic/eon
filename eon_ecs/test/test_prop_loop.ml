@@ -7,11 +7,11 @@ type event =
   | Render of float
   | Continue of float
 
-type world_state = {
-  mutable events : event list;
-}
+let events : event list ref = ref []
+let push e = events := e :: !events
 
-let world () = { events = [] }
+type world_state = unit
+let world () : world_state = ()
 
 module Clock_stub = struct
   let now () = 0.0
@@ -22,7 +22,7 @@ module Test_progress = struct
   type world = world_state
 
   let tick () ~world ~dt =
-    world.events <- Tick dt :: world.events;
+    push (Tick dt);
     world
 end
 
@@ -30,19 +30,14 @@ module Test_renderer = struct
   type world = world_state
   type result = float
 
-  let render world ~dt =
-    world.events <- Render dt :: world.events;
+  let render _world ~dt =
+    push (Render dt);
     dt
 end
 
 module Test_buses = struct
-  type world = world_state
-
-  let collect world =
-    world.events <- Collect :: world.events
-
-  let drain world =
-    world.events <- Drain :: world.events
+  let collect () = push Collect
+  let drain   () = push Drain
 end
 
 module Test_loop = Loop.Make (Clock_stub) (Test_progress) (Test_renderer) (Test_buses)
@@ -82,12 +77,13 @@ let events_match actual expected_dt =
 
 let prop_loop_step_sequence =
   let test_fn c =
+    events := [];
     let w = world () in
     let last_time = float_of_int c.last_ms /. 1_000.0 in
     let dt = float_of_int c.dt_ms /. 1_000.0 in
     let now = last_time +. dt in
-    let should_continue world result =
-      world.events <- Continue result :: world.events;
+    let should_continue _world result =
+      push (Continue result);
       c.continue
     in
     let _, next_last_time, render_result, continue =
@@ -101,7 +97,7 @@ let prop_loop_step_sequence =
     continue = c.continue
     && approx_equal next_last_time now
     && approx_equal render_result dt
-    && events_match (List.rev w.events) dt
+    && events_match (List.rev !events) dt
   in
   QCheck.Test.make
     ~name:"Loop.step sequencing collect->tick->drain->render->continue"

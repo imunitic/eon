@@ -17,20 +17,31 @@ end
 
 module type DISPATCH = sig
   include S
+  module Signal_bus  : Bus.S
+  module Event_bus   : Bus.S
+  module Command_bus : Bus.S
   val kind_of     : ('s, 'e, 'c) t -> kind
   val is_parallel : ('s, 'e, 'c) t -> bool
   val update_ro   : ('s, 'e, 'c) t -> World.ro World.t -> float -> unit
   val update_rw   : ('s, 'e, 'c) t -> World.rw World.t -> float -> unit
-  val attach      : ('s, 'e, 'c) t -> World.rw World.t -> unit
+  val attach      : ('s, 'e, 'c) t -> World.rw World.t
+                    -> signals:'s Signal_bus.t
+                    -> events:'e Event_bus.t
+                    -> commands:'c Command_bus.t -> unit
 end
 
 module Make (Core_system : Eon_ecs.System.S) : DISPATCH
   with type kind = Core_system.kind
+   and module Signal_bus  = Core_system.Signal_bus
+   and module Event_bus   = Core_system.Event_bus
+   and module Command_bus = Core_system.Command_bus
 = struct
   type kind = Core_system.kind
+  module Signal_bus  = Core_system.Signal_bus
+  module Event_bus   = Core_system.Event_bus
+  module Command_bus = Core_system.Command_bus
 
-  let default_kind : kind =
-    (Core_system.make_reactive () : (unit, unit, unit) Core_system.reactive).kind
+  let default_kind : kind = Core_system.variable
 
   type ('s, 'e, 'c) t = {
     update_kind : update_kind;
@@ -63,21 +74,10 @@ module Make (Core_system : Eon_ecs.System.S) : DISPATCH
     | Exclusive f -> f rw dt
     | Parallel _ -> ()
 
-  (* Reads bus instances from world services and registers closures that call
-     the user handler with the rw world. *)
-  let attach t (world : World.rw World.t) =
-    (match World.get_service world `Signals with
-     | None -> ()
-     | Some (bus : 's Core_system.Signal_bus.t) ->
-       Core_system.Signal_bus.on bus (fun msg -> t.on_signal world msg));
-    (match World.get_service world `Events with
-     | None -> ()
-     | Some (bus : 'e Core_system.Event_bus.t) ->
-       Core_system.Event_bus.on bus (fun msg -> t.on_event world msg));
-    (match World.get_service world `Commands with
-     | None -> ()
-     | Some (bus : 'c Core_system.Command_bus.t) ->
-       Core_system.Command_bus.on bus (fun msg -> t.on_command world msg))
+  let attach t (world : World.rw World.t) ~signals ~events ~commands =
+    Core_system.Signal_bus.on  signals  (fun msg -> t.on_signal  world msg);
+    Core_system.Event_bus.on   events   (fun msg -> t.on_event   world msg);
+    Core_system.Command_bus.on commands (fun msg -> t.on_command world msg)
 end
 
 module Default = Make(Eon_ecs.System.Make(Single_bus)(Double_bus)(Single_bus))
