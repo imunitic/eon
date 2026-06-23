@@ -7,19 +7,14 @@ This tutorial walks through the default `Eon_ecs` stack and shows one full frame
 - build a pipeline
 - run with hybrid progress
 
-## 1. Setup world and services
+## 1. Setup world
 
 ```ocaml
 module World    = Eon_ecs.World
-module Signals  = Eon_ecs.Signals
-module Events   = Eon_ecs.Events
 module Commands = Eon_ecs.Commands
 
 let world =
   let w = World.create () in
-  World.add_service w `Signals (Signals.create ());
-  World.add_service w `Events (Events.create ());
-  World.add_service w `Commands (Commands.create ());
   ignore (World.register_component w ~name:"Position" ~id:0);
   ignore (World.register_component w ~name:"Velocity" ~id:1);
   let e = World.create_entity w in
@@ -30,17 +25,19 @@ let world =
 
 Important: register components first. `World.add_component` raises for unknown component names.
 
+Bus instances live in `Eon_ecs.Buses.Default` as module-level singletons — no registration in the world needed.
+
 ## 2. Create a reactive system
 
 ```ocaml
 module System = Eon_ecs.System.Default
 module Query  = Eon_ecs.Query
 
-let commands : [ `Move of Eon_ecs.Entity_id.t * (float * float) ] Eon_ecs.Commands.t =
-  Option.get (World.get_service world `Commands)
+(* Grab the singleton command bus from Buses.Default. *)
+let commands = Eon_ecs.Buses.Default.commands ()
 
 let movement =
-  System.make_reactive
+  System.make
     ~update:(fun world dt ->
       Query.iter2 world "Position" "Velocity"
         (fun entity (_x, _y) (vx, vy) ->
@@ -54,14 +51,10 @@ let movement =
           end)
     ~kind:`Fixed
     ()
-  |> System.attach_handlers
-       ~signals:(Option.get (World.get_service world `Signals))
-       ~events:(Option.get (World.get_service world `Events))
-       ~commands:(Option.get (World.get_service world `Commands))
-       world
 ```
 
 Pattern: keep update logic pure-ish by emitting commands, then mutate state in command handlers.
+`Pipeline.register_all` (step 3) wires the `on_command` handler to the bus automatically — no manual `attach` call needed.
 
 ## 3. Build a pipeline
 

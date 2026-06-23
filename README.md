@@ -52,7 +52,7 @@ For most projects, use the default aliases exposed by `Eon_ecs`:
 | Pipeline | `Eon_ecs.Pipeline.Default` |
 | Progress | `Eon_ecs.Progress.Default` |
 | Loop | `Eon_ecs.Loop.Default` |
-| Buses | `Eon_ecs.Signals`, `Eon_ecs.Events`, `Eon_ecs.Commands` |
+| Buses | `Eon_ecs.Buses.Default` (instances via `signals ()`/`events ()`/`commands ()`) |
 
 Canonical package surface:
 - API contract: `eon_ecs/eon_ecs.mli`
@@ -66,19 +66,11 @@ module System   = Eon_ecs.System.Default
 module Pipeline = Eon_ecs.Pipeline.Default
 module Progress = Eon_ecs.Progress.Default
 module Query    = Eon_ecs.Query
-module Signals  = Eon_ecs.Signals
-module Events   = Eon_ecs.Events
 module Commands = Eon_ecs.Commands
 module Loop     = Eon_ecs.Loop.Default
 
 let world =
   let world = World.create () in
-  let signals  = Signals.create ()
-  and events   = Events.create ()
-  and commands = Commands.create () in
-  World.add_service world `Signals  signals;
-  World.add_service world `Events   events;
-  World.add_service world `Commands commands;
   ignore (World.register_component world ~name:"Position" ~id:0);
   ignore (World.register_component world ~name:"Velocity" ~id:1);
   let entity = World.create_entity world in
@@ -86,12 +78,11 @@ let world =
   World.add_component world entity ~name:"Velocity" (1.0, 0.0);
   world
 
-let signals  = World.get_service world `Signals  |> Option.get
-let events   = World.get_service world `Events   |> Option.get
-let commands = World.get_service world `Commands |> Option.get
+(* Bus instances are singletons in Buses.Default — no world service registration needed. *)
+let commands = Eon_ecs.Buses.Default.commands ()
 
 let movement_system =
-  System.make_reactive
+  System.make
     ~update:(fun world dt ->
       Query.iter2 world "Position" "Velocity"
         (fun entity (_x, _y) (vx, vy) ->
@@ -106,13 +97,14 @@ let movement_system =
       | _ -> ())
     ~kind:`Fixed
     ()
-  |> System.attach_handlers ~signals ~events ~commands world
 
 let pipeline =
   Pipeline.create ()
   |> Pipeline.add_phase `Gameplay
   |> Pipeline.add_system `Gameplay movement_system
 
+(* register_all calls System.register then System.attach for each system,
+   wiring bus handlers automatically from Buses.Default. *)
 let () = Pipeline.register_all pipeline world
 
 let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline

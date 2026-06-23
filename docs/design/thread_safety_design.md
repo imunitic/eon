@@ -227,7 +227,7 @@ Signals / Events / Commands are emitted-to during systems. If parallel systems
 `emit`** only — self-contained in the bus, no changes to Executor, Pipeline,
 World, or system interface.
 
-`eon_engine` defines `Bus.S` (= `Eon_ecs.Bus.BUS`) and provides standalone
+`eon_engine` defines `Bus.S` (= `Eon_ecs.Bus.S`) and provides standalone
 implementations:
 
 - **`Eon_engine.Single_bus`**: flat record with `Queue.t`, `Mutex.t`, and
@@ -285,7 +285,7 @@ functor — a genuinely new pipeline with parallel dispatch, **not** a wrapper
 over the core pipeline. It reuses `Eon_ecs.Dependency_graph` for phase ordering
 and dispatches system `update_ro` closures via `Executor.run_all`.
 
-The engine's `System.make` **wraps** `Eon_ecs.System.make_reactive` (following
+The engine's `System.make` **wraps** `Eon_ecs.System.make` (following
 the same pattern as `Eon_engine.World` wrapping `Eon_ecs.World`). The returned
 system embeds a core `Eon_ecs.System.Default.t` — fully compatible with
 `Eon_ecs.Pipeline.Make` for sequential execution.
