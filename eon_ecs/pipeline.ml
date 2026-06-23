@@ -27,7 +27,8 @@ module type S = sig
 
   (** World type this pipeline operates on. *)
   type world
-  (** Execute [register] callback of every system in phase order. *)
+  (** Run [register] for every system then attach bus handlers, in phase order.
+      Bus instances come from the [Buses] argument to [Make]. *)
   val register_all : 'phase t -> world -> unit
   (** Run systems filtered by a predicate on their kind.
       Used internally by the Progress module. *)
@@ -44,29 +45,24 @@ end
 (* 🔹 Pipeline Implementation (Functor)                              *)
 (* ================================================================ *)
 
-module Make (System : System.S) = struct
+module Make
+    (System : System.S)
+    (Buses : sig
+      val signals  : unit -> 'a System.Signal_bus.t
+      val events   : unit -> 'a System.Event_bus.t
+      val commands : unit -> 'a System.Command_bus.t
+    end) = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
   type kind = System.kind
   type world = World.t
 
-  type system_entry = {
-      kind : System.kind;
-      core : System.core;
-    }
-
-  (* ================================================================ *)
-  (* 🔹 Types *)
-  (* ================================================================ *)
+  type entry = Entry : ('s, 'e, 'c) System.t -> entry
 
   type 'phase t = {
       phases  : ('phase, unit) Hashtbl.t;
       mutable graph   : 'phase Dependency_graph.t;
-      systems : ('phase, system_entry list) Hashtbl.t;
+      systems : ('phase, entry list) Hashtbl.t;
     }
-
-  (* ================================================================ *)
-  (* 🔹 Construction *)
-  (* ================================================================ *)
 
   let create () =
     { phases = Hashtbl.create 16;
@@ -80,80 +76,61 @@ module Make (System : System.S) = struct
     end;
     t
 
-  (* ================================================================ *)
-  (* 🔹 Ordering management *)
-  (* ================================================================ *)
-
   let before ~earlier ~later t =
     t.graph <- Dependency_graph.before ~earlier ~later t.graph;
     t
 
   let after ~later ~earlier t = before ~earlier ~later t
 
-  (* ================================================================ *)
-  (* 🔹 System registration *)
-  (* ================================================================ *)
-
   let add_system phase (sys : ('s, 'e, 'c) system_t) t =
     if not (Hashtbl.mem t.phases phase) then
       invalid_arg "Pipeline.add_system: phase not registered";
     let lst = Hashtbl.find_opt t.systems phase |> Option.value ~default:[] in
-    let entry = { kind = sys.kind; core = sys.core } in
-    Hashtbl.replace t.systems phase (entry :: lst);
+    Hashtbl.replace t.systems phase (Entry sys :: lst);
     t
-
-  (* ================================================================ *)
-  (* 🔹 Phase sorting *)
-  (* ================================================================ *)
 
   let sorted_phases t = Dependency_graph.topo_sort t.graph
 
-  (* ================================================================ *)
-  (* 🔹 Execution helpers *)
-  (* ================================================================ *)
-
   let register_all t world =
-    let order = sorted_phases t in
     List.iter
       (fun phase ->
         match Hashtbl.find_opt t.systems phase with
         | None -> ()
-        | Some systems ->
-           List.iter (fun s -> s.core.register world) (List.rev systems))
-      order
-
-  let run_by_filter ~filter t world dt =
-    let order = sorted_phases t in
-    List.fold_left
-      (fun world phase ->
-        match Hashtbl.find_opt t.systems phase with
-        | None -> world
-        | Some systems ->
-           List.fold_left
-             (fun w (s : system_entry) ->
-               if filter s.kind then (
-                 s.core.update w dt;
-                 w
-               ) else w)
-             world
-             (List.rev systems))
-      world order
+        | Some entries ->
+          List.iter
+            (fun (Entry sys) ->
+              System.register sys world;
+              System.attach sys world
+                ~signals:(Buses.signals ())
+                ~events:(Buses.events ())
+                ~commands:(Buses.commands ()))
+            (List.rev entries))
+      (sorted_phases t)
 
   let run t world dt =
-    let order = sorted_phases t in
-    List.fold_left
-      (fun world phase ->
+    List.iter
+      (fun phase ->
         match Hashtbl.find_opt t.systems phase with
-        | None -> world
-        | Some systems ->
-           List.fold_left
-             (fun w s ->
-               s.core.update w dt;
-               w)
-             world
-             (List.rev systems))
-      world
-      order
+        | None -> ()
+        | Some entries ->
+          List.iter
+            (fun (Entry sys) -> System.run sys world dt)
+            (List.rev entries))
+      (sorted_phases t);
+    world
+
+  let run_by_filter ~filter t world dt =
+    List.iter
+      (fun phase ->
+        match Hashtbl.find_opt t.systems phase with
+        | None -> ()
+        | Some entries ->
+          List.iter
+            (fun (Entry sys) ->
+              if filter (System.kind_of sys) then System.run sys world dt)
+            (List.rev entries))
+      (sorted_phases t);
+    world
 
   let phases t = sorted_phases t
 end

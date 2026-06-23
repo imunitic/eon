@@ -114,10 +114,6 @@ let build_world () =
   let food = World.create_entity world in
   World.add_component world food ~name:position_component { x = 0; y = 0 };
 
-  World.add_service world `Signals (Signals.create ());
-  World.add_service world `Events (Events.create ());
-  World.add_service world `Commands (Commands.create ());
-
   init_game_state world ~snake_entity:snake ~food_entity:food;
   (world, snake, food)
 
@@ -126,24 +122,11 @@ type game = {
   progress : [ `Input | `Gameplay ] Progress.t;
 }
 
+let commands = Eon_ecs.Buses.Default.commands ()
+
 (* ECS systems & pipeline *)
 let build_game () =
   let world, _snake_entity, food_entity = build_world () in
-  let signals =
-    match World.get_service world `Signals with
-    | Some bus -> bus
-    | None -> failf "missing Signals service"
-  in
-  let events =
-    match World.get_service world `Events with
-    | Some bus -> bus
-    | None -> failf "missing Events service"
-  in
-  let commands =
-    match World.get_service world `Commands with
-    | Some bus -> bus
-    | None -> failf "missing Commands service"
-  in
 
   let ascii_lower_of_key = function
     | `ASCII c -> Some (Char.lowercase_ascii c)
@@ -198,7 +181,7 @@ let build_game () =
   in
 
   let input_system =
-    System.make_reactive
+    System.make
       ~update:(fun world _dt ->
         match World.get_data world term_key with
         | None -> ()
@@ -223,11 +206,10 @@ let build_game () =
         | _ -> ())
       ~kind:`Variable
       ()
-    |> System.attach_handlers ~signals ~events ~commands world
   in
 
   let movement_system =
-    System.make_reactive
+    System.make
       ~update:(fun world _dt ->
         if not (is_paused world) then
           Query.iter3 world trail_component direction_component alive_component
@@ -294,11 +276,10 @@ let build_game () =
         | _ -> ())
       ~kind:`Fixed
       ()
-    |> System.attach_handlers ~signals ~events ~commands world
   in
 
   let alive_system =
-    System.make_reactive
+    System.make
       ~update:(fun world _dt ->
         let any_alive = ref false in
         Query.iter1 world alive_component (fun _ alive -> if alive then any_alive := true);
@@ -308,7 +289,6 @@ let build_game () =
         | _ -> ())
       ~kind:`Fixed
       ()
-    |> System.attach_handlers ~signals ~events ~commands world
   in
 
   let pipeline =

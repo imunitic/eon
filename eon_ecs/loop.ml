@@ -9,9 +9,8 @@ module type RENDERER = sig
 end
 
 module type BUSES = sig
-  type world
-  val collect : world -> unit
-  val drain   : world -> unit
+  val collect : unit -> unit
+  val drain   : unit -> unit
 end
 
 module Make
@@ -22,13 +21,13 @@ module Make
        val tick : 'phase t -> world:world -> dt:float -> world
      end)
     (Renderer : RENDERER with type world = Progress.world)
-    (Buses    : BUSES with type world = Progress.world)
+    (Buses    : BUSES)
 = struct
   let step ~progress ~world ~last_time ~now ~should_continue =
-    Buses.collect world;
+    Buses.collect ();
     let dt = now -. last_time in
     let world = Progress.tick progress ~world ~dt in
-    Buses.drain world;
+    Buses.drain ();
     let result = Renderer.render world ~dt in
     let continue = should_continue world result in
     (world, now, result, continue)

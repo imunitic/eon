@@ -10,7 +10,7 @@
       module System = Eon_ecs.System.Default
 
       let movement =
-        System.make_reactive
+        System.make
           ~update:(fun world dt -> ignore (world, dt))
           ~kind:`Fixed
           ()
@@ -36,7 +36,7 @@ type kind = Base_kind.kind
 (** Full system signature produced by {!Make} and {!Make_with_kinds}. *)
 module type S = sig
   (** Common bus module type. *)
-  module type BUS = Bus.BUS
+  module type BUS = Bus.S
 
   (** Bus used for signals. *)
   module Signal_bus : BUS
@@ -47,73 +47,57 @@ module type S = sig
   (** Bus used for commands. *)
   module Command_bus : BUS
 
-  (** Side-effect-free core callbacks ([register] runs once; [update] runs each tick). *)
-  type core = {
-    register : World.t -> unit;
-    update   : World.t -> float -> unit;
-  }
-
   (** Kind tag attached to system instances. *)
   type kind
 
-  (** Reactive system record bundling core callbacks, bus handlers, and a scheduling kind. *)
-  type ('signal, 'event, 'command) reactive = {
-    core       : core;
-    on_signal  : World.t -> 'signal  -> unit;
-    on_event   : World.t -> 'event   -> unit;
-    on_command : World.t -> 'command -> unit;
-    kind       : kind;
-  }
+  (** Variable-step kind tag (the default). *)
+  val variable : kind
 
-  (** Alias for the reactive system type. *)
-  type ('s, 'e, 'c) t = ('s, 'e, 'c) reactive
+  (** Fixed-step kind tag. *)
+  val fixed : kind
 
-  (** No-op signal, event, and command handlers. *)
-  val ignore_signal  : 'a -> 'b -> unit
-  val ignore_event   : 'a -> 'b -> unit
-  val ignore_command : 'a -> 'b -> unit
+  (** Opaque system value. *)
+  type ('s, 'e, 'c) t
 
-  (** Build a core from optional [register] and [update] callbacks. *)
-  val make_core :
-    ?register:(World.t -> unit) ->
-    ?update:(World.t -> float -> unit) ->
-    unit -> core
+  (** Build a system from optional callbacks. [kind] defaults to [variable].
 
-  (** Build a reactive system from optional callbacks. [kind] defaults to variable. *)
-  val make_reactive :
+      All callbacks are optional — omit [on_signal], [on_event], [on_command]
+      for a non-reactive system; omit [update] for a handler-only system. *)
+  val make :
     ?register:(World.t -> unit) ->
     ?update:(World.t -> float -> unit) ->
     ?on_signal:(World.t -> 's -> unit) ->
     ?on_event:(World.t -> 'e -> unit) ->
     ?on_command:(World.t -> 'c -> unit) ->
     ?kind:kind ->
-    unit -> ('s, 'e, 'c) reactive
+    unit -> ('s, 'e, 'c) t
 
-  (** Lift a [core] into a reactive system with no-op handlers and explicit kind. *)
-  val make_with_kind : kind -> core -> ('s, 'e, 'c) t
+  (** Scheduling kind of this system instance. *)
+  val kind_of : ('s, 'e, 'c) t -> kind
 
-  (** Lift a [core] into a variable-kind reactive system with no-op handlers. *)
-  val from_core : core -> ('s, 'e, 'c) reactive
+  (** Run the [register] callback. Called once during pipeline setup. *)
+  val register : ('s, 'e, 'c) t -> World.t -> unit
 
-  (** Register bus handlers for this system.
+  (** Run the [update] callback. Called each tick by the pipeline. *)
+  val run : ('s, 'e, 'c) t -> World.t -> float -> unit
 
-      If a bus is not provided explicitly, reads it from the world via the
-      corresponding service key ([\`Signals], [\`Events], [\`Commands]).
+  (** Subscribe this system's bus handlers to the given bus instances.
 
-      @raise Failure if a required service is not registered in the world. *)
-  val attach_handlers :
-    ?signals:'s Signal_bus.t ->
-    ?events:'e Event_bus.t ->
-    ?commands:'c Command_bus.t ->
-    World.t -> ('s, 'e, 'c) reactive -> ('s, 'e, 'c) t
+      Called automatically by [Pipeline.register_all]. Only call directly
+      when wiring systems outside a pipeline. *)
+  val attach :
+    ('s, 'e, 'c) t -> World.t ->
+    signals:'s Signal_bus.t ->
+    events:'e Event_bus.t ->
+    commands:'c Command_bus.t -> unit
 end
 
 (** Build a system module over custom bus implementations and a custom kind set. *)
 module Make_with_kinds
     (Kinds       : KIND)
-    (Signal_bus  : Bus.BUS)
-    (Event_bus   : Bus.BUS)
-    (Command_bus : Bus.BUS)
+    (Signal_bus  : Bus.S)
+    (Event_bus   : Bus.S)
+    (Command_bus : Bus.S)
   : S with type kind = Kinds.kind
        and module Signal_bus  = Signal_bus
        and module Event_bus   = Event_bus
@@ -121,9 +105,9 @@ module Make_with_kinds
 
 (** Build a system module over custom bus implementations using the default kinds. *)
 module Make
-    (Signal_bus  : Bus.BUS)
-    (Event_bus   : Bus.BUS)
-    (Command_bus : Bus.BUS)
+    (Signal_bus  : Bus.S)
+    (Event_bus   : Bus.S)
+    (Command_bus : Bus.S)
   : S with type kind = kind
        and module Signal_bus  = Signal_bus
        and module Event_bus   = Event_bus

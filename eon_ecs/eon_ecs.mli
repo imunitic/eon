@@ -15,12 +15,7 @@
       module Events   = Eon_ecs.Events
       module Commands = Eon_ecs.Commands
 
-      let world =
-        let w = World.create () in
-        World.add_service w `Signals (Signals.create ());
-        World.add_service w `Events (Events.create ());
-        World.add_service w `Commands (Commands.create ());
-        w
+      let world = World.create ()
     ]}
 *)
 
@@ -100,7 +95,7 @@ end
 module Bus : sig
   (** Message bus abstractions with collect/drain semantics. *)
   (** Common bus signature exposed from the core. *)
-  module type S = Bus.BUS
+  module type S = Bus.S
   (** Single-buffered bus implementation. *)
   module Single = Single_bus
   (** Double-buffered bus implementation. *)
@@ -167,7 +162,7 @@ module System : sig
         module System = Eon_ecs.System.Default
 
         let s =
-          System.make_reactive
+          System.make
             ~update:(fun _world _dt -> ())
             ~kind:`Variable
             ()
@@ -186,6 +181,15 @@ module System : sig
   module Make = System.Make
   (** Default system stack wired to {!Signals}, {!Events}, and {!Commands}. *)
   module Default : module type of Make (Signals) (Events) (Commands)
+end
+
+module Buses : sig
+  (** Polymorphic singleton bus instances for signals, events, and commands.
+
+      [Default] provides the standard local bus family. Apply [Make] with
+      remote transport modules for the multiplayer use case. *)
+  module Make = Buses.Make
+  module Default : module type of Buses.Default
 end
 
 module Pipeline : sig
@@ -211,8 +215,8 @@ module Pipeline : sig
   module type S = Pipeline.S
   (** Functor building custom pipeline implementations. *)
   module Make = Pipeline.Make
-  (** Default pipeline for {!System.Default}. *)
-  module Default : module type of Make (System.Default)
+  (** Default pipeline for {!System.Default} wired to {!Buses.Default}. *)
+  module Default : module type of Make (System.Default) (Buses.Default)
 end
 
 module Progress : sig
@@ -279,7 +283,7 @@ module Loop : sig
   end
   (** Default bus collect/drain ordering (Signals -> Events -> Commands collect;
       Signals -> Commands -> Events drain). *)
-  module Default_buses : BUSES with type world = World.t
+  module Default_buses : BUSES
   (** Renderer that performs no output. *)
   module Noop_renderer : RENDERER with type world = World.t and type result = unit
   (** Ready-to-use loop wired to defaults for the ECS core. *)

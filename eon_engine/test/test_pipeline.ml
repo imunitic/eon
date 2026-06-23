@@ -2,16 +2,8 @@
 
 open Eon_engine
 
-(* Sets up a world with engine bus services registered under the standard keys. *)
 let setup_world () =
-  let w = World.create () in
-  let signals  = Single_bus.create () in
-  let events   = Double_bus.create () in
-  let commands = Single_bus.create () in
-  World.add_service w `Signals  signals;
-  World.add_service w `Events   events;
-  World.add_service w `Commands commands;
-  (w, signals, events, commands)
+  World.create ()
 
 let make_pipe phases systems =
   let base =
@@ -27,7 +19,7 @@ let make_pipe phases systems =
 (* ---- phase ordering ---- *)
 
 let test_phase_ordering () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let order = ref [] in
   let push s = order := !order @ [s] in
   let pipe =
@@ -45,7 +37,7 @@ let test_phase_ordering () =
   Alcotest.(check (list string)) "A runs before B" ["A"; "B"] !order
 
 let test_after_ordering () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let order = ref [] in
   let push s = order := !order @ [s] in
   let pipe =
@@ -77,7 +69,7 @@ let test_add_system_unregistered_phase () =
 (* ---- parallel systems run ---- *)
 
 let test_parallel_runs () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let count = ref 0 in
   let pipe =
     make_pipe [`Update]
@@ -90,7 +82,7 @@ let test_parallel_runs () =
 (* ---- exclusive systems run AFTER parallel in the same phase ---- *)
 
 let test_exclusive_after_parallel () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let order = ref [] in
   let push s = order := !order @ [s] in
   let pipe =
@@ -109,7 +101,7 @@ let test_exclusive_after_parallel () =
 (* ---- exclusive system can mutate world (rw access) ---- *)
 
 let test_exclusive_writes () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let pipe =
     make_pipe [`Update]
       [`Update, System.Default.make
@@ -124,10 +116,8 @@ let test_exclusive_writes () =
 
 (* ---- run_by_filter skips non-matching kinds ---- *)
 
-(* Pipeline.Default.kind is [ `Fixed | `Variable ] (exposed in public API).
-   We can construct kind values and use run_by_filter directly. *)
 let test_run_by_filter () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let fired = ref [] in
   let push s = fired := s :: !fired in
   let pipe =
@@ -145,7 +135,7 @@ let test_run_by_filter () =
 (* ---- register_all wires bus handlers: on_command fires on drain ---- *)
 
 let test_handler_dispatch () =
-  let w, _, _, commands = setup_world () in
+  let w = setup_world () in
   let fired = ref false in
   let pipe =
     make_pipe [`Update]
@@ -154,14 +144,14 @@ let test_handler_dispatch () =
                   (Exclusive (fun _ _ -> ()))]
   in
   Pipeline.Default.register_all pipe w;
-  Single_bus.emit commands ();
-  Single_bus.drain commands;
+  Single_bus.emit (Buses.Default.commands ()) ();
+  Single_bus.drain (Buses.Default.commands ());
   Alcotest.(check bool) "on_command handler fired after drain" true !fired
 
 (* ---- multiple systems per phase all run ---- *)
 
 let test_multiple_systems_per_phase () =
-  let w, _, _, _ = setup_world () in
+  let w = setup_world () in
   let count = ref 0 in
   let pipe =
     Pipeline.Default.create ()

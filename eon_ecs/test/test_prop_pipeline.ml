@@ -2,7 +2,8 @@ module Single_bus = Eon_ecs__Single_bus
 module Double_bus = Eon_ecs__Double_bus
 module System = Eon_ecs__System
 module Sys = System.Make (Single_bus) (Double_bus) (Single_bus)
-module Pipeline_impl = Eon_ecs__Pipeline.Make (Sys)
+module Buses_impl = Eon_ecs__Buses.Make (Single_bus) (Double_bus) (Single_bus)
+module Pipeline_impl = Eon_ecs__Pipeline.Make (Sys) (Buses_impl)
 
 type graph_case = {
   node_count : int;

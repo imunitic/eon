@@ -28,9 +28,8 @@ module type RENDERER = sig
 end
 
 module type BUSES = sig
-  type world
-  val collect : world -> unit
-  val drain   : world -> unit
+  val collect : unit -> unit
+  val drain   : unit -> unit
 end
 
 module Make
@@ -41,7 +40,7 @@ module Make
        val tick : 'phase t -> world:world -> dt:float -> world
      end)
     (Renderer : RENDERER with type world = Progress.world)
-    (_ : BUSES with type world = Progress.world)
+    (_ : BUSES)
 : sig
   val step :
     progress:'phase Progress.t ->
