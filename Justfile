@@ -10,9 +10,13 @@ build:
 run-tests:
     opam exec -- dune test
 
-# Generate API documentation via odoc/dune
-generate-docs:
+# Generate API documentation via odoc
+docs:
     opam exec -- dune build @doc
+
+# Build docs and open in browser
+open-docs: docs
+    open _build/default/_doc/_html/eon-ecs/index.html
 
 # Run default pre-push checks
 check:

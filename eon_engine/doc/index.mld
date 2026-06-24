@@ -1,0 +1,363 @@
+{0 eon-engine — Game Engine Layer}
+
+Eon Engine builds on top of [eon-ecs] and adds:
+
+- {b Typed component descriptors} — no more string-keyed lookups in game code
+- {b Capability-typed world} — phantom types ([ro]/[rw]) prevent writes from parallel systems at compile time
+- {b Query builder} — composable filters with a typed [View] cursor
+- {b Parallel pipeline} — [Parallel] systems run concurrently via [Executor]; [Exclusive] systems run sequentially after
+- {b Built-in components} — [Position], [Velocity], [Rotation], [Scale], [Sprite], [Animation], [Camera], [Collider], [Tag]
+
+{1 Quick start}
+
+{[
+  open Eon_engine
+
+  (* 1. Alias the default stack *)
+  module System   = System.Default
+  module Pipeline = Pipeline.Default
+  module Progress = Progress
+  module Loop     = Loop
+
+  (* 2. Create world and register built-in components *)
+  let world = World.create ()
+  let ()    = Components.Engine_components.register_all world
+
+  (* 3. Define a component for game-specific data *)
+  let health : int Components.t = component "Health"
+  let () = ignore (World.register world health)
+
+  (* 4. Spawn an entity *)
+  let player = World.create_entity world
+  let () =
+    World.add_component world player Components.Position.component { x = 0.0; y = 0.0 };
+    World.add_component world player Components.Velocity.component { dx = 1.0; dy = 0.5 };
+    World.add_component world player health 100
+
+  (* 5. Define a parallel system (read-only world) *)
+  let movement_system =
+    System.make
+      (Parallel (fun world dt ->
+        Query.from world
+        |> Query.having Components.Position.name
+        |> Query.having Components.Velocity.name
+        |> Query.iter (fun view ->
+             let pos = View.get view Components.Position.component in
+             let vel = View.get view Components.Velocity.component in
+             ignore (pos.x +. vel.dx *. dt, pos.y +. vel.dy *. dt))))
+      ~kind:`Variable
+      ()
+
+  (* 6. Build a pipeline *)
+  let pipeline =
+    Pipeline.create ()
+    |> Pipeline.add_phase `Gameplay
+    |> Pipeline.add_system `Gameplay movement_system
+
+  (* 7. Run *)
+  let progress = Progress.create ~mode:Progress.Variable pipeline
+  let _world =
+    Loop.run ~progress ~world ~should_continue:(fun _w _r -> false) ()
+]}
+
+{1 Core concepts}
+
+{2 World capabilities}
+
+{!Eon_engine.World} carries a phantom type parameter — ['perm World.t] — that
+enforces read/write discipline at compile time:
+
+- [rw World.t] — full access; returned by [World.create] and held by the loop
+- [ro World.t] — read-only view; obtained via [World.readonly]; passed to [Parallel] system updates
+
+Write operations ([create_entity], [add_component], [set_component], …) are
+typed to accept only [rw World.t]. Parallel systems receive [ro World.t] and
+cannot accidentally mutate shared state.
+
+{[
+  let world : World.rw World.t = World.create ()
+  let ro    : World.ro World.t = World.readonly world
+
+  (* Read operations accept any capability *)
+  let alive = World.is_alive ro player
+
+  (* Write operations require rw — this would be a type error with [ro] *)
+  let _e = World.create_entity world
+]}
+
+{2 Component descriptors}
+
+Components are identified by a typed descriptor value rather than raw strings.
+The descriptor carries the value type as a phantom parameter, eliminating the
+[Obj.magic] at the engine API boundary.
+
+{[
+  (* Define a descriptor once, typically in a dedicated module *)
+  let health : int Components.t = Eon_engine.component "Health"
+
+  (* Register it with the world before use *)
+  let _ = World.register world health
+
+  (* Use the descriptor for all component operations *)
+  World.add_component world entity health 100;
+  let hp = World.get_component world entity health  (* : int option *)
+]}
+
+{2 Built-in components}
+
+The engine ships with {!Eon_engine.Components} which exposes typed component
+modules:
+
+{table
+  {tr {th Module} {th Type} {th Description}}
+  {tr {td [Components.Position]}  {td [{x: float; y: float}]}           {td 2D world position}}
+  {tr {td [Components.Velocity]}  {td [{dx: float; dy: float}]}          {td 2D velocity}}
+  {tr {td [Components.Rotation]}  {td [float]}                           {td Angle in radians}}
+  {tr {td [Components.Scale]}     {td [{sx: float; sy: float}]}          {td 2D scale factor}}
+  {tr {td [Components.Sprite]}    {td [Sprite.t]}                        {td Rendering info}}
+  {tr {td [Components.Animation]} {td [Animation.t]}                     {td Sprite animation}}
+  {tr {td [Components.Camera]}    {td [Camera.t]}                        {td Camera projection}}
+  {tr {td [Components.Collider]}  {td [Collider.t]}                      {td Collision shape}}
+  {tr {td [Components.Tag]}       {td [string]}                          {td String marker}}
+}
+
+Register all of them at once with [Components.Engine_components.register_all world].
+
+To extend with game-specific components:
+
+{[
+  module Game_components = struct
+    include Components.Engine_components
+
+    let mana : int Components.t = component "Mana"
+    let xp   : int Components.t = component "XP"
+
+    let register_all world =
+      Components.Engine_components.register_all world;
+      ignore (World.register world mana);
+      ignore (World.register world xp)
+  end
+]}
+
+{2 Query builder}
+
+{!Eon_engine.Query} is a composable builder that accepts both [ro] and [rw]
+worlds. Filters narrow the entity set; [iter] executes the query and passes a
+typed {!Eon_engine.View} cursor per matching entity.
+
+{[
+  Query.from world
+  |> Query.having     Components.Position.name   (* must have Position *)
+  |> Query.having     Components.Velocity.name   (* must have Velocity *)
+  |> Query.not_having Components.Tag.name        (* must not have Tag  *)
+  |> Query.iter (fun view ->
+       let entity = View.entity view in
+       let pos    = View.get view Components.Position.component in
+       let vel    = View.get view Components.Velocity.component in
+       ignore (entity, pos, vel))
+]}
+
+Use [View.get] for components you required in the query (raises on absent —
+treat as programmer error). Use [View.get_opt] for optional components.
+Use [Query.count] instead of [iter] when you only need the entity count.
+
+{2 Parallel and exclusive systems}
+
+Engine systems declare their world-access pattern up front:
+
+- {b [Parallel]} — [update] receives [World.ro World.t]; the pipeline dispatches it concurrently with other parallel systems in the same phase. Safe for queries and reads.
+- {b [Exclusive]} — [update] receives [World.rw World.t]; runs sequentially {i after} all parallel systems in the phase have completed. Structural mutations — spawning, destroying entities, adding or removing components — belong in [update] here; that is the entire reason [Exclusive] exists.
+
+{3 Module-based style (recommended)}
+
+Each system lives in its own file and satisfies either {!Eon_engine.System.Parallel_def}
+or {!Eon_engine.System.Exclusive_def}. Both signatures require:
+
+- [type signal], [type event], [type command] — the message payload types for the three buses
+- [on_signal], [on_event], [on_command] — reactive handlers; implement as [let on_* _ _ = ()] if unused
+- [update] — [World.ro World.t] for [Parallel_def], [World.rw World.t] for [Exclusive_def]
+
+{b Parallel system — queries in [update], writes via emitted commands:}
+
+Parallel systems cannot write directly in [update] — the world is [ro] there.
+Instead they compute new state and emit a command; the [on_command] handler
+applies the mutation with [rw] access during the [drain] phase.
+
+{[
+  (* systems/movement.ml — satisfies System.Parallel_def *)
+  open Eon_engine
+
+  type signal  = unit
+  type event   = unit
+  type command = [ `Move_to of Eon_ecs.Entity_id.t * float * float ]
+
+  let on_signal  _ _ = ()
+  let on_event   _ _ = ()
+
+  (* on_command runs sequentially during drain with full rw access *)
+  let on_command (world : World.rw World.t) = function
+    | `Move_to (entity, x, y) ->
+      World.set_component world entity Components.Position.component { x; y }
+
+  (* update is ro — compute new positions and emit, never write directly *)
+  let update (world : World.ro World.t) dt =
+    let bus = Buses.Default.commands () in
+    Query.from world
+    |> Query.having Components.Position.name
+    |> Query.having Components.Velocity.name
+    |> Query.iter (fun view ->
+         let e   = View.entity view in
+         let pos = View.get view Components.Position.component in
+         let vel = View.get view Components.Velocity.component in
+         Commands.emit bus (`Move_to (e, pos.x +. vel.dx *. dt,
+                                         pos.y +. vel.dy *. dt)))
+]}
+
+{b Exclusive system — mutations happen in [update], which has full [rw] access:}
+
+{[
+  (* systems/cleanup.ml — satisfies System.Exclusive_def *)
+  open Eon_engine
+
+  type signal  = unit
+  type event   = unit
+  type command = unit
+
+  let on_signal  _ _ = ()
+  let on_event   _ _ = ()
+  let on_command _ _ = ()
+
+  (* update receives rw — spawn, destroy, add/remove components freely *)
+  let update (world : World.rw World.t) _dt =
+    Query.from world
+    |> Query.having Components.Tag.name
+    |> Query.iter (fun view ->
+         let e   = View.entity view in
+         let tag = View.get view Components.Tag.component in
+         if tag = "dead" then World.destroy_entity world e)
+]}
+
+{b Assemble and add to the pipeline:}
+
+{[
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Gameplay
+    |> Pipeline.Default.add_system `Gameplay (System.make_parallel  (module Movement))
+    |> Pipeline.Default.add_system `Gameplay (System.make_exclusive (module Cleanup))
+    (* parallel systems run concurrently first,
+       then exclusive systems run with rw access *)
+]}
+
+{3 Systems with reactive bus handlers}
+
+Bus handlers always receive [World.rw World.t] regardless of the system's
+[Parallel]/[Exclusive] dispatch — handlers run sequentially during the [drain]
+phase, never concurrently. Declare the payload types and implement the handler:
+
+{[
+  (* systems/combat.ml — parallel update, reactive command handler *)
+  open Eon_engine
+
+  type signal  = unit
+  type event   = [ `Enemy_died of Eon_ecs.Entity_id.t ]
+  type command = [ `Apply_damage of Eon_ecs.Entity_id.t * int ]
+
+  let on_signal _ _ = ()
+
+  let on_event (world : World.rw World.t) = function
+    | `Enemy_died e -> World.destroy_entity world e
+
+  let on_command (world : World.rw World.t) = function
+    | `Apply_damage (e, amount) ->
+      (match World.get_component world e health_desc with
+       | Some hp -> World.set_component world e health_desc (hp - amount)
+       | None    -> ())
+
+  let update (world : World.ro World.t) _dt =
+    Query.from world
+    |> Query.having Components.Position.name
+    |> Query.iter (fun _view -> ())
+]}
+
+{3 Inline closure style (for simple or one-off systems)}
+
+For throwaway or test systems, skip the module file and pass closures directly:
+
+{[
+  let debug_system =
+    System.Default.make
+      (Parallel (fun world _dt ->
+        let n = World.count_entities world in
+        ignore n))
+      ~kind:`Variable
+      ()
+
+  let reset_system =
+    System.Default.make
+      (Exclusive (fun world _dt ->
+        ignore (World.create_entity world)))
+      ~kind:`Variable
+      ()
+]}
+
+{2 Executor}
+
+{!Eon_engine.Executor} is the threading-substrate seam. Swap it to change
+parallelism without touching any system code:
+
+{[
+  (* Sequential: single-threaded, same as eon_ecs core — good for testing *)
+  module Seq_pipeline = Pipeline.Make
+    (System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands)))
+    (Executor.Sequential)
+    (Buses.Default)
+
+  (* Parallel: OCaml 5 Domain pool — true concurrent dispatch *)
+  module Par_pipeline = Pipeline.Make
+    (System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands)))
+    (Executor.Domain_pool.Make(struct
+       let size = Executor.Domain_pool.recommended_size ()
+     end))
+    (Buses.Default)
+]}
+
+[Executor.run_all] is always synchronous — it returns only after every job
+finishes, giving automatic phase barriers with no extra synchronisation code.
+
+{2 Buses}
+
+The engine buses ([Signals], [Events], [Commands]) are mutex-wrapped versions
+of the core buses, safe to [emit] from parallel system threads. Their
+collect/drain semantics are identical to [eon_ecs]:
+
+{table
+  {tr {th Module} {th Semantics}}
+  {tr {td [Signals]}  {td Same-frame delivery ([drain = collect])}}
+  {tr {td [Events]}   {td Next-frame delivery (double-buffer swap)}}
+  {tr {td [Commands]} {td Same-frame delivery, intended for mutations}}
+}
+
+{2 Loop}
+
+{!Eon_engine.Loop} delegates to [Eon_ecs.Loop.Make] typed for [World.rw World.t].
+Frame order is the same as the core:
+
++ [collect] — Signals, then Events, then Commands
++ [Progress.tick] — runs the pipeline (parallel phases go through the executor)
++ [drain] — Signals, then Commands, then Events
++ [Renderer.render]
+
+{[
+  let final_world =
+    Loop.run
+      ~render_initial:true
+      ~progress
+      ~world
+      ~should_continue:(fun _world _result -> true)
+      ()
+]}
+
+{1 API reference}
+
+{!modules: Eon_engine}
