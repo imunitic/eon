@@ -74,7 +74,7 @@ Bus instances:
 - Access via accessor functions: `Buses.Default.signals ()`, `Buses.Default.events ()`, `Buses.Default.commands ()`.
 - `Pipeline.register_all` auto-attaches handlers to all registered systems — no manual `System.attach` calls needed.
 - Per-world buses are an opt-in: add bus instances to the world service plane and wire manually. Not the default path.
-- Bus module type in eon_ecs is `Bus.S` (canonical name); `Bus.BUS` is a deprecated alias.
+- Bus module type in eon_ecs is `Bus.S`; the `Bus.BUS` alias has been removed.
 
 Component rules:
 - Register component names before `add_component` or `set_component`.

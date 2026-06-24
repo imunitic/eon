@@ -535,6 +535,79 @@ Both work with the engine pipeline. `Parallel` systems run via `Executor`
 (concurrent with `Domain_pool`, sequential with `Sequential`). `Exclusive`
 systems run sequentially after all parallel systems in the phase complete.
 
+### 5.7 `Parallel_def` / `Exclusive_def` — Modular Explicit Convenience (ecs-025)
+
+The inline `System.make (Parallel ...)` / `System.make (Exclusive ...)` style
+requires callers to construct `update_kind` values manually. ecs-025 introduced
+two module signatures (`Parallel_def`, `Exclusive_def`) and two convenience
+functions (`make_parallel`, `make_exclusive`) using OCaml 5.5.0 **modular
+explicits**, so system modules contain only game logic and the pipeline builder
+becomes a flat list of `make_parallel` / `make_exclusive` calls.
+
+The dispatch kind is encoded structurally in the `update` signature:
+- `Parallel_def.update` takes `World.ro World.t` — read-only, runs concurrently
+- `Exclusive_def.update` takes `World.rw World.t` — read-write, runs sequentially
+
+No `update_kind` constructor is needed in game code:
+
+```ocaml
+(* systems/velocity_system.ml — parallel *)
+type signal  = unit
+type event   = unit
+type command = [ `Move of entity_id * float * float ]
+
+let on_signal  _ _ = ()
+let on_event   _ _ = ()
+let on_command world = function
+  | `Move (entity, dx, dy) -> ...
+
+let update (world : World.ro World.t) _dt =
+  Q.from world |> Q.having_all [ Position.name; Velocity.name ]
+  |> Q.iter (fun view -> ...)
+```
+
+```ocaml
+(* systems/spawn_system.ml — exclusive *)
+type signal  = unit
+type event   = unit
+type command = unit
+
+let on_signal  _ _ = ()
+let on_event   _ _ = ()
+let on_command _ _ = ()
+
+let update (world : World.rw World.t) _dt =
+  ignore (World.create_entity world)
+```
+
+```ocaml
+(* game.ml — flat pipeline builder *)
+let pipeline =
+  Pipeline.Default.create ()
+  |> Pipeline.Default.add_phase `Gameplay
+  |> Pipeline.Default.add_system `Gameplay
+       (System.make_parallel (module Velocity_system))
+  |> Pipeline.Default.add_system `Gameplay
+       (System.make_exclusive (module Spawn_system))
+```
+
+The inline style remains valid alongside modular explicits in the same pipeline:
+
+```ocaml
+|> Pipeline.Default.add_system `Debug
+     (System.Default.make (Exclusive (fun rw _dt -> debug_render rw)))
+```
+
+**Escape hatch:** `System.Make_factory(Sys)` produces `make_parallel`/`make_exclusive`
+for any custom `DISPATCH` substrate.
+
+**Why `make_parallel` / `make_exclusive` live in `eon_engine.ml`:**
+Two separate `Make(...)` functor applications in OCaml are not the same type.
+The convenience functions are defined inside `eon_engine.ml`'s `System` struct,
+where `Default` is already applied — so their return type unifies with
+`Pipeline.Default.system_t`. Defining them in `system.ml` would create a second
+functor application and the return type would not unify.
+
 ---
 
 ## 6. `Eon_engine.Pipeline.Make` — Parallel Dispatch via Executor
