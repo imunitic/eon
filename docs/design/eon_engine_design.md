@@ -239,7 +239,8 @@ replacing them. Summary of what ecs-021 delivers:
 - `Eon_engine.Executor` — threading-substrate seam; `Sequential` ships first
 - `Eon_engine.System.Make(Core_system)` — wraps any `Eon_ecs.System.S` with `World.ro`/`World.rw` (functor; `Default = Make(Eon_ecs.System.Default)`)
 - `Eon_engine.Pipeline.Make(System)(Executor)` — parallel dispatch via Executor, reuses `Eon_ecs.Dependency_graph`; output satisfies `Eon_ecs.Pipeline.S`
-- `Eon_engine.Loop_buses` — `BUSES` module reading engine bus instances from world services for collect/drain
+- `Eon_engine.Loop_buses` — `BUSES` module closed over `Buses.Default.*` instances at module init; `collect`/`drain` are `unit -> unit` (no world argument, no service lookup)
+- `Eon_engine.System.Parallel_def` / `Exclusive_def` — modular explicit module signatures encoding dispatch kind structurally via `World.ro`/`World.rw` (ecs-025); `make_parallel`/`make_exclusive` convenience functions usable flat in pipeline builders
 
 No changes to `Eon_ecs.System.S`, `Eon_ecs.Pipeline.S`, `Eon_ecs.Progress`, or
 `Eon_ecs.Loop`. `Eon_ecs.Progress.Make(Eon_engine.Pipeline.Default)` works
