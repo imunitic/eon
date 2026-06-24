@@ -67,7 +67,6 @@ _opam/
 # Generated docs / binaries
 #--------------------------------------------------------------------
 _build/
-doc/
 dist/
 coverage/
 _coverage/
