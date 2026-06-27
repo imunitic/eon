@@ -713,116 +713,14 @@ Platform.Renderer.render world ~dt
 
 ### 11.4 UI is not a platform seam — it is a RenderGraph concern
 
-Immediate mode GUI libraries (microui, raygui, imgui) are not a fourth PLATFORM
-member. UI rendering belongs in the RenderGraph command language.
+UI rendering does not belong in the `PLATFORM` signature. The PLATFORM trifecta
+is Renderer, Input, Audio — nothing else. UI rendering is handled through the
+RenderGraph command language via a microui-inspired primitive vocabulary and a
+pure OCaml widget collector system.
 
-The insight from microui: a tiny, fixed vocabulary of drawing primitives is
-sufficient to build any UI — rect, text, texture, clip. Everything (buttons,
-panels, scroll areas, inventory grids) reduces to those four. Applied to the
-RenderGraph, this means defining a small set of UI primitive commands using the
-same open polymorphic variant extension mechanism planned for the render command
-language:
-
-```ocaml
-(* UI primitives in the RenderGraph command language *)
-`Ui_rect      of { rect: Rect.t; color: Color.t }
-`Ui_text      of { pos: Vec2.t; text: string; font: Font_id.t; color: Color.t }
-`Ui_texture   of { rect: Rect.t; texture: Texture_id.t; color: Color.t }
-`Ui_ninepatch of { rect: Rect.t; texture: Texture_id.t; border: int }
-`Ui_clip      of Rect.t
-`Ui_end_clip
-```
-
-Any UI implementation — microui, raygui, imgui, hand-written — outputs these
-commands into the RenderGraph. The renderer backend implements them once,
-alongside sprites and meshes. Consequences:
-
-- **PLATFORM trifecta stays clean** (Renderer, Input, Audio) — no `Ui_backend`
-  needed because UI rendering goes through the existing renderer backend
-- **UI library is decoupled from the renderer** — swapping UI libraries means
-  changing what emits the commands, not how they are rendered
-- **Z-ordering and batching come for free** — UI commands sit in the same command
-  stream as everything else, sorted by the RenderGraph
-- **Vocabulary proven minimal** — microui ships real games with exactly these
-  primitives
-
-The full stack is four layers, each with a single responsibility:
-
-```
-Game code  →  Microui API  (pure OCaml widget logic — no drawing, no C FFI)
-                ↓ produces typed command list
-             RenderGraph UI commands  (`Ui_rect | `Ui_text | `Ui_clip | ...)
-                ↓ emitted by UI collector system into RenderGraph
-             Renderer backend  (Raylib: DrawRectangle / DrawText / BeginScissorMode
-                                SDL:    SDL_RenderFillRect / TTF_RenderText / ...)
-```
-
-**Pure OCaml microui** is the widget logic layer — button state, layout, scroll
-areas, focus management — translated directly from the C microui architecture.
-C microui already separates widget logic from rendering via a command buffer; the
-OCaml version makes that command buffer typed open variants for the RenderGraph
-instead of a C union. No C FFI in the core UI layer. The C stays in the backend
-where it belongs.
-
-**The UI collector** is a regular `World.ro` ECS system. It reads
-`Processed_input_frame` from the world (mouse position, clicks — already there
-from the input system), feeds it to the microui context, runs the widget logic for
-the current frame, and emits the resulting command list into the RenderGraph. No
-special pipeline machinery needed — it is just a system.
-
-```ocaml
-(* UI collector system — World.ro, parallel *)
-let update world _dt =
-  let ctx   = World.get_data world Ui_context in
-  let input = World.get_data world Input_frame in
-  Microui.set_mouse ctx input.mouse_screen input.raw.mouse_buttons_down;
-  (* game UI code *)
-  Microui.begin_frame ctx;
-  if Microui.button ctx "Attack" then Signals.emit world `Attack_pressed;
-  Microui.end_frame ctx;
-  (* flush commands into RenderGraph *)
-  Microui.iter_commands ctx (fun cmd ->
-    Render_graph.emit world (microui_to_render_cmd cmd))
-```
-
-The renderer backend IS the microui renderer — not a separate library, not a
-separate dependency. It is part of `Raylib_renderer`'s command dispatch alongside
-sprite and mesh commands. Porting to SDL means implementing the same ~6 UI
-primitive commands in `Sdl_renderer`. UI portability is free.
-
-Properties of this design:
-
-- **Pure OCaml microui is fully testable** — no backend, no window; just verify
-  the command list it produces
-- **Any backend gets full UI by implementing 6 commands** — rect, text, texture,
-  ninepatch, clip, end-clip
-- **Input flows naturally** — the UI collector reads `Processed_input_frame`
-  already in the world; no special input path needed
-- **Z-ordering is free** — UI commands sit in the same RenderGraph stream as
-  sprites and meshes
-
-**Trade-off with immediate mode toolkits (raygui).** raygui is incompatible with
-this model. It is an immediate mode widget library that calls raylib drawing
-functions directly — `GuiButton(rect, "label")` draws immediately and returns
-whether it was clicked. It does not emit a command buffer; it bypasses the
-RenderGraph entirely. Choosing the RenderGraph primitive vocabulary means giving
-up raygui's widget set at the game UI layer.
-
-For shipping game UI this is the right call — an ARPG never uses `GuiButton`
-anyway, it builds custom health bars, skill icons, and inventory panels from
-rect + text + texture + clip. For rapid prototyping and debug tooling, where
-raygui shines, an escape hatch is available:
-
-```ocaml
-`Platform_native of (unit -> unit)   (* raw callback — bypasses RenderGraph *)
-```
-
-Debug UI and dev tools call raygui (or any platform-native toolkit) directly
-through this callback. Game UI uses the proper primitive vocabulary. The escape
-hatch is explicitly non-portable and must never appear in shipping game code.
-
-This is a decision for the RenderGraph design task — noted here because the
-PLATFORM boundary discussion surfaced it.
+See [rendering_layer_design.md §11](rendering_layer_design.md) for the full
+design: UI primitive commands, the pure OCaml microui collector, the four-layer
+stack, and the raygui trade-off.
 
 ---
 
