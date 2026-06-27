@@ -59,8 +59,8 @@ let test_iter_two_components () =
   |> Q.having Components.Position.name
   |> Q.having Components.Velocity.name
   |> Q.iter (fun view ->
-       let (p : Components.Position.t) = View.get view Components.Position.component in
-       let (v : Components.Velocity.t) = View.get view Components.Velocity.component in
+       let (p : Components.Position.t) = View.get view (module Components.Position) in
+       let (v : Components.Velocity.t) = View.get view (module Components.Velocity) in
        seen := (View.entity view, p, v) :: !seen);
   Alcotest.(check int) "one entity with both" 1 (List.length !seen);
   match !seen with
@@ -225,7 +225,7 @@ let test_view_get () =
   Q.from world
   |> Q.having Components.Position.name
   |> Q.iter (fun view ->
-       let (p : Components.Position.t) = View.get view Components.Position.component in
+       let (p : Components.Position.t) = View.get view (module Components.Position) in
        Alcotest.(check (float 0.001)) "View.get x" 7.0 p.x;
        Alcotest.(check (float 0.001)) "View.get y" 3.0 p.y)
 
@@ -239,7 +239,7 @@ let test_view_get_raises_on_absent () =
        Alcotest.check_raises
          "View.get raises on absent component"
          (Invalid_argument "View.get: component absent: Velocity")
-         (fun () -> ignore (View.get view Components.Velocity.component)))
+         (fun () -> ignore (View.get view (module Components.Velocity))))
 
 let test_view_get_opt () =
   let world = create_world () in
@@ -252,7 +252,7 @@ let test_view_get_opt () =
   Q.from world
   |> Q.having Components.Position.name
   |> Q.iter (fun view ->
-       match View.get_opt view Components.Velocity.component with
+       match View.get_opt view (module Components.Velocity) with
        | Some _ -> incr with_vel
        | None   -> incr without_vel);
   Alcotest.(check int) "one entity has vel" 1 !with_vel;

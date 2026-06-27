@@ -5,13 +5,13 @@ type t = {
 
 let entity v = v.entity
 
-let get v comp =
-  match World.get_component v.world v.entity comp with
+let get v (module M : Component.S) =
+  match (World.get_component v.world v.entity M.component : M.t option) with
   | Some x -> x
   | None ->
-    invalid_arg ("View.get: component absent: " ^ Component_descriptor.name comp)
+    invalid_arg ("View.get: component absent: " ^ Component_descriptor.name M.component)
 
-let get_opt v comp =
-  World.get_component v.world v.entity comp
+let get_opt v (module M : Component.S) =
+  (World.get_component v.world v.entity M.component : M.t option)
 
 let make world entity = { world = World.as_ro world; entity }
