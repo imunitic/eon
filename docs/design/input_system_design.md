@@ -406,7 +406,7 @@ module type PLATFORM = sig
   type t                              (* phantom tag — [`Raylib] | [`Sdl] | [`Headless] *)
   module Renderer      : Renderer.S
   module Input_backend : Input_backend.S
-  (* future platform seams join here: Audio_backend, Window, etc. *)
+  (* Audio_backend joins here when the audio system is designed and implemented *)
 end
 ```
 
@@ -453,7 +453,7 @@ The headless platform bundles all no-ops — one module, CI runs without a windo
 module Headless : PLATFORM = struct
   type t = [ `Headless ]
   module Renderer      = Noop_renderer
-  module Input_backend = Noop_input
+  module Input_backend = Input_backend.Null
 end
 ```
 
