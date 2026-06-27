@@ -59,17 +59,16 @@ Query.from world
 |> Query.having_all [Position.name; Velocity.name]
 |> Query.not_having Frozen.name
 |> Query.iter (fun view ->
-     let pos = View.get view Position.component in
-     let vel = View.get view Velocity.component in
+     let pos = View.get view (module Position) in
+     let vel = View.get view (module Velocity) in
      ...)
 ```
 
 - **Filtering** (`having` / `having_all` / `not_having` / `not_having_any`) stays
   string-keyed, so EDN-driven and modder systems drive membership exactly as before.
-- **Value access** is via `View.get`, typed by the component *descriptor*'s
-  phantom type — `'a Component_descriptor.t` is a `string` tagged with `'a`, so
-  `View.get view Position.component : Position.t` with no `Obj.magic` at the
-  call site.
+- **Value access** is via `View.get`, using OCaml 5.5 module-dependent function
+  syntax — `View.get view (module Position) : Position.t` with no `Obj.magic` at
+  the call site. The module IS the type witness; no separate descriptor argument.
 - **Arbitrary arity**, one function. No `iterN`, no cap, no runtime arity check.
 - **Optional reads** fall out for free (`View.get_opt`).
 
@@ -89,7 +88,7 @@ end
 So at the engine layer you never write a string literal:
 
 - **Filters** use `Position.name` — the string key (modder-compatible).
-- **Typed reads** use `Position.component` — the phantom-typed descriptor.
+- **Typed reads** use `(module Position)` — the module itself, via the MDF signature.
 
 Both come from the same module, so a filtered component and its typed read can
 never drift apart by a typo.
@@ -150,20 +149,21 @@ module View : sig
   val entity : t -> Eon_ecs.Entity_id.t
   (** The entity this view points at. *)
 
-  val get : t -> 'a Component_descriptor.t -> 'a
-  (** Typed read. Intended for components the query filtered for (guaranteed
-      present). Raises if the component is absent on this entity — treat a raise
-      as a programmer error (you read a component you did not require). *)
+  val get : t -> (module C : Component.S) -> C.t
+  (** Typed read using OCaml 5.5 module-dependent function syntax. Intended for
+      components the query filtered for (guaranteed present). Raises if the
+      component is absent on this entity — treat a raise as a programmer error
+      (you read a component you did not require). *)
 
-  val get_opt : t -> 'a Component_descriptor.t -> 'a option
+  val get_opt : t -> (module C : Component.S) -> C.t option
   (** Typed read for components the query did NOT require — [None] if absent. *)
 end
 ```
 
-A `View.t` is just `(world, entity)`. `get` is `World.get_component` followed by
-the existing unwrap; the phantom type on the descriptor carries the result type,
-so no `Obj.magic` leaks to the user. `get` raises on absence; `get_opt` returns
-the option directly.
+A `View.t` is just `(world, entity)`. `get` calls `World.get_component` with
+`M.component` and unwraps the result; the MDF return type `C.t` is statically
+enforced by the compiler — no `Obj.magic` leaks to the user. `get` raises on
+absence; `get_opt` returns the option directly.
 
 ---
 
@@ -253,15 +253,15 @@ Query.from world
 |> Query.having_all [Position.name; Velocity.name]
 |> Query.not_having Frozen.name
 |> Query.iter (fun view ->
-     let pos = View.get view Position.component in
-     let vel = View.get view Velocity.component in
+     let pos = View.get view (module Position) in
+     let vel = View.get view (module Velocity) in
      ...)
 
 (* Five components — impossible before, trivial now *)
 Query.from world
 |> Query.having_all [A.name; B.name; C.name; D.name; E.name]
 |> Query.iter (fun view ->
-     let a = View.get view A.component in
+     let a = View.get view (module A) in
      (* ... e *) ())
 
 (* Marker filter — Frozen required but not read; Position read *)
@@ -269,14 +269,14 @@ Query.from world
 |> Query.having Position.name
 |> Query.having Frozen.name
 |> Query.iter (fun view ->
-     let pos = View.get view Position.component in ...)
+     let pos = View.get view (module Position) in ...)
 
 (* Optional read — Velocity if present *)
 Query.from world
 |> Query.having Position.name
 |> Query.iter (fun view ->
-     let pos = View.get view Position.component in
-     match View.get_opt view Velocity.component with
+     let pos = View.get view (module Position) in
+     match View.get_opt view (module Velocity) with
      | Some vel -> ...
      | None -> ...)
 
@@ -316,8 +316,8 @@ single `iter` with `View.get` reads:
 |> Query.having Position.name
 |> Query.having Velocity.name
 |> Query.iter (fun view ->
-     let pos = View.get view Position.component in
-     let vel = View.get view Velocity.component in
+     let pos = View.get view (module Position) in
+     let vel = View.get view (module Velocity) in
      ...)
 ```
 
@@ -328,44 +328,39 @@ single `iter` with `View.get` reads:
 
 ## 10. Key Representation Rationale
 
-Why filtering is **string-keyed** and value access is **typed-descriptor-keyed**,
+Why filtering is **string-keyed** and value access is **module-keyed**,
 and why two tempting alternatives were rejected.
 
-### Strings for filtering, descriptors for reads
+### Strings for filtering, modules for reads
 
 A query filters over several *different* component types at once, so the filter
-list is inherently heterogeneous: `[Position.component; Velocity.component]` has
-element types `Position.t Component_descriptor.t` and `Velocity.t
-Component_descriptor.t`, which do not unify and cannot share a list without
-erasure. The erased form of `'a Component_descriptor.t` *is* the string
-(`type 'a t = string`). So "filter by descriptors" collapses back to strings the
-moment more than one component is in the list — string-keyed filtering is the
-natural type-erased shape of a multi-component set filter, not a concession.
+list is inherently heterogeneous: a typed filter list would have elements of type
+`Position.t Component_descriptor.t` and `Velocity.t Component_descriptor.t`,
+which do not unify and cannot share a list without erasure. The erased form of
+`'a Component_descriptor.t` *is* the string (`type 'a t = string`). So
+"filter by descriptors" collapses back to strings the moment more than one
+component is in the list — string-keyed filtering is the natural type-erased
+shape of a multi-component set filter, not a concession.
 
-Typed value access is the opposite case: `View.get view Position.component`
-unifies **one** concrete type at the call site, so the descriptor's phantom is
-useful and `Obj.magic` stays hidden. One-at-a-time typed reads work; a typed
-*list* does not.
+Typed value access is the opposite case: `View.get view (module Position)`
+involves **one** statically-known module at the call site. OCaml 5.5
+module-dependent functions (MDFs) make the return type `C.t` depend on the
+module argument `C`, so `View.get view (module Position) : Position.t` with no
+`Obj.magic` at the call site. The module IS the type witness — `Component.S`
+bundles the descriptor (`val component`) and the data type (`type t`) in one
+place, leaving no gap between "which component" and "what type it holds".
 
 ### Could the EDN parser resolve strings → types and drop strings entirely?
 
 No. The parser can map `"Position"` to an existential `Pack : 'a
-Component_descriptor.t -> packed`, but typed value access (`'a t -> 'a`) only
-yields a usable `Position.t` when `'a` is statically known *at the call site* —
-i.e. a concrete `Position` module in scope. Dynamically-resolved mod components
-never have that, so the dynamic path is inherently erased regardless of what the
-parser does. The parser can *validate existence* at parse time; it cannot hand
-dynamic code a statically-typed value.
-
-A real (optional) win does exist on the **engine-code** side: make `type 'a t`
-**abstract** (today [component_descriptor.mli:18](../../eon_engine/component_descriptor.mli)
-exposes it transparently, so the phantom is decorative — any string is a
-descriptor at any type), then accept typed descriptors **per builder call**
-(`with_component : 'a Component_descriptor.t -> query -> query`, erased internally
-via `Component_descriptor.name`). Each call has one concrete type, so it checks
-you passed a real registered component, not an arbitrary string. Keep
-`with_components : string list` as the dynamic/EDN escape hatch. This is a
-surface choice layered on top; the underlying key stays the string either way.
+Component_descriptor.t -> packed`, but typed value access only yields a usable
+`Position.t` when the `Position` module is statically in scope at the call site.
+Dynamically-resolved components never have that, so the dynamic path is
+inherently erased regardless of what the parser does. The parser can *validate
+existence* at parse time; it cannot hand dynamic code a statically-typed value.
+The same constraint applies to MDF: `View.get view (module X)` requires `X` to
+be a compile-time-known module — you cannot pass a first-class module computed at
+runtime.
 
 ### Why not open polymorphic variant keys (like the data/service plane)?
 
@@ -392,7 +387,7 @@ above. But variants are a poorer fit for *components* for two reasons:
 
 Conclusion: open variants shine when every key is statically known in code
 (data/services); components straddle the static/dynamic line, so strings (for
-filtering, the EDN/registry/debug common currency) + typed descriptors (for
+filtering, the EDN/registry/debug common currency) + modules via MDF (for
 one-at-a-time typed reads) remain the right split.
 
 ### Prior art

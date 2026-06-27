@@ -42,8 +42,8 @@ Eon Engine builds on top of [eon-ecs] and adds:
         |> Query.having Components.Position.name
         |> Query.having Components.Velocity.name
         |> Query.iter (fun view ->
-             let pos = View.get view Components.Position.component in
-             let vel = View.get view Components.Velocity.component in
+             let pos = View.get view (module Components.Position) in
+             let vel = View.get view (module Components.Velocity) in
              ignore (pos.x +. vel.dx *. dt, pos.y +. vel.dy *. dt))))
       ~kind:`Variable
       ()
@@ -152,8 +152,8 @@ typed {!Eon_engine.View} cursor per matching entity.
   |> Query.not_having Components.Tag.name        (* must not have Tag  *)
   |> Query.iter (fun view ->
        let entity = View.entity view in
-       let pos    = View.get view Components.Position.component in
-       let vel    = View.get view Components.Velocity.component in
+       let pos    = View.get view (module Components.Position) in
+       let vel    = View.get view (module Components.Velocity) in
        ignore (entity, pos, vel))
 ]}
 
@@ -207,8 +207,8 @@ applies the mutation with [rw] access during the [drain] phase.
     |> Query.having Components.Velocity.name
     |> Query.iter (fun view ->
          let e   = View.entity view in
-         let pos = View.get view Components.Position.component in
-         let vel = View.get view Components.Velocity.component in
+         let pos = View.get view (module Components.Position) in
+         let vel = View.get view (module Components.Velocity) in
          Commands.emit bus (`Move_to (e, pos.x +. vel.dx *. dt,
                                          pos.y +. vel.dy *. dt)))
 ]}
@@ -233,7 +233,7 @@ applies the mutation with [rw] access during the [drain] phase.
     |> Query.having Components.Tag.name
     |> Query.iter (fun view ->
          let e   = View.entity view in
-         let tag = View.get view Components.Tag.component in
+         let tag = View.get view (module Components.Tag) in
          if tag = "dead" then World.destroy_entity world e)
 ]}
 
