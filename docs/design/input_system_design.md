@@ -118,6 +118,14 @@ type modifiers = {
   meta  : bool;   (* Windows key / Cmd / Super *)
 }
 
+type input_event =
+  | Key_down        of Key.t          * float  (* key, time within frame 0.0–1.0 *)
+  | Key_up          of Key.t          * float
+  | Mouse_down      of Mouse_button.t * float
+  | Mouse_up        of Mouse_button.t * float
+  | Gamepad_down    of Gamepad_button.t * float
+  | Gamepad_up      of Gamepad_button.t * float
+
 type raw_input_frame = {
   (* keyboard *)
   keys_down     : Key_set.t;         (* currently held this frame *)
@@ -135,6 +143,12 @@ type raw_input_frame = {
 
   (* gamepad — optional; None if no controller connected *)
   gamepad : Gamepad_state.t option;
+
+  (* text input — UTF-8 from OS/IME, independent of key codes; see §4.3 *)
+  text_input : string option;
+
+  (* sub-frame event sequence — see §4.2 *)
+  events : input_event list;
 }
 
 val empty : raw_input_frame
@@ -167,6 +181,106 @@ Left stick maps to `Move_direction` through the same logical action table as WAS
 Buttons map through the same table as keyboard keys. Games that need richer gamepad
 support (haptics, pressure sensitivity, multiple controllers) implement a new
 backend — one function.
+
+### 4.2 Sub-frame input resolution
+
+The coarse sets (`keys_pressed`, `keys_released`, etc.) have no ordering or
+timestamps within a frame — two keys pressed in the same frame are
+indistinguishable. This is fine for the vast majority of game logic. For games
+that need sub-frame resolution — fighting game input sequences, rhythm game timing,
+precise combo detection — the `events` field provides an ordered, timestamped
+record of every input event that occurred during the frame.
+
+Timestamps are normalised to the frame window as `float` in `0.0–1.0`, where `0.0`
+is the start of the frame and `1.0` is the end. This keeps the event sequence
+frame-relative and independent of wall-clock time.
+
+**Backend responsibility:**
+
+- **Poll-based backends** (raylib): leave `events = []`. They have no sub-frame
+  resolution — the coarse sets are all they can provide.
+- **Event-driven backends** (SDL): drain the platform event queue in `collect`,
+  build the coarse sets AND fill `events` with the ordered sequence, normalising
+  timestamps to `0.0–1.0` against the frame duration.
+
+**Consumer responsibility:**
+
+Systems that do not need sub-frame resolution ignore `events` entirely and read
+the coarse sets as before. Systems that need ordering or timing read `events`
+directly from `frame.raw.events` in the processed frame. The mapping table and
+input system operate only on the coarse sets — sub-frame consumers are always
+game-layer systems.
+
+```ocaml
+(* fighting game combo detector — reads sub-frame event sequence *)
+let detect_combo frame =
+  frame.raw.events |> List.filter_map (function
+    | Key_down (k, t) -> Some (k, t)
+    | _               -> None)
+  |> match_sequence combo_table
+```
+
+The design is **additive** — poll-based backends set `events = []` and pay
+nothing. Event-driven backends fill it at no extra cost since they already process
+the event queue to build the coarse sets. No existing system changes.
+
+### 4.3 Edge cases the backend must handle
+
+Four subtle correctness requirements that every backend must satisfy. They are not
+optional — ignoring any of them produces bugs that are difficult to reproduce and
+diagnose.
+
+**Text input.** Key codes alone cannot produce Unicode text. Non-Latin scripts,
+dead-key combinations (é, ñ, ü), and IME composition all require the OS to
+process key events and emit the resulting text separately. The backend exposes
+this as a distinct field:
+
+```ocaml
+text_input : string option;  (* UTF-8 string produced by OS/IME this frame;
+                                None if no text was composed *)
+```
+
+Game systems that need text (chat, name entry, console) read `text_input`.
+Systems that need key codes (skill activation, movement) read `keys_pressed` as
+before. The two paths are independent — never try to reconstruct text from key
+codes.
+
+**Window focus / stuck keys.** When the window loses focus, any key currently
+held will never produce a `Key_up` event — the OS swallows it. On the next frame
+the game still sees that key in `keys_down`, and it stays there indefinitely.
+After alt-tab the player's character keeps walking forever.
+
+The backend must detect focus-loss events and synthesize releases for every key
+currently in `keys_down`. On focus regain, `keys_down` must be empty. The
+processed frame the engine produces during a focus-loss frame should reflect the
+cleared state, not the stale held state.
+
+**Key repeat suppression.** When a key is held, the OS emits repeated `KeyDown`
+events after an initial delay (the typematic rate). The backend must filter these
+so that `keys_pressed` fires exactly once per physical press — on the true leading
+edge only. Repeated OS events must not appear in `keys_pressed` or in the
+`events` list as `Key_down` entries. They may be exposed as a separate
+`keys_repeated : Key_set.t` field if text-editing cursor movement needs them, but
+they must never contaminate the primary edge sets.
+
+**Gamepad dead zones.** Analog sticks at rest produce small non-zero values due
+to hardware drift. Without dead zone filtering, `Move_direction` is non-zero
+every frame even when the player is not touching the controller, causing constant
+phantom movement. The backend applies a circular dead zone before normalising the
+stick vector:
+
+```ocaml
+let apply_dead_zone ~threshold (x, y) =
+  let mag = sqrt (x *. x +. y *. y) in
+  if mag < threshold then (0., 0.)
+  else
+    let scale = (mag -. threshold) /. (1. -. threshold) in
+    (x /. mag *. scale, y /. mag *. scale)
+```
+
+The threshold is a backend configuration parameter (typically `0.1`–`0.2`).
+The normalised vector stored in `gamepad.left_stick` is always dead-zone-corrected
+before it reaches the engine.
 
 ---
 
@@ -631,6 +745,81 @@ alongside sprites and meshes. Consequences:
   stream as everything else, sorted by the RenderGraph
 - **Vocabulary proven minimal** — microui ships real games with exactly these
   primitives
+
+The full stack is four layers, each with a single responsibility:
+
+```
+Game code  →  Microui API  (pure OCaml widget logic — no drawing, no C FFI)
+                ↓ produces typed command list
+             RenderGraph UI commands  (`Ui_rect | `Ui_text | `Ui_clip | ...)
+                ↓ emitted by UI collector system into RenderGraph
+             Renderer backend  (Raylib: DrawRectangle / DrawText / BeginScissorMode
+                                SDL:    SDL_RenderFillRect / TTF_RenderText / ...)
+```
+
+**Pure OCaml microui** is the widget logic layer — button state, layout, scroll
+areas, focus management — translated directly from the C microui architecture.
+C microui already separates widget logic from rendering via a command buffer; the
+OCaml version makes that command buffer typed open variants for the RenderGraph
+instead of a C union. No C FFI in the core UI layer. The C stays in the backend
+where it belongs.
+
+**The UI collector** is a regular `World.ro` ECS system. It reads
+`Processed_input_frame` from the world (mouse position, clicks — already there
+from the input system), feeds it to the microui context, runs the widget logic for
+the current frame, and emits the resulting command list into the RenderGraph. No
+special pipeline machinery needed — it is just a system.
+
+```ocaml
+(* UI collector system — World.ro, parallel *)
+let update world _dt =
+  let ctx   = World.get_data world Ui_context in
+  let input = World.get_data world Input_frame in
+  Microui.set_mouse ctx input.mouse_screen input.raw.mouse_buttons_down;
+  (* game UI code *)
+  Microui.begin_frame ctx;
+  if Microui.button ctx "Attack" then Signals.emit world `Attack_pressed;
+  Microui.end_frame ctx;
+  (* flush commands into RenderGraph *)
+  Microui.iter_commands ctx (fun cmd ->
+    Render_graph.emit world (microui_to_render_cmd cmd))
+```
+
+The renderer backend IS the microui renderer — not a separate library, not a
+separate dependency. It is part of `Raylib_renderer`'s command dispatch alongside
+sprite and mesh commands. Porting to SDL means implementing the same ~6 UI
+primitive commands in `Sdl_renderer`. UI portability is free.
+
+Properties of this design:
+
+- **Pure OCaml microui is fully testable** — no backend, no window; just verify
+  the command list it produces
+- **Any backend gets full UI by implementing 6 commands** — rect, text, texture,
+  ninepatch, clip, end-clip
+- **Input flows naturally** — the UI collector reads `Processed_input_frame`
+  already in the world; no special input path needed
+- **Z-ordering is free** — UI commands sit in the same RenderGraph stream as
+  sprites and meshes
+
+**Trade-off with immediate mode toolkits (raygui).** raygui is incompatible with
+this model. It is an immediate mode widget library that calls raylib drawing
+functions directly — `GuiButton(rect, "label")` draws immediately and returns
+whether it was clicked. It does not emit a command buffer; it bypasses the
+RenderGraph entirely. Choosing the RenderGraph primitive vocabulary means giving
+up raygui's widget set at the game UI layer.
+
+For shipping game UI this is the right call — an ARPG never uses `GuiButton`
+anyway, it builds custom health bars, skill icons, and inventory panels from
+rect + text + texture + clip. For rapid prototyping and debug tooling, where
+raygui shines, an escape hatch is available:
+
+```ocaml
+`Platform_native of (unit -> unit)   (* raw callback — bypasses RenderGraph *)
+```
+
+Debug UI and dev tools call raygui (or any platform-native toolkit) directly
+through this callback. Game UI uses the proper primitive vocabulary. The escape
+hatch is explicitly non-portable and must never appear in shipping game code.
 
 This is a decision for the RenderGraph design task — noted here because the
 PLATFORM boundary discussion surfaced it.
