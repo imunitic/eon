@@ -207,9 +207,10 @@ module Pipeline : sig
       (System   : System.DISPATCH)
       (Executor : Executor.S)
       (Buses : sig
-        val signals  : unit -> 'a System.Signal_bus.t
-        val events   : unit -> 'a System.Event_bus.t
-        val commands : unit -> 'a System.Command_bus.t
+        val signals         : unit -> 'a System.Signal_bus.t
+        val events          : unit -> 'a System.Event_bus.t
+        val commands        : unit -> 'a System.Command_bus.t
+        val unsubscribe_all : unit -> unit
       end)
     : Pipeline.S
       with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
