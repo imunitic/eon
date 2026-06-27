@@ -20,7 +20,13 @@ module type S = sig
   val before       : earlier:'phase -> later:'phase -> 'phase t -> 'phase t
   val after        : later:'phase  -> earlier:'phase -> 'phase t -> 'phase t
   val add_system   : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
+
+  (** @raise Invalid_argument if called a second time without an intervening [reset]. *)
   val register_all : 'phase t -> world -> unit
+
+  (** Clear all bus subscribers and allow [register_all] to be called again. *)
+  val reset        : 'phase t -> unit
+
   val run          : 'phase t -> world -> float -> world
   val run_by_filter :
     filter:(kind -> bool) ->
@@ -36,9 +42,10 @@ module Make
     (System   : System.DISPATCH)
     (Executor : Executor.S)
     (Buses : sig
-      val signals  : unit -> 'a System.Signal_bus.t
-      val events   : unit -> 'a System.Event_bus.t
-      val commands : unit -> 'a System.Command_bus.t
+      val signals         : unit -> 'a System.Signal_bus.t
+      val events          : unit -> 'a System.Event_bus.t
+      val commands        : unit -> 'a System.Command_bus.t
+      val unsubscribe_all : unit -> unit
     end)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind

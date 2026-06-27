@@ -18,6 +18,7 @@ module DummyPipeline : Pipeline.S with type kind = Kind.kind and type world = Wo
   let after ~later:_ ~earlier:_ _ = ()
   let add_system _ _ _ = ()
   let register_all _ _ = ()
+  let reset _ = ()
   let phases _ = []
 
   (* Simulate running systems by incrementing tick_count *)

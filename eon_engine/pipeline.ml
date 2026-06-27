@@ -10,6 +10,7 @@ module type S = sig
   val after        : later:'phase  -> earlier:'phase -> 'phase t -> 'phase t
   val add_system   : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
   val register_all : 'phase t -> world -> unit
+  val reset        : 'phase t -> unit
   val run          : 'phase t -> world -> float -> world
   val run_by_filter :
     filter:(kind -> bool) ->
@@ -21,9 +22,10 @@ module Make
     (System   : System.DISPATCH)
     (Executor : Executor.S)
     (Buses : sig
-      val signals  : unit -> 'a System.Signal_bus.t
-      val events   : unit -> 'a System.Event_bus.t
-      val commands : unit -> 'a System.Command_bus.t
+      val signals         : unit -> 'a System.Signal_bus.t
+      val events          : unit -> 'a System.Event_bus.t
+      val commands        : unit -> 'a System.Command_bus.t
+      val unsubscribe_all : unit -> unit
     end)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind
@@ -36,15 +38,17 @@ module Make
   type entry = Entry : ('s, 'e, 'c) System.t -> entry
 
   type 'phase t = {
-    phases  : ('phase, unit) Hashtbl.t;
-    mutable graph   : 'phase Eon_ecs.Dependency_graph.t;
-    systems : ('phase, entry list) Hashtbl.t;
+    phases     : ('phase, unit) Hashtbl.t;
+    mutable graph      : 'phase Eon_ecs.Dependency_graph.t;
+    systems    : ('phase, entry list) Hashtbl.t;
+    registered : bool ref;
   }
 
   let create () =
-    { phases  = Hashtbl.create 16;
-      graph   = Eon_ecs.Dependency_graph.create ();
-      systems = Hashtbl.create 16 }
+    { phases     = Hashtbl.create 16;
+      graph      = Eon_ecs.Dependency_graph.create ();
+      systems    = Hashtbl.create 16;
+      registered = ref false }
 
   let add_phase phase t =
     if not (Hashtbl.mem t.phases phase) then begin
@@ -69,6 +73,9 @@ module Make
   let sorted_phases t = Eon_ecs.Dependency_graph.topo_sort t.graph
 
   let register_all t world =
+    if !(t.registered) then
+      invalid_arg "Pipeline.register_all: already registered; call reset before re-registering";
+    t.registered := true;
     List.iter
       (fun phase ->
         match Hashtbl.find_opt t.systems phase with
@@ -83,21 +90,9 @@ module Make
             (List.rev entries))
       (sorted_phases t)
 
-  let dispatch_phase entries ro rw dt =
-    let revd = List.rev entries in
-    let parallel_jobs = List.filter_map
-      (fun (Entry s) ->
-        if System.is_parallel s
-        then Some (fun () -> System.update_ro s ro dt)
-        else None)
-      revd
-    in
-    Executor.run_all parallel_jobs;
-    List.iter
-      (fun (Entry s) ->
-        if not (System.is_parallel s)
-        then System.update_rw s rw dt)
-      revd
+  let reset t =
+    Buses.unsubscribe_all ();
+    t.registered := false
 
   let dispatch_phase_filtered ~filter entries ro rw dt =
     let revd = List.rev entries in
@@ -115,16 +110,6 @@ module Make
         then System.update_rw s rw dt)
       revd
 
-  let run t world dt =
-    let ro = World.readonly world in
-    List.iter
-      (fun phase ->
-        match Hashtbl.find_opt t.systems phase with
-        | None -> ()
-        | Some entries -> dispatch_phase entries ro world dt)
-      (sorted_phases t);
-    world
-
   let run_by_filter ~filter t world dt =
     let ro = World.readonly world in
     List.iter
@@ -134,6 +119,8 @@ module Make
         | Some entries -> dispatch_phase_filtered ~filter entries ro world dt)
       (sorted_phases t);
     world
+
+  let run t world dt = run_by_filter ~filter:(fun _ -> true) t world dt
 
   let phases t = sorted_phases t
 end

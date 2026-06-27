@@ -47,8 +47,18 @@ module type S = sig
       @raise Invalid_argument if the phase is not registered. *)
   val add_system : 'phase -> ('s, 'e, 'c) system_t -> 'phase t -> 'phase t
 
-  (** Execute the [register] callback of every system in topological phase order. *)
+  (** Execute the [register] callback of every system and wire bus handlers,
+      in topological phase order.
+
+      @raise Invalid_argument if called a second time without an intervening
+      [reset]. *)
   val register_all : 'phase t -> world -> unit
+
+  (** Clear all bus subscribers and allow [register_all] to be called again.
+
+      Intended for scene transitions: call [reset] when tearing down a scene,
+      then rebuild and call [register_all] for the next one. *)
+  val reset : 'phase t -> unit
 
   (** Run systems whose kind satisfies [filter], in topological phase order.
 
@@ -73,9 +83,10 @@ end
 module Make
     (System : System.S)
     (Buses : sig
-      val signals  : unit -> 'a System.Signal_bus.t
-      val events   : unit -> 'a System.Event_bus.t
-      val commands : unit -> 'a System.Command_bus.t
+      val signals         : unit -> 'a System.Signal_bus.t
+      val events          : unit -> 'a System.Event_bus.t
+      val commands        : unit -> 'a System.Command_bus.t
+      val unsubscribe_all : unit -> unit
     end)
   : S with type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
        and type kind = System.kind

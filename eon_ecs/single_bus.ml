@@ -10,6 +10,9 @@ let create () : 'msg t =
 let on (bus : 'msg t) (cb : 'msg -> unit) : unit =
   bus.subscribers := cb :: !(bus.subscribers)
 
+let clear (bus : 'msg t) : unit =
+  bus.subscribers := []
+
 let emit (bus: 'msg t) (msg: 'msg) : unit =
   Queue.add msg bus.queue
 

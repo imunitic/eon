@@ -18,6 +18,13 @@ module type S = sig
       (most recently registered first). *)
   val on      : 'msg t -> ('msg -> unit) -> unit
 
+  (** Remove all registered subscribers.
+
+      After [clear], no callbacks fire on the next [drain] or [collect] until
+      [on] is called again. Use this before re-registering systems (e.g. on
+      scene transitions) via {!Pipeline.S.reset}. *)
+  val clear   : 'msg t -> unit
+
   (** Enqueue a message for delivery. *)
   val emit    : 'msg t -> 'msg -> unit
 

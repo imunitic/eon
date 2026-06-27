@@ -30,6 +30,7 @@ module type S = sig
   (** Run [register] for every system then attach bus handlers, in phase order.
       Bus instances come from the [Buses] argument to [Make]. *)
   val register_all : 'phase t -> world -> unit
+  val reset        : 'phase t -> unit
   (** Run systems filtered by a predicate on their kind.
       Used internally by the Progress module. *)
   val run_by_filter :
@@ -48,9 +49,10 @@ end
 module Make
     (System : System.S)
     (Buses : sig
-      val signals  : unit -> 'a System.Signal_bus.t
-      val events   : unit -> 'a System.Event_bus.t
-      val commands : unit -> 'a System.Command_bus.t
+      val signals         : unit -> 'a System.Signal_bus.t
+      val events          : unit -> 'a System.Event_bus.t
+      val commands        : unit -> 'a System.Command_bus.t
+      val unsubscribe_all : unit -> unit
     end) = struct
   type ('s, 'e, 'c) system_t = ('s, 'e, 'c) System.t
   type kind = System.kind
@@ -59,15 +61,17 @@ module Make
   type entry = Entry : ('s, 'e, 'c) System.t -> entry
 
   type 'phase t = {
-      phases  : ('phase, unit) Hashtbl.t;
-      mutable graph   : 'phase Dependency_graph.t;
-      systems : ('phase, entry list) Hashtbl.t;
+      phases     : ('phase, unit) Hashtbl.t;
+      mutable graph      : 'phase Dependency_graph.t;
+      systems    : ('phase, entry list) Hashtbl.t;
+      registered : bool ref;
     }
 
   let create () =
-    { phases = Hashtbl.create 16;
-      graph = Dependency_graph.create ();
-      systems = Hashtbl.create 16 }
+    { phases     = Hashtbl.create 16;
+      graph      = Dependency_graph.create ();
+      systems    = Hashtbl.create 16;
+      registered = ref false }
 
   let add_phase phase t =
     if not (Hashtbl.mem t.phases phase) then begin
@@ -92,6 +96,9 @@ module Make
   let sorted_phases t = Dependency_graph.topo_sort t.graph
 
   let register_all t world =
+    if !(t.registered) then
+      invalid_arg "Pipeline.register_all: already registered; call reset before re-registering";
+    t.registered := true;
     List.iter
       (fun phase ->
         match Hashtbl.find_opt t.systems phase with
@@ -107,17 +114,9 @@ module Make
             (List.rev entries))
       (sorted_phases t)
 
-  let run t world dt =
-    List.iter
-      (fun phase ->
-        match Hashtbl.find_opt t.systems phase with
-        | None -> ()
-        | Some entries ->
-          List.iter
-            (fun (Entry sys) -> System.run sys world dt)
-            (List.rev entries))
-      (sorted_phases t);
-    world
+  let reset t =
+    Buses.unsubscribe_all ();
+    t.registered := false
 
   let run_by_filter ~filter t world dt =
     List.iter
@@ -131,6 +130,8 @@ module Make
             (List.rev entries))
       (sorted_phases t);
     world
+
+  let run t world dt = run_by_filter ~filter:(fun _ -> true) t world dt
 
   let phases t = sorted_phases t
 end
