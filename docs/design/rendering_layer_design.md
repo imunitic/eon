@@ -752,7 +752,125 @@ let collect_cameras world graph =
 - **Render Groups**: Group entities by shader/technique
 - **Render States**: State change optimization
 
-## 11. Implementation Roadmap
+## 11. UI Rendering
+
+### 11.1 UI as a RenderGraph concern
+
+UI rendering is not a platform seam and does not belong in the `PLATFORM`
+signature alongside `Renderer` and `Input_backend`. It belongs in the RenderGraph
+command language — surfaced during the input system design (ecs-027) when the
+PLATFORM boundary was being defined.
+
+### 11.2 UI primitive command vocabulary
+
+The RenderGraph command language is extended with a fixed, minimal set of UI
+drawing primitives — borrowing the core insight from microui: a tiny vocabulary
+is sufficient to build any UI. rect, text, texture, and clip cover everything
+(buttons, panels, scroll areas, inventory grids, health bars, tooltips):
+
+```ocaml
+(* UI primitives — part of the base command set *)
+type command = [
+  | (* ... existing base commands ... *)
+  | `Ui_rect      of { rect: Rect.t; color: Color.t }
+  | `Ui_text      of { pos: Vec2.t; text: string; font: Font_id.t; color: Color.t }
+  | `Ui_texture   of { rect: Rect.t; texture: Texture_id.t; color: Color.t }
+  | `Ui_ninepatch of { rect: Rect.t; texture: Texture_id.t; border: int }
+  | `Ui_clip      of Rect.t
+  | `Ui_end_clip
+]
+```
+
+These are backend-agnostic. Every renderer backend implements them using its
+native drawing calls:
+
+```
+Raylib backend:  `Ui_rect → DrawRectangle
+                 `Ui_text → DrawText
+                 `Ui_clip → BeginScissorMode / EndScissorMode
+
+SDL backend:     `Ui_rect → SDL_RenderFillRect
+                 `Ui_text → TTF_RenderText
+                 `Ui_clip → SDL_RenderSetClipRect
+```
+
+The backend IS the UI renderer. Not a separate library, not a separate
+dependency — just part of the renderer backend's command dispatch alongside
+sprite and mesh commands. Porting to a new platform means implementing these ~6
+commands and UI works for free.
+
+### 11.3 Pure OCaml microui collector
+
+The widget layer is a pure OCaml microui implementation — the C microui
+architecture translated directly. C microui already separates widget logic from
+rendering via a command buffer; the OCaml version makes that command buffer typed
+open variants for the RenderGraph instead of a C union. No C FFI in the widget
+layer.
+
+The UI collector is a regular `World.ro` ECS system. It reads
+`Processed_input_frame` from the world (mouse position, clicks — already there
+from the input system), feeds it to the microui context, runs the widget logic,
+and emits the resulting command list into the RenderGraph:
+
+```ocaml
+(* UI collector — World.ro, parallel, registered in the UI RenderPipeline phase *)
+let update world _dt =
+  let ctx   = World.get_data world Ui_context in
+  let input = World.get_data world Input_frame in
+  Microui.set_mouse ctx input.mouse_screen input.raw.mouse_buttons_down;
+  Microui.begin_frame ctx;
+  (* game UI code *)
+  if Microui.button ctx "Attack" then Signals.emit world `Attack_pressed;
+  Microui.end_frame ctx;
+  (* flush into RenderGraph *)
+  Microui.iter_commands ctx (fun cmd ->
+    Render_graph.emit world (microui_to_render_cmd cmd))
+```
+
+The full four-layer stack:
+
+```
+Game code  →  Microui API  (pure OCaml widget logic — no drawing, no C FFI)
+                ↓ produces typed command list
+             RenderGraph UI commands  (`Ui_rect | `Ui_text | `Ui_clip | ...)
+                ↓ emitted by UI collector into RenderGraph (UI phase)
+             Renderer backend  (Raylib: DrawRectangle / DrawText / BeginScissorMode
+                                SDL:    SDL_RenderFillRect / TTF_RenderText / ...)
+```
+
+Properties:
+
+- **Pure OCaml microui is fully testable** — no backend, no window; just verify
+  the command list it produces
+- **Any backend gets full UI by implementing ~6 commands**
+- **Input flows naturally** — UI collector reads `Processed_input_frame` already
+  in the world; no special input path needed
+- **Z-ordering is free** — UI commands sit in the same RenderGraph stream as
+  sprites and meshes, sorted by the existing phase system (`UI` phase runs after
+  `Transparent`)
+
+### 11.4 Trade-off with immediate mode toolkits (raygui)
+
+raygui is incompatible with the RenderGraph primitive model. It is an immediate
+mode widget library that calls raylib drawing functions directly —
+`GuiButton(rect, "label")` draws immediately and returns whether it was clicked.
+It does not emit a command buffer; it bypasses the RenderGraph entirely.
+
+Choosing the RenderGraph primitive vocabulary means giving up raygui's widget set
+at the game UI layer. For shipping game UI this is the right call — custom health
+bars, skill icons, and inventory panels all reduce naturally to rect + text +
+texture + clip. For rapid prototyping and debug tooling where raygui shines, an
+escape hatch is available:
+
+```ocaml
+`Platform_native of (unit -> unit)   (* raw callback — bypasses RenderGraph *)
+```
+
+Debug UI and dev tools call raygui (or any platform-native toolkit) directly
+through this callback. Game UI uses the proper primitive vocabulary. The escape
+hatch is explicitly non-portable and must never appear in shipping game code.
+
+## 12. Implementation Roadmap
 
 **Note**: The implementation roadmap below provides a suggested sequence of phases. The exact details and API may be refined during implementation. This is a guideline, not a fixed specification. Task IDs are TBD — ecs-021 is assigned to the parallel pipeline; rendering tasks will be numbered from wherever the sequence lands after that.
 
