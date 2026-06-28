@@ -90,7 +90,7 @@ Mode selection:
 ```ocaml
 module Loop = Eon_ecs.Loop.Default
 
-let should_continue _world () = true
+let should_continue _world = true
 let _final_world = Loop.run ~progress ~world ~should_continue ()
 ```
 
@@ -99,7 +99,6 @@ Default loop ordering per frame:
 1. `collect` Signals -> Events -> Commands
 2. `Progress.tick`
 3. `drain` Signals -> Commands -> Events
-4. render (no-op in `Loop.Default`)
 
 Practical messaging guidance:
 
@@ -108,22 +107,28 @@ Practical messaging guidance:
 - Use `Events` when the reaction should follow the double-buffer next-frame delivery model.
 - Keep world mutation in command handlers even if systems emit commands directly.
 
-## 6. Add a custom renderer
+## 6. Add rendering
 
-Use `Eon_ecs.Loop.Make` with your own renderer module if you need frame outputs.
+The `eon_ecs` loop has no renderer parameter — it is `collect → tick → drain` only. Rendering is a system like any other:
 
 ```ocaml
-module Renderer = struct
-  type world = World.t
-  type result = unit
-  let render world ~dt =
-    Query.iter1 world "Position" (fun entity (x, y) ->
-      ignore entity;
-      ignore (x, y, dt))
-end
+let render_system =
+  System.make
+    ~update:(fun world dt ->
+      Query.iter1 world "Position" (fun entity (x, y) ->
+        ignore (entity, x, y, dt)))
+    ~kind:`Variable
+    ()
+
+let pipeline =
+  Pipeline.create ()
+  |> Pipeline.add_phase `Gameplay
+  |> Pipeline.add_phase `Render
+  |> Pipeline.before ~earlier:`Gameplay ~later:`Render
+  |> Pipeline.add_system `Render render_system
 ```
 
-Then wire `Loop.Make` with `Clock.Mtime`, a progress adapter, your renderer, and bus wiring.
+Placing it as a `Variable` system in a dedicated `Render` phase (after `Gameplay`) gives the same execution point that a renderer slot would — once per frame, after fixed-step systems have run. At the `eon_engine` layer, rendering is handled by `Platform.S.Renderer` called from the engine loop.
 
 ## 7. Common pitfalls
 

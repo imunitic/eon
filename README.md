@@ -109,7 +109,7 @@ let () = Pipeline.register_all pipeline world
 
 let progress = Progress.create ~mode:(Progress.Hybrid 0.016) pipeline
 
-let should_continue _world () = true
+let should_continue _world = true
 
 let _final_world =
   Loop.run
@@ -139,7 +139,6 @@ Default frame flow:
 1. Collect: `Signals -> Events -> Commands`
 2. `Progress.tick`
 3. Drain: `Signals -> Commands -> Events`
-4. Render/read-only pass
 
 Semantics:
 - `Signals` (`Single_bus`): same-frame transient delivery.
@@ -152,30 +151,29 @@ When to use which bus (practical rule of thumb):
 - Use `Events` for queued reactions that should become visible on the next-frame schedule.
 - It is fine for systems to emit commands directly; keep world mutation in command handlers.
 
-## Custom loop renderer example
+## Rendering in eon_ecs
+
+Rendering is not a loop concern in `eon_ecs` — the core loop is `collect → tick → drain` and carries no renderer parameter. Rendering belongs in a pipeline system:
 
 ```ocaml
-module Logging_renderer = struct
-  type world = Eon_ecs.World.t
-  type result = unit
-
-  let render world ~dt =
-    let open Eon_ecs in
-    let positions =
-      let acc = ref [] in
+let render_system =
+  System.make
+    ~update:(fun world dt ->
+      (* read components, draw to terminal / call backend *)
       Query.iter1 world "Position" (fun entity (x, y) ->
-        acc := (Entity_id.index entity, x, y) :: !acc);
-      List.rev !acc
-    in
-    Logs.info (fun m -> m "[frame dt=%.3f] entities=%d" dt (List.length positions))
-end
+        ignore (entity, x, y, dt)))
+    ~kind:`Variable
+    ()
 
-module Loop_with_logging = Eon_ecs.Loop.Make
-  (Eon_ecs.Clock.Mtime)
-  (Eon_ecs.Loop.Progress_adapter)
-  (Logging_renderer)
-  (Eon_ecs.Loop.Default_buses)
+let pipeline =
+  Pipeline.create ()
+  |> Pipeline.add_phase `Gameplay
+  |> Pipeline.add_phase `Render
+  |> Pipeline.before ~earlier:`Gameplay ~later:`Render
+  |> Pipeline.add_system `Render render_system
 ```
+
+At the `eon_engine` layer, rendering is handled via the `Platform.S` signature which the engine loop calls after drain.
 
 ## API behavior notes
 

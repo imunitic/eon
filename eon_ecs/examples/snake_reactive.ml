@@ -119,10 +119,75 @@ let build_world () =
 
 type game = {
   world : World.t;
-  progress : [ `Input | `Gameplay ] Progress.t;
+  progress : [ `Input | `Gameplay | `Render ] Progress.t;
 }
 
 let commands = Eon_ecs.Buses.Default.commands ()
+
+(* Rendering *)
+module Snake_renderer = struct
+  let first_food world =
+    let found = ref None in
+    Query.iter1 world position_component (fun entity food ->
+        if !found = None then found := Some (entity, food));
+    !found
+
+  let render_world term world paused =
+    match first_food world with
+    | None -> ()
+    | Some (_food_entity, food) ->
+        let snake_segments = ref [] in
+        let snake_alive = ref false in
+        Query.iter2 world trail_component alive_component (fun _entity segments alive ->
+            if !snake_segments = [] then begin
+              snake_segments := segments;
+              snake_alive := alive
+            end);
+
+        let snake_cells = Hashtbl.create (List.length !snake_segments) in
+        List.iter
+          (fun p ->
+            let idx = (p.y * grid_width) + p.x in
+            Hashtbl.replace snake_cells idx ())
+          !snake_segments;
+
+        let board =
+          I.tabulate (grid_width + 2) (grid_height + 2) (fun x y ->
+            let wall = x = 0 || y = 0 || x = grid_width + 1 || y = grid_height + 1 in
+            if wall then
+              I.char A.(bg lightblack) ' ' cell_width 1
+            else
+              let gx = x - 1 in
+              let gy = y - 1 in
+              let idx = (gy * grid_width) + gx in
+              let at_food = food.x = gx && food.y = gy in
+              let attr =
+                if Hashtbl.mem snake_cells idx then A.(bg lightwhite)
+                else if at_food then A.(bg lightred)
+                else A.(bg black)
+              in
+              I.char attr ' ' cell_width 1)
+        in
+
+        let hud_text =
+          if !snake_alive && paused then
+            Printf.sprintf "Snake | Score: %d | PAUSED (p) | Move: arrows/WASD | Quit: q/esc" (score world)
+          else if !snake_alive then
+            Printf.sprintf "Snake | Score: %d | Move: arrows/WASD | Pause: p | Quit: q/esc" (score world)
+          else
+            Printf.sprintf "Game Over | Score: %d | Restarting... | Quit: q/esc" (score world)
+        in
+        let hud = I.string A.(fg lightgreen ++ st bold) hud_text in
+        let frame = hud <-> I.void 0 1 <-> board in
+        let cols, rows = Term.size term in
+        Term.image term (I.vsnap ~align:`Top rows (I.hsnap ~align:`Left cols frame))
+
+  let render world ~dt:_dt =
+    match World.get_data world term_key with
+    | None -> ()
+    | Some term ->
+        render_world term world (is_paused world)
+end
 
 (* ECS systems & pipeline *)
 let build_game () =
@@ -291,91 +356,32 @@ let build_game () =
       ()
   in
 
+  let render_system =
+    System.make
+      ~update:(fun world dt -> Snake_renderer.render world ~dt)
+      ~kind:`Variable
+      ()
+  in
+
   let pipeline =
     Pipeline.create ()
     |> Pipeline.add_phase `Input
     |> Pipeline.add_phase `Gameplay
+    |> Pipeline.add_phase `Render
     |> Pipeline.before ~earlier:`Input ~later:`Gameplay
+    |> Pipeline.before ~earlier:`Gameplay ~later:`Render
     |> Pipeline.add_system `Input input_system
     |> Pipeline.add_system `Gameplay movement_system
     |> Pipeline.add_system `Gameplay alive_system
+    |> Pipeline.add_system `Render render_system
   in
   Pipeline.register_all pipeline world;
   let progress = Progress.create ~mode:(Progress.Hybrid fixed_step_s) pipeline in
   { world; progress }
 
-(* Rendering & input *)
-module Snake_renderer = struct
-  type world = World.t
-  type result = unit
-
-  let first_food world =
-    let found = ref None in
-    Query.iter1 world position_component (fun entity food ->
-        if !found = None then found := Some (entity, food));
-    !found
-
-  let render_world term world paused =
-    match first_food world with
-    | None -> ()
-    | Some (_food_entity, food) ->
-        let snake_segments = ref [] in
-        let snake_alive = ref false in
-        Query.iter2 world trail_component alive_component (fun _entity segments alive ->
-            if !snake_segments = [] then begin
-              snake_segments := segments;
-              snake_alive := alive
-            end);
-
-        let snake_cells = Hashtbl.create (List.length !snake_segments) in
-        List.iter
-          (fun p ->
-            let idx = (p.y * grid_width) + p.x in
-            Hashtbl.replace snake_cells idx ())
-          !snake_segments;
-
-        let board =
-          I.tabulate (grid_width + 2) (grid_height + 2) (fun x y ->
-            let wall = x = 0 || y = 0 || x = grid_width + 1 || y = grid_height + 1 in
-            if wall then
-              I.char A.(bg lightblack) ' ' cell_width 1
-            else
-              let gx = x - 1 in
-              let gy = y - 1 in
-              let idx = (gy * grid_width) + gx in
-              let at_food = food.x = gx && food.y = gy in
-              let attr =
-                if Hashtbl.mem snake_cells idx then A.(bg lightwhite)
-                else if at_food then A.(bg lightred)
-                else A.(bg black)
-              in
-              I.char attr ' ' cell_width 1)
-        in
-
-        let hud_text =
-          if !snake_alive && paused then
-            Printf.sprintf "Snake | Score: %d | PAUSED (p) | Move: arrows/WASD | Quit: q/esc" (score world)
-          else if !snake_alive then
-            Printf.sprintf "Snake | Score: %d | Move: arrows/WASD | Pause: p | Quit: q/esc" (score world)
-          else
-            Printf.sprintf "Game Over | Score: %d | Restarting... | Quit: q/esc" (score world)
-        in
-        let hud = I.string A.(fg lightgreen ++ st bold) hud_text in
-        let frame = hud <-> I.void 0 1 <-> board in
-        let cols, rows = Term.size term in
-        Term.image term (I.vsnap ~align:`Top rows (I.hsnap ~align:`Left cols frame))
-
-  let render world ~dt:_dt =
-    match World.get_data world term_key with
-    | None -> ()
-    | Some term ->
-        render_world term world (is_paused world)
-end
-
 module Snake_loop = Eon_ecs.Loop.Make
     (Eon_ecs.Clock.Mtime)
     (Eon_ecs.Loop.Progress_adapter)
-    (Snake_renderer)
     (Eon_ecs.Loop.Default_buses)
 
 (* Runtime session orchestration *)
@@ -394,10 +400,9 @@ let rec run_session term =
   World.set_data game.world term_key term;
   let final_world =
     Snake_loop.run
-      ~render_initial:true
       ~progress:game.progress
       ~world:game.world
-      ~should_continue:(fun world () -> not (should_quit world) && any_alive world)
+      ~should_continue:(fun world -> not (should_quit world) && any_alive world)
       ()
   in
   if not (should_quit final_world) then run_session term

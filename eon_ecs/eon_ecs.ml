@@ -58,15 +58,8 @@ end
 
 module Loop = struct
   module type CLOCK = Loop.CLOCK
-  module type RENDERER = Loop.RENDERER
   module type BUSES = Loop.BUSES
   module Make = Loop.Make
-
-  module Noop_renderer = struct
-    type world = World.t
-    type result = unit
-    let render _ ~dt:_ = ()
-  end
 
   module Progress_adapter = struct
     type 'phase t = 'phase Progress.Default.t
@@ -79,6 +72,5 @@ module Loop = struct
   module Default = Make
       (Clock.Mtime)
       (Progress_adapter)
-      (Noop_renderer)
       (Default_buses)
 end
