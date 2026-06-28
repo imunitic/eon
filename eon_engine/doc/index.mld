@@ -54,10 +54,14 @@ Eon Engine builds on top of [eon-ecs] and adds:
     |> Pipeline.add_phase `Gameplay
     |> Pipeline.add_system `Gameplay movement_system
 
-  (* 7. Run *)
-  let progress = Progress.create ~mode:Progress.Variable pipeline
+  (* 7. Build loop and run *)
+  module Engine_progress = Progress.Make(Pipeline.Default)
+  module Engine_loop =
+    Loop.Make(Eon_ecs.Clock.Mtime)(Engine_progress)(Platform.Headless)(Loop_buses)
+
+  let progress = Engine_progress.create ~mode:Engine_progress.Variable pipeline
   let _world =
-    Loop.run ~progress ~world ~should_continue:(fun _w -> false) ()
+    Engine_loop.run ~progress ~world ~should_continue:(fun _w -> false) ()
 ]}
 
 {1 Core concepts}
@@ -338,18 +342,94 @@ collect/drain semantics are identical to [eon_ecs]:
   {tr {td [Commands]} {td Same-frame delivery, intended for mutations}}
 }
 
+{2 Input}
+
+The engine's input job is minimal: poll the platform backend once per frame
+and store the result as a {!Eon_engine.Raw_input_frame} world resource. Game
+systems read it via [Raw_input_frame.get world]. Everything above that —
+action mapping, binding tables, event dispatch — is a game-layer concern.
+
+{b Key types} are backend-agnostic enums. Backends map native codes to these:
+
+{table
+  {tr {th Module} {th Description}}
+  {tr {td {!Eon_engine.Key}}           {td Keyboard keys}}
+  {tr {td {!Eon_engine.Mouse_button}}  {td Mouse buttons}}
+  {tr {td {!Eon_engine.Gamepad_button}} {td Gamepad buttons}}
+}
+
+Each has a [Set] submodule ([Key.Set], [Mouse_button.Set], [Gamepad_button.Set])
+for efficient membership tests.
+
+{b Raw_input_frame} is an immutable snapshot written before [Buses.collect]
+runs. Fields include pressed/released/down sets, mouse position and delta,
+gamepad state, scroll delta, text input from the OS IME, and a timestamped
+event list:
+
+{[
+  (* In an Exclusive system's update: *)
+  let update (world : World.rw World.t) _dt =
+    match Raw_input_frame.get world with
+    | None -> ()
+    | Some frame ->
+      if Key.Set.mem Key.Space frame.Raw_input_frame.keys_pressed then
+        (* space was pressed this frame — emit a jump command *)
+        ()
+]}
+
+{b Input_backend.S} is the seam for platform-specific input polling. Two
+built-in implementations ship with the engine:
+
+- {!Eon_engine.Input_backend.Null} — always returns [Raw_input_frame.empty]
+- {!Eon_engine.Input_backend.Scripted} — replays a pre-set list of frames;
+  use this in tests to feed deterministic input without a window
+
+{[
+  Input_backend.Scripted.set_frames [
+    { Raw_input_frame.empty with
+      keys_pressed = Key.Set.singleton Key.Space };
+    Raw_input_frame.empty;
+  ]
+]}
+
+{2 Platform}
+
+{!Eon_engine.Platform.S} is the compile-time seam passed to [Loop.Make].
+Currently it carries only [Input_backend]; a [Renderer] module will be added
+when the rendering layer task is scoped and implemented. Game binaries supply
+a concrete platform (e.g. a raylib platform); servers and tests use
+{!Eon_engine.Platform.Headless}:
+
+{[
+  (* Headless: null input *)
+  module Engine_loop =
+    Loop.Make
+      (Eon_ecs.Clock.Mtime)
+      (Engine_progress)
+      (Platform.Headless)
+      (Loop_buses)
+
+  (* Game binary: swap in the real platform *)
+  module Game_loop =
+    Loop.Make
+      (Eon_ecs.Clock.Mtime)
+      (Engine_progress)
+      (Raylib_platform)   (* user-supplied Platform.S *)
+      (Loop_buses)
+]}
+
 {2 Loop}
 
-{!Eon_engine.Loop} delegates to [Eon_ecs.Loop.Make] typed for [World.rw World.t].
-Frame order:
+{!Eon_engine.Loop.Make} orchestrates one frame:
 
-+ [collect] — Signals, then Events, then Commands
-+ [Progress.tick] — runs the pipeline (parallel phases go through the executor)
-+ [drain] — Signals, then Commands, then Events
++ [Platform.Input_backend.collect ()] — poll backend; result stored as
+  [Raw_input_frame] world resource before any system runs
++ [Buses.collect] — Signals, then Events, then Commands
++ [Progress.tick] — runs the pipeline (parallel phases via the executor)
++ [Buses.drain] — Signals, then Commands, then Events
 
-The [eon_ecs] loop carries no renderer. At the engine layer, rendering is
-invoked via [Platform.S.Renderer] after drain — supplied as part of the
-[PLATFORM] signature that [eon_engine.Loop.Make] will accept.
+[Loop.run] also calls [Platform.Input_backend.init] before the loop and
+[Platform.Input_backend.shutdown] after it returns.
 
 {[
   let final_world =
