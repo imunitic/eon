@@ -46,9 +46,15 @@ module Pipeline = struct
   module Default = Pipeline.Make(System.Default)(Executor.Sequential)(Buses.Default)
 end
 
-module Progress  = Progress
-module Loop      = Loop
-module Loop_buses = Loop_buses
+module Key             = Key
+module Mouse_button    = Mouse_button
+module Gamepad_button  = Gamepad_button
+module Raw_input_frame = Raw_input_frame
+module Input_backend   = Input_backend
+module Platform        = Platform
+module Progress       = Progress
+module Loop           = Loop
+module Loop_buses     = Loop_buses
 
 (** Entity identifier type. *)
 type entity_id = Eon_ecs.Entity_id.t

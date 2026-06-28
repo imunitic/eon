@@ -235,11 +235,33 @@ module Progress : sig
   include module type of Progress
 end
 
+(** {2 Input} *)
+
+(** Engine-defined keyboard keys — backend-agnostic. *)
+module Key : module type of Key
+
+(** Engine-defined mouse buttons — backend-agnostic. *)
+module Mouse_button : module type of Mouse_button
+
+(** Engine-defined gamepad buttons — backend-agnostic. *)
+module Gamepad_button : module type of Gamepad_button
+
+(** Immutable raw input snapshot written into the world once per frame. *)
+module Raw_input_frame : module type of Raw_input_frame
+
+(** Input backend seam with [Null] and [Scripted] implementations. *)
+module Input_backend : module type of Input_backend
+
+(** {2 Platform} *)
+
+(** Platform seam — bundles [Input_backend] for [Loop.Make].
+    Renderer will be added when the rendering layer is implemented. *)
+module Platform : module type of Platform
+
 (** {2 Loop} *)
 
-(** Game loop builder for the engine layer.
-    Delegates to [Eon_ecs.Loop.Make]; typed for [World.rw World.t] via [Progress] and
-    [Loop_buses]. *)
+(** Game loop builder for the engine layer. Collects input, ticks the
+    pipeline, drains buses, and calls the renderer each frame. *)
 module Loop : sig
   include module type of Loop
 end

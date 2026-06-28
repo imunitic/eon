@@ -14,4 +14,5 @@ let () =
     ("World", Test_world.tests);
     ("Pipeline", Test_pipeline.tests);
     ("Executor", Test_executor.tests);
+    ("Input", Test_input.tests);
   ]

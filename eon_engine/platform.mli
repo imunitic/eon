@@ -1,0 +1,14 @@
+(** Platform seam — bundles renderer and input backend for [Loop.Make].
+
+    Supply a [Platform.S] when instantiating [Loop.Make]. For servers, tests,
+    and scripted simulation use [Platform.Headless]. Game binaries supply a
+    concrete platform backed by their chosen windowing and rendering library. *)
+
+module type S = sig
+  type t
+  module Input_backend : Input_backend.S
+end
+
+(** Headless platform — null input backend.
+    Suitable for servers, CI, and scripted integration tests. *)
+module Headless : S with type t = [ `Headless ]

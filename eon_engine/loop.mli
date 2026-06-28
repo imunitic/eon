@@ -1,38 +1,39 @@
 (** Game loop builder for the engine layer.
 
-    Delegates to [Eon_ecs.Loop.Make]; typed for [World.t] when composed with
-    [Eon_engine.Progress] and [Eon_engine.Loop_buses].
+    Frame order per tick:
+    1. [Platform.Input_backend.collect ()] — poll backend; result written as
+       [Raw_input_frame] world resource before any system runs
+    2. [Buses.collect]
+    3. [Progress.tick] — run the pipeline
+    4. [Buses.drain]
 
-    Frame order:
-    1. [Buses.collect]
-    2. [Progress.tick]
-    3. [Buses.drain]
+    [Loop.run] also calls [Platform.Input_backend.init] before the loop and
+    [Platform.Input_backend.shutdown] after it returns.
+
+    Rendering is not yet part of [Platform.S] — it will be added when the
+    rendering layer task is scoped and implemented.
 
     Typical usage:
     {[
       module Engine_progress = Eon_engine.Progress.Make(Eon_engine.Pipeline.Default)
       module Engine_loop =
-        Eon_engine.Loop.Make(Eon_ecs.Clock.Mtime)(Engine_progress)(Eon_engine.Loop_buses)
+        Eon_engine.Loop.Make
+          (Eon_ecs.Clock.Mtime)
+          (Engine_progress)
+          (Platform.Headless)
+          (Eon_engine.Loop_buses)
     ]}
 *)
 
-module type CLOCK = sig
-  val now : unit -> float
-end
-
-module type BUSES = sig
-  val collect : unit -> unit
-  val drain   : unit -> unit
-end
-
 module Make
-    (_ : CLOCK)
+    (_ : Eon_ecs.Loop.CLOCK)
     (Progress : sig
        type 'phase t
-       type world
+       type world = World.rw World.t
        val tick : 'phase t -> world:world -> dt:float -> world
      end)
-    (_ : BUSES)
+    (_ : Platform.S)
+    (_ : Eon_ecs.Loop.BUSES)
 : sig
   val step :
     progress:'phase Progress.t ->
