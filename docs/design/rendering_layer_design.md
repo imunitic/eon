@@ -637,9 +637,127 @@ module Loop = Eon_engine.Loop.Make
 - `My_renderer` handles the `Rendering_result.t` (logs errors, stores metadata)
 - The engine loop orchestrates the render call after drain; `eon_ecs` is entirely free of rendering concerns
 
-## 8. Component Integration
+## 8. Platform.S Integration
 
-### 8.1 Rendering Components
+### 8.1 Overview
+
+`Platform.S` currently carries only `Input_backend` — `Renderer` was
+intentionally omitted until the rendering layer exists. Implementing this design
+document requires extending `Platform.S` with a `Renderer` module and updating
+`eon_engine` Loop.Make to call it after drain each frame.
+
+This section describes exactly what to add and how the pieces connect.
+
+### 8.2 Renderer.S — the platform seam
+
+`Renderer.S` is the interface `Platform.S.Renderer` must satisfy. It receives
+the world (read-write, so platform-managed buffers in the data plane can be
+written) and the frame delta:
+
+```ocaml
+(* eon_engine/renderer.mli *)
+module type S = sig
+  val render : World.rw World.t -> dt:float -> unit
+end
+
+module Noop : S
+```
+
+The implementation reads the `RenderGraph` from the world data plane and calls
+the backend. It never touches the ECS entities or components.
+
+### 8.3 Render_loop_renderer.Make — bridging the data plane and the backend
+
+`Render_loop_renderer.Make(B)` is a functor that takes a backend and produces
+the `Renderer.S` implementation for `Platform.S`:
+
+```ocaml
+(* eon_engine/render_loop_renderer.ml *)
+module Make (B : Rendering_backend.S) : Renderer.S = struct
+  let render world ~dt =
+    match World.get_data world `Render_graph with
+    | None -> ()   (* RenderSystem has not run yet — first frame or headless *)
+    | Some (graph : B.command Render_graph.t) ->
+        let result = B.render graph ~dt in
+        if Rendering_result.has_errors result then
+          List.iter
+            (fun e -> Printf.eprintf "[renderer] %s\n" (Rendering_result.error_to_string e))
+            result.errors
+end
+```
+
+### 8.4 Extended Platform.S
+
+Once the rendering layer is implemented, `Platform.S` gains the `Renderer`
+module:
+
+```ocaml
+(* platform.mli — target state after rendering layer is implemented *)
+module type S = sig
+  type t
+  module Renderer      : Renderer.S
+  module Input_backend : Input_backend.S
+end
+```
+
+`Platform.Headless` adds a no-op renderer (suitable for servers, CI, tests that
+do not need visual output):
+
+```ocaml
+module Headless = struct
+  type t = [ `Headless ]
+  module Renderer      = Renderer.Noop
+  module Input_backend = Input_backend.Null
+end
+```
+
+A game platform module wires `Render_loop_renderer.Make` to the chosen backend:
+
+```ocaml
+module My_renderer = Render_loop_renderer.Make(My_backend)
+
+module My_platform : Platform.S = struct
+  type t = [ `My_platform ]
+  module Renderer      = My_renderer
+  module Input_backend = My_input_backend
+end
+```
+
+### 8.5 Updated Loop.Make — render call after drain
+
+With `Renderer` in `Platform.S`, `eon_engine` Loop.Make adds the render call
+as the final step of each frame:
+
+```ocaml
+let step ~progress ~world ~last_time ~now ~should_continue =
+  let raw = Platform.Input_backend.collect () in
+  Raw_input_frame.set world raw;
+  Buses.collect ();
+  let dt = now -. last_time in
+  let world = Progress.tick progress ~world ~dt in
+  Buses.drain ();
+  Platform.Renderer.render world ~dt;   (* reads RenderGraph, calls backend *)
+  let continue = should_continue world in
+  (world, now, continue)
+```
+
+Updated frame order:
+
+```
+1. Platform.Input_backend.collect () — poll backend; write Raw_input_frame
+2. Buses.collect — Signals → Events → Commands
+3. Progress.tick — all systems run, including RenderSystem:
+     RenderSystem clears RenderGraph, runs RenderPipeline, stores graph
+4. Buses.drain — Signals → Commands → Events
+5. Platform.Renderer.render world ~dt — reads RenderGraph, calls backend
+```
+
+`eon_ecs` Loop.Make remains `collect → tick → drain` only — it never grows a
+render slot. The render call lives exclusively in `eon_engine` Loop.Make.
+
+## 9. Component Integration
+
+### 9.1 Rendering Components
 
 The rendering layer integrates with existing rendering components:
 
@@ -674,7 +792,7 @@ type t = {
 }
 ```
 
-### 8.2 Query Patterns
+### 9.2 Query Patterns
 
 Collectors (attached to RenderPipeline phases) use the query system to find renderable entities and add rendering commands:
 
@@ -707,176 +825,64 @@ let collect_cameras world graph =
     Render_graph.add graph (`Set_camera { camera; target = None }))
 ```
 
-## 9. Design Goals
+## 10. Design Goals
 
-### 9.1 Backend Autonomy
+### 10.1 Backend Autonomy
 
 - Backend decides rendering order (by layer, shader, distance, etc.)
 - Backend decides shader usage and techniques
 - Backend decides output format (terminal, OpenGL, Vulkan, etc.)
 - Engine provides data; backend decides how to use it
 
-### 9.2 Minimal Interface
+### 10.2 Minimal Interface
 
 - `Rendering_backend.S` has minimal methods
 - Ideally just `render` function
 - Backend can extend with additional methods as needed
 - No forced rendering techniques
 
-### 9.3 Pluggable Backends
+### 10.3 Pluggable Backends
 
 - Backends selected at compile time via functor application
 - Easy to swap backends for different platforms
 - Users can create custom backends for specific needs
 
-### 9.4 Decoupled Design
+### 10.4 Decoupled Design
 
 - Engine doesn't know about rendering details
 - Rendering components are just data
 - No rendering logic in engine core
 - Backend is the only component with rendering knowledge
 
-## 10. Future Extensions
+## 11. Future Extensions
 
-### 10.1 Render Graph Extensions
+### 11.1 Render Graph Extensions
 
 - **Particles**: Particle system entities
 - **Text**: Text rendering entities
 - **UI Elements**: UI component entities
 - **Post-processing**: Full-screen effects
 
-### 10.2 Backend Features
+### 11.2 Backend Features
 
 - **Shader System**: Backend-managed shaders
 - **Batching**: Automatic draw call batching
 - **Culling**: Frustum or occlusion culling
 - **Instancing**: Hardware instancing support
 
-### 10.3 Pipeline Features
+### 11.3 Pipeline Features
 
 - **Layer System**: Automatic layer sorting
 - **Render Groups**: Group entities by shader/technique
 - **Render States**: State change optimization
 
-## 11. UI Rendering
+## 12. UI Rendering
 
-### 11.1 UI as a RenderGraph concern
+UI rendering (microui integration, UI primitive commands, the raygui tradeoff)
+is specified in `docs/design/microui_ui_system_design.md`. That work is deferred
+until the core rendering layer (phases 1–5 below) is complete.
 
-UI rendering is not a platform seam and does not belong in the `PLATFORM`
-signature alongside `Renderer` and `Input_backend`. It belongs in the RenderGraph
-command language — surfaced during the input system design (ecs-027) when the
-PLATFORM boundary was being defined.
-
-### 11.2 UI primitive command vocabulary
-
-The RenderGraph command language is extended with a fixed, minimal set of UI
-drawing primitives — borrowing the core insight from microui: a tiny vocabulary
-is sufficient to build any UI. rect, text, texture, and clip cover everything
-(buttons, panels, scroll areas, inventory grids, health bars, tooltips):
-
-```ocaml
-(* UI primitives — part of the base command set *)
-type command = [
-  | (* ... existing base commands ... *)
-  | `Ui_rect      of { rect: Rect.t; color: Color.t }
-  | `Ui_text      of { pos: Vec2.t; text: string; font: Font_id.t; color: Color.t }
-  | `Ui_texture   of { rect: Rect.t; texture: Texture_id.t; color: Color.t }
-  | `Ui_ninepatch of { rect: Rect.t; texture: Texture_id.t; border: int }
-  | `Ui_clip      of Rect.t
-  | `Ui_end_clip
-]
-```
-
-These are backend-agnostic. Every renderer backend implements them using its
-native drawing calls:
-
-```
-Raylib backend:  `Ui_rect → DrawRectangle
-                 `Ui_text → DrawText
-                 `Ui_clip → BeginScissorMode / EndScissorMode
-
-SDL backend:     `Ui_rect → SDL_RenderFillRect
-                 `Ui_text → TTF_RenderText
-                 `Ui_clip → SDL_RenderSetClipRect
-```
-
-The backend IS the UI renderer. Not a separate library, not a separate
-dependency — just part of the renderer backend's command dispatch alongside
-sprite and mesh commands. Porting to a new platform means implementing these ~6
-commands and UI works for free.
-
-### 11.3 Pure OCaml microui collector
-
-The widget layer is a pure OCaml microui implementation — the C microui
-architecture translated directly. C microui already separates widget logic from
-rendering via a command buffer; the OCaml version makes that command buffer typed
-open variants for the RenderGraph instead of a C union. No C FFI in the widget
-layer.
-
-The UI collector is a regular `World.ro` ECS system. It reads
-`Processed_input_frame` from the world (mouse position, clicks — already there
-from the input system), feeds it to the microui context, runs the widget logic,
-and emits the resulting command list into the RenderGraph:
-
-```ocaml
-(* UI collector — World.ro, parallel, registered in the UI RenderPipeline phase *)
-let update world _dt =
-  let ctx   = World.get_data world Ui_context in
-  let input = World.get_data world Input_frame in
-  Microui.set_mouse ctx input.mouse_screen input.raw.mouse_buttons_down;
-  Microui.begin_frame ctx;
-  (* game UI code *)
-  if Microui.button ctx "Attack" then Signals.emit world `Attack_pressed;
-  Microui.end_frame ctx;
-  (* flush into RenderGraph *)
-  Microui.iter_commands ctx (fun cmd ->
-    Render_graph.emit world (microui_to_render_cmd cmd))
-```
-
-The full four-layer stack:
-
-```
-Game code  →  Microui API  (pure OCaml widget logic — no drawing, no C FFI)
-                ↓ produces typed command list
-             RenderGraph UI commands  (`Ui_rect | `Ui_text | `Ui_clip | ...)
-                ↓ emitted by UI collector into RenderGraph (UI phase)
-             Renderer backend  (Raylib: DrawRectangle / DrawText / BeginScissorMode
-                                SDL:    SDL_RenderFillRect / TTF_RenderText / ...)
-```
-
-Properties:
-
-- **Pure OCaml microui is fully testable** — no backend, no window; just verify
-  the command list it produces
-- **Any backend gets full UI by implementing ~6 commands**
-- **Input flows naturally** — UI collector reads `Processed_input_frame` already
-  in the world; no special input path needed
-- **Z-ordering is free** — UI commands sit in the same RenderGraph stream as
-  sprites and meshes, sorted by the existing phase system (`UI` phase runs after
-  `Transparent`)
-
-### 11.4 Trade-off with immediate mode toolkits (raygui)
-
-raygui is incompatible with the RenderGraph primitive model. It is an immediate
-mode widget library that calls raylib drawing functions directly —
-`GuiButton(rect, "label")` draws immediately and returns whether it was clicked.
-It does not emit a command buffer; it bypasses the RenderGraph entirely.
-
-Choosing the RenderGraph primitive vocabulary means giving up raygui's widget set
-at the game UI layer. For shipping game UI this is the right call — custom health
-bars, skill icons, and inventory panels all reduce naturally to rect + text +
-texture + clip. For rapid prototyping and debug tooling where raygui shines, an
-escape hatch is available:
-
-```ocaml
-`Platform_native of (unit -> unit)   (* raw callback — bypasses RenderGraph *)
-```
-
-Debug UI and dev tools call raygui (or any platform-native toolkit) directly
-through this callback. Game UI uses the proper primitive vocabulary. The escape
-hatch is explicitly non-portable and must never appear in shipping game code.
-
-## 12. Implementation Roadmap
+## 13. Implementation Roadmap
 
 **Note**: The implementation roadmap below provides a suggested sequence of phases. The exact details and API may be refined during implementation. This is a guideline, not a fixed specification. Task IDs are TBD — ecs-021 is assigned to the parallel pipeline; rendering tasks will be numbered from wherever the sequence lands after that.
 
@@ -919,11 +925,11 @@ hatch is explicitly non-portable and must never appear in shipping game code.
 - [ ] Document backend creation patterns
 - [ ] Example projects using different backends
 
-## 12. Example Usage
+## 14. Example Usage
 
 **Important Note**: The examples below are illustrative guidelines, not final implementations. They represent ideas that will be iterated over in later phases. The exact API and implementation details may change as the rendering layer evolves.
 
-### 12.1 Basic Usage
+### 14.1 Basic Usage
 
 ```ocaml
 (* Create world and register components *)
@@ -998,7 +1004,7 @@ let () =
   Loop.run ~progress ~world ~should_continue:(fun _ -> true) ()
 ```
 
-### 12.2 Custom Backend
+### 14.2 Custom Backend
 
 ```ocaml
 module Custom_backend = struct
@@ -1034,7 +1040,7 @@ end
 - Backends can extend the command set using polymorphic variant inclusion
 - Backend collectors for extended commands must be added to the RenderPipeline manually
 
-## 13. Conclusion
+## 15. Conclusion
 
 The rendering layer provides a clean separation of concerns:
 - **Engine**: Provides infrastructure, base commands, and base collectors
