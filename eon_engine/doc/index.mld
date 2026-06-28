@@ -395,8 +395,8 @@ built-in implementations ship with the engine:
 {2 Platform}
 
 {!Eon_engine.Platform.S} is the compile-time seam passed to [Loop.Make].
-Currently it carries only [Input_backend]; a [Renderer] module will be added
-when the rendering layer task is scoped and implemented. Game binaries supply
+Currently it carries [Input_backend]; [Rendering_backend] will be added
+when the rendering layer is implemented. Game binaries supply
 a concrete platform (e.g. a raylib platform); servers and tests use
 {!Eon_engine.Platform.Headless}:
 

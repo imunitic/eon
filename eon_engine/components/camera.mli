@@ -1,18 +1,25 @@
 (** Camera component for Eon Engine.
 
-    A self-contained description of a viewport positioned in the world.
-    Multiple cameras are supported — attach this component to any entity.
-    Camera follow, shake, and other behaviours are implemented as regular
-    systems that update these fields each frame.
+    Attach to any entity that also has a [Position] component. The collector
+    reads [Position] for world-space location and [Camera] for the remaining
+    parameters, then emits a [`Set_camera] command into the render graph.
+
+    Multiple cameras are supported — a minimap camera and a main camera are
+    simply two entities with [Camera] components, each with a different
+    [viewport].
+
+    Camera follow is modelled by a separate [Camera_target] component on the
+    camera entity; the collector resolves the target entity's [Position] and
+    passes it as the [target] field of [`Set_camera].
 *)
 
 type t = {
-  x          : float;  (** World-space X position of the camera. *)
-  y          : float;  (** World-space Y position of the camera. *)
-  zoom       : float;  (** Zoom factor; 1.0 is default, >1.0 zooms in. *)
-  viewport_w : float;  (** Viewport width in world units. *)
-  viewport_h : float;  (** Viewport height in world units. *)
-  rotation   : float;  (** Camera rotation in radians. *)
+  zoom     : float option;  (** Zoom factor; None = 1.0 (default). >1.0 zooms in. *)
+  rotation : float option;  (** Rotation in radians; None = 0.0. *)
+  viewport : (float * float * float * float) option;
+  (** Screen-space destination rect [(x, y, w, h)].
+      None   = full screen (main camera).
+      Some r = render into this rect — use for minimap or split-screen. *)
 }
 
 val component : t Component_descriptor.t
