@@ -254,8 +254,7 @@ module Input_backend : module type of Input_backend
 
 (** {2 Platform} *)
 
-(** Platform seam — bundles [Input_backend] for [Loop.Make].
-    Renderer will be added when the rendering layer is implemented. *)
+(** Platform seam — bundles [Input_backend] and [Rendering_backend] for [Loop.Make]. *)
 module Platform : module type of Platform
 
 (** {2 Loop} *)

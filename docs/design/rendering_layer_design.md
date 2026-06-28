@@ -4,11 +4,11 @@
 
 ## 1. Overview
 
-The rendering layer provides a **backend-agnostic rendering system** where the engine and ECS core have no say in how something is rendered. A rendering backend is the only component that decides the order and method of rendering a `RenderGraph`.
+The rendering layer provides a **backend-agnostic rendering system** where the engine and ECS core have no say in how something is rendered. A rendering backend is the only component that decides the order and method of rendering a `Render_graph`.
 
 This design maintains the core Eon principles:
 - **Minimalism**: Backend interface has minimal methods (ideally just `render`)
-- **Extensibility**: Pluggable backends via compile-time functor application
+- **Extensibility**: Pluggable backends via `Platform.S` — the game names its backend once; the type system enforces consistency
 - **Decoupling**: Engine doesn't know about rendering details
 - **Flexibility**: Backend decides shader usage, rendering order, and techniques
 
@@ -16,35 +16,36 @@ This design maintains the core Eon principles:
 
 ### 2.1 Rendering Layer Components
 
-The rendering layer consists of three main components:
+The rendering layer consists of four main components:
 
-1. **RenderGraph** - Backend-agnostic representation of renderable entities
-2. **RenderPipeline** - Collects entities into a render graph (similar to ECS Pipeline)
-3. **RenderingBackend** - Backend interface that renders the graph
+1. **Render_graph** — Ordered collection of rendering commands; no entity references
+2. **Render_graph_collector** — Phase-ordered collector executor (mirrors ECS Pipeline)
+3. **Render_system** — Standard ECS system that drives the Render_graph_collector each tick and stores the graph in the world data plane
+4. **Rendering_backend** — Consumes the graph and produces pixels; called by the engine loop via `Platform.Rendering_backend` after drain
 
 ### 2.2 Frame Flow
 
 ```
 Frame Order:
 1. Collect: Signals → Events → Commands
-2. Tick: Progress.tick (systems run, including RenderSystem)
-   - RenderSystem clears the RenderGraph resource in the world data plane
-   - RenderSystem runs RenderPipeline (populates RenderGraph via collectors)
-   - RenderSystem stores populated RenderGraph back into world data plane
+2. Tick: Progress.tick (systems run, including Render_system)
+   - Render_system clears the Render_graph resource in the world data plane
+   - Render_system runs Render_graph_collector (populates Render_graph via collectors)
+   - Render_system stores populated Render_graph back into world data plane
      (overwritten each frame — no double-buffering needed)
 3. Drain: Signals → Commands → Events
-4. Render: Platform.Renderer reads RenderGraph from world data plane,
-           calls Backend.render(RenderGraph)
+4. Render: engine loop reads Render_graph from world data plane,
+           calls Platform.Rendering_backend.render(Render_graph)
 ```
 
 **Key Points**:
-- RenderSystem is a standard ECS system that runs during the Tick phase
-- RenderSystem never calls the backend — it only builds and stores the RenderGraph
+- Render_system is a standard ECS system that runs during the Tick phase
+- Render_system never calls the backend — it only builds and stores the Render_graph
 - The world data plane is the handoff point between Tick and Render
-- `Platform.S.Renderer` is the only caller of Backend.render, always in the Render slot
+- the engine loop is the only caller of `Platform.Rendering_backend.render`, always in the Render slot
 - The `eon_ecs` loop carries no renderer — the render call happens in the `eon_engine` loop via `Platform.S`
-- RenderPipeline is independent from ECS Pipeline but called by RenderSystem
-- RenderPipeline has phases/ordering like ECS Pipeline
+- Render_graph_collector is independent from ECS Pipeline but called by Render_system
+- Render_graph_collector runs all collectors fully in parallel — insertion order is irrelevant because the backend decides draw order from the commands themselves
 
 ### 2.3 Key Design Principle
 
@@ -60,80 +61,163 @@ The engine only provides the data; the backend decides how to use it.
 
 ### 3.1 Purpose
 
-Eon Engine provides a set of backend-agnostic rendering commands that all backends can use. These represent common rendering operations that are identical across all backends (e.g., drawing a sprite, setting a camera).
+Eon Engine provides a set of backend-agnostic rendering commands that all backends
+must handle. These seven commands are sufficient to build a complete 2D game — every
+visual element in a 2D game reduces to rectangles, textures, shapes, and text.
+Anything beyond this set (particles, shaders, surfaces) is backend extension territory.
 
 ### 3.2 Base Commands
 
 ```ocaml
 (* render_commands.mli *)
 
+type rect  = { x : float; y : float; w : float; h : float }
+type color = { r : float; g : float; b : float; a : float }
+
 type command = [
-  | `Draw_sprite of {
-      texture_id : string;
-      position : float * float;
-      rotation : float option;
-      scale : (float * float) option;
-      layer : int;
-    }
+  | `Clear_background of color
+
   | `Set_camera of {
-      camera : Camera.t;
-      target : (float * float) option;
+      position : float * float;
+      zoom     : float option;
+      rotation : float option;       (** radians; None = 0.0 *)
+      target   : (float * float) option;
+      viewport : rect option;        (** None = full screen; Some rect for minimap/split *)
+    }
+
+  (** Draw a texture or sprite sheet region.
+      source = None    → full texture  (equivalent to "draw image")
+      source = Some r  → sub-region    (equivalent to "draw sprite frame") *)
+  | `Draw_texture of {
+      texture_id : string;
+      source     : rect option;
+      dest       : rect;
+      rotation   : float option;
+      origin     : (float * float) option;  (* rotation pivot, in dest-local coords *)
+      tint       : color option;
+      layer      : int;
+    }
+
+  | `Draw_text of {
+      text     : string;
+      position : float * float;
+      font_id  : string;
+      size     : float;
+      color    : color;
+      layer    : int;
+    }
+
+  | `Draw_rect of {
+      rect   : rect;
+      color  : color;
+      filled : bool;
+      layer  : int;
+    }
+
+  | `Draw_circle of {
+      center : float * float;
+      radius : float;
+      color  : color;
+      filled : bool;
+      layer  : int;
+    }
+
+  | `Draw_line of {
+      start     : float * float;
+      stop      : float * float;
+      thickness : float;
+      color     : color;
+      layer     : int;
     }
 ]
 ```
 
 **Key Points**:
-- Commands are backend-agnostic
-- Represent common rendering operations
-- All backends can use these commands
-- Backends can extend with custom commands
+- Seven commands cover a complete 2D game — all visual elements reduce to rectangles,
+  textures, shapes, and text
+- `Draw_texture` unifies texture, sprite, and image drawing via the optional `source`
+  rect; animation is not a render command — the `Animation_system` updates the source
+  rect in the `Sprite` component each tick and the collector emits the current frame
+- `layer` on every draw command gives backends full control over draw order
+- `tint` on `Draw_texture` enables hit flash, transparency, and colour effects without
+  a shader
+- `filled` on shapes covers both fill and outline variants with one command
+- All backends must implement all seven; anything beyond this set is a backend extension
 
-### 3.3 Backend-Agnostic Collectors
+### 3.3 Collector Pattern
 
-Base collectors that add base commands to the render graph. Collectors use
-polymorphic variant constraints to work with any command type that includes
-the base commands:
+A collector is a function that queries the world and adds commands to the
+Render_graph. The engine provides the type and the infrastructure; **the game
+writes the collectors** — exactly as the engine provides `System.Parallel_def`
+but the game writes the systems.
 
 ```ocaml
-(* render_collectors.mli *)
-
-(** Collect sprites and add Draw_sprite commands to graph.
-    
-    The [> command] constraint means this works with any command type
-    that includes at least the base commands (can have more).
-*)
-val collect_sprites : world -> [> command] Render_graph.t -> unit
-
-(** Collect cameras and add Set_camera commands to graph. *)
-val collect_cameras : world -> [> command] Render_graph.t -> unit
+(* The collector type — defined by the engine, implemented by the game *)
+type 'command collector = World.ro World.t -> 'command Render_graph.t -> unit
 ```
 
-**Implementation Example**:
+`World.ro` is explicit: collectors never mutate the world. The `[> command]`
+lower bound means a collector written against the base command set works with any
+backend command type that includes those commands — backends can extend freely
+without breaking existing collectors.
+
+A game collector queries its own components and emits base commands:
+
 ```ocaml
-let collect_sprites world graph =
-  Query.iter2 world "Position" "Sprite" (fun _entity pos sprite ->
-    Render_graph.add graph (`Draw_sprite {
-      texture_id = sprite.texture_id;
-      position = (pos.x, pos.y);
-      rotation = None;
-      scale = None;
-      layer = sprite.layer;
-    }))
+(* game code — the game knows what components it has *)
+let collect_sprites (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Sprite.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let sprite = View.get view (module Components.Sprite) in
+       Render_graph.add_world graph (`Draw_texture {
+         texture_id = sprite.texture_id;
+         source     = sprite.source_rect;
+         dest       = { x = pos.x; y = pos.y; w = sprite.w; h = sprite.h };
+         rotation   = None;
+         origin     = None;
+         tint       = None;
+         layer      = sprite.layer;
+       }))
 
-let collect_cameras world graph =
-  Query.iter2 world "Position" "Camera" (fun _entity pos camera ->
-    Render_graph.add graph (`Set_camera { camera; target = None }))
+let collect_cameras (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Camera.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let camera = View.get view (module Components.Camera) in
+       Render_graph.add_world graph (`Set_camera {
+         position = (pos.x, pos.y);
+         zoom     = camera.zoom;
+         rotation = camera.rotation;
+         target   = None;
+         viewport = camera.viewport;
+       }))
 ```
 
-## 4. RenderGraph
+The engine does not ship pre-built collectors. It cannot know which components a
+game uses, how its sprite data is structured, or whether it uses cameras at all.
+
+## 4. Render_graph
 
 ### 4.1 Purpose
 
-The `RenderGraph` is a collection of rendering commands. It contains no entity references - just pure rendering instructions that backends can process.
+The `Render_graph` is a collection of rendering commands split into two explicit
+lists: world-space commands and screen-space commands. It contains no entity
+references — just pure rendering instructions that backends can process.
 
 ### 4.2 Design
 
-The RenderGraph is a collection of rendering commands. It contains no entity references - just pure rendering instructions. The graph is generic over the command type, allowing backends to use base commands and extend with custom ones.
+Every 2D backend has the same two coordinate spaces:
+- **World space** — moves with the camera; entities, tiles, effects
+- **Screen space** — fixed on screen regardless of camera; HUD, UI, damage numbers
+
+Rather than encoding this distinction in a magic layer number, the graph makes it
+explicit with two separate lists. The backend iterates each list in the right
+coordinate context without inspecting layer values.
 
 ```ocaml
 (* render_graph.mli *)
@@ -145,219 +229,245 @@ module type S = sig
   (** Create an empty render graph. *)
   val create : unit -> 'command t
 
-  (** Add a command to the graph. *)
-  val add : 'command t -> 'command -> unit
+  (** Add a world-space command — drawn inside the camera transform. *)
+  val add_world  : 'command t -> 'command -> unit
 
-  (** Clear all commands from the graph. *)
+  (** Add a screen-space command — drawn outside the camera transform; HUD and UI. *)
+  val add_screen : 'command t -> 'command -> unit
+
+  (** Clear both lists. *)
   val clear : 'command t -> unit
 
-  (** Iterate over all commands in the graph.
-      
-      Preferred over [commands] to avoid unnecessary allocation.
-  *)
-  val iter : 'command t -> ('command -> unit) -> unit
+  (** Iterate world-space commands in insertion order. *)
+  val iter_world  : 'command t -> ('command -> unit) -> unit
+
+  (** Iterate screen-space commands in insertion order. *)
+  val iter_screen : 'command t -> ('command -> unit) -> unit
 end
 ```
 
+The raylib backend uses the two lists directly:
+
+```ocaml
+let render graph ~dt:_ =
+  Raylib.begin_drawing ();
+  Raylib.clear_background background_color;
+  Raylib.begin_mode_2d camera;
+  Render_graph.iter_world  graph (fun cmd -> dispatch cmd);
+  Raylib.end_mode_2d ();
+  Render_graph.iter_screen graph (fun cmd -> dispatch cmd);
+  Raylib.end_drawing ()
+```
+
+Every other backend follows the same pattern with its own coordinate space API:
+SDL uses `SDL_RenderSetScale`, OpenGL pushes/pops projection matrices. The two-list
+split is not a raylib convenience — it is a fundamental property of 2D rendering
+that all backends share.
+
 **Key Points**:
+- Two lists make world/screen space an explicit data property, not a layer convention
+- `layer` on world commands is now purely for depth sorting within world space
+  (background, ground, entities, effects) — it has no coordinate-space meaning
+- Screen-space commands sort among themselves independently
 - Graph is generic over command type
-- Backends can use base commands or extend with custom ones
-- No rendering logic in the graph
-- Commands are processed by backends in their own way
-- No [commands] function to avoid O(n) allocation on hot path
+- Both `add_*` functions mutate in place — the graph is a mutable accumulator
+- No `commands` accessor to avoid O(n) allocation on the hot path; use `iter_*`
 
 ### 4.3 Backend Extension Example
 
-Backends extend base commands using polymorphic variant inclusion:
+A backend extends the base command set using polymorphic variant inclusion and
+documents each extended command. The backend lives inside a `Platform.S`
+implementation — the platform is the single entry point the game uses:
 
 ```ocaml
-(* Backend defines its command type *)
-module OpenGL_backend = struct
-  (* Include base commands from eon_engine *)
+(* Backend defines and documents its extended command type *)
+module OpenGL_rendering_backend = struct
   type command = [
-    | Render_commands.command  (* base commands *)
-    | `Apply_shader of shader
-    | `Set_blend_mode of blend_mode
-    | `Draw_particles of particle_system
+    | Render_commands.command  (* base set *)
+    | `Apply_shader    of shader
+    | `Set_blend_mode  of blend_mode
+    | `Draw_particles  of particle_system
   ]
 
-  (* Backend can use base collectors or define custom ones *)
-  let collect_custom world graph =
-    (* Add custom commands to graph *)
-    Render_graph.add graph (`Draw_particles particle_system)
+  let render graph ~dt:_ = (* ... *)
 end
+
+(* Platform.S wires the backend in — game names it once here *)
+module OpenGL_platform : Platform.S = struct
+  type t = [ `OpenGL ]
+  module Rendering_backend = OpenGL_rendering_backend
+  module Input_backend     = Glfw_input_backend
+end
+
+(* Game writes a collector for the extended command — anchored to the platform *)
+let collect_particles (world : World.ro World.t)
+    (graph : OpenGL_platform.Rendering_backend.command Render_graph.t) =
+  Query.from world
+  |> Query.having Components.Particle_emitter.name
+  |> Query.iter (fun view ->
+       let ps = View.get view (module Components.Particle_emitter) in
+       Render_graph.add_world graph (`Draw_particles ps))
 ```
 
-## 5. RenderPipeline
+The collector's graph type is anchored to `OpenGL_platform.Rendering_backend.command`.
+If the platform changes, the type annotation must be updated — the type system
+flags any mismatch at `Render_system.Make(OpenGL_platform.Rendering_backend)`.
+
+## 5. Render_graph_collector
 
 ### 5.1 Purpose
 
-The `RenderPipeline` manages phase ordering and executes collectors that populate the render graph with commands. It mirrors the ECS Pipeline architecture.
+The `Render_graph_collector` holds a set of collector functions and runs them all
+in parallel to populate the render graph. There are no phases and no ordering edges
+— collector order is irrelevant because the backend decides draw order from the
+commands themselves, not from insertion order.
+
+Collectors are pure `World.ro` reads with side effects only on the graph. Because
+they never mutate shared state they are trivially safe to run concurrently.
 
 ### 5.2 Design
 
+`Render_graph_collector` is a functor over `Executor.S` — the same threading seam
+used by the ECS pipeline. By default it is instantiated with `Executor.Sequential`;
+swapping to `Executor.Domain_pool` makes all collectors run concurrently with no
+other code changes.
+
 ```ocaml
-(* render_pipeline.mli *)
+(* render_graph_collector.mli *)
 
 module type S = sig
-  (** The type of the render pipeline, parameterized by command type. *)
+  (** Collector set, generic over command type. *)
   type 'command t
 
-  (** Phase type for ordering render collectors. *)
-  type phase
+  (** Collector function — reads world state, emits commands into the graph.
+      World.ro is enforced by type: collectors never mutate world state. *)
+  type 'command collector = World.ro World.t -> 'command Render_graph.t -> unit
 
-  (** The world type (typically Eon_ecs.World.t). *)
-  type world
+  (** Create an empty collector set. *)
+  val create : unit -> 'command t
 
-  (** Collector function that adds commands to the render graph.
-      
-      Collectors take (world, graph) and populate the graph with commands.
-      They don't return anything - they have side effects on the graph.
-  *)
-  type 'command collector = world -> 'command Render_graph.t -> unit
+  (** Register a collector. *)
+  val add_collector : 'command collector -> 'command t -> 'command t
 
-  (** Create an empty render pipeline for a given world. *)
-  val create : world -> 'command t
-
-  (** Add a phase if not already present. *)
-  val add_phase : phase -> 'command t -> 'command t
-
-  (** Declare [earlier] must run before [later]. *)
-  val before : earlier:phase -> later:phase -> 'command t -> 'command t
-
-  (** Declare [later] must run after [earlier]. *)
-  val after : later:phase -> earlier:phase -> 'command t -> 'command t
-
-  (** Attach a collector to a phase.
-      
-      @raise Invalid_argument if the phase is not registered. *)
-  val add_collector : phase -> 'command collector -> 'command t -> 'command t
-
-  (** Collect all renderable entities into the graph.
-      
-      Runs collectors in topological phase order.
-  *)
-  val collect : 'command t -> 'command Render_graph.t -> unit
-
-  (** Return phases in resolved topological order. *)
-  val phases : 'command t -> phase list
+  (** Run all collectors via the configured Executor.
+      World is passed at call time — no world reference is stored. *)
+  val collect : 'command t -> World.ro World.t -> 'command Render_graph.t -> unit
 end
 
-(** Functor to create a render pipeline. *)
-module Make : S
+(** Build a collector executor over any Executor.S. *)
+module Make (E : Executor.S) : S
+
+(** Default: sequential execution. Zero overhead, correct everywhere. *)
+module Default : S
+```
+
+**Thread safety via private graphs**: each collector receives its own private
+`Render_graph` — never shared with other threads. After `Executor.run_all` returns
+(the barrier), the private graphs are merged into the final graph sequentially via
+a flat `List.iter`. No mutex anywhere — private graphs have one writer each, and
+the merge is single-threaded by construction.
+
+```ocaml
+(* inside Render_graph_collector.Make(E).collect *)
+let collect t world final_graph =
+  let private_graphs = List.map (fun _ -> Render_graph.create ()) t.collectors in
+  let jobs = List.map2 (fun collector pg ->
+    fun () -> collector world pg
+  ) t.collectors private_graphs in
+  E.run_all jobs;
+  (* run_all is a barrier — all collectors done, merge is sequential *)
+  List.iter (fun pg ->
+    Render_graph.iter_world  pg (Render_graph.add_world  final_graph);
+    Render_graph.iter_screen pg (Render_graph.add_screen final_graph)
+  ) private_graphs
+```
+
+`Render_graph` needs no synchronization primitives — it stays a plain mutable
+record. The N private graph allocations are small, short-lived, and immediately
+eligible for GC after the merge.
+
+**Key Points**:
+- No phases, no ordering edges — insertion order is irrelevant; backend decides draw order
+- `World.ro` guarantees no world mutation; private graphs eliminate all write contention
+- `Render_graph` is a plain mutable record — no mutex, no lock-free structures
+- Merge is a flat `List.iter` after the executor barrier — trivially sequential
+- World is passed at `collect` call time; no world reference stored
+- Mirrors `Pipeline.Make` / `Pipeline.Default` — same seam, same swap story
+
+**Swapping to parallel execution**:
+```ocaml
+(* Sequential — default, zero overhead *)
+module Coll = Render_graph_collector.Default
+
+(* Parallel — OCaml 5 Domain pool, true concurrent collector dispatch *)
+module Coll = Render_graph_collector.Make(Executor.Domain_pool.Make(struct
+  let size = Executor.Domain_pool.recommended_size ()
+end))
+
+let render_graph_collector =
+  Coll.create ()
+  |> Coll.add_collector Game.collect_sprites
+  |> Coll.add_collector Game.collect_cameras
+  |> Coll.add_collector Game.collect_particles
+```
+
+### 5.3 Collector Examples
+
+**Collectors are written by the game** — the engine provides none, backends provide none:
+
+```ocaml
+(* Game-written collectors — run fully in parallel *)
+let collect_sprites (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Sprite.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let sprite = View.get view (module Components.Sprite) in
+       Render_graph.add_world graph (`Draw_texture {
+         texture_id = sprite.texture_id;
+         source     = sprite.source_rect;
+         dest       = { x = pos.x; y = pos.y; w = sprite.w; h = sprite.h };
+         rotation   = None;
+         origin     = None;
+         tint       = None;
+         layer      = sprite.layer;
+       }))
+
+let collect_cameras (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Camera.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let camera = View.get view (module Components.Camera) in
+       let target =
+         match View.get_opt view (module Components.Camera_target) with
+         | None -> None
+         | Some ct ->
+           (match World.get_component world ct.target_entity Components.Position.component with
+            | None -> None
+            | Some p -> Some (p.x, p.y))
+       in
+       Render_graph.add_world graph (`Set_camera {
+         position = (pos.x, pos.y);
+         zoom     = camera.zoom;
+         rotation = camera.rotation;
+         target;
+         viewport = camera.viewport;
+       }))
 ```
 
 **Key Points**:
-- Pipeline is generic over command type
-- Collectors take `(world, graph)` and populate the graph
-- Collectors don't return anything (side effects on graph)
-- Pipeline manages phase ordering and collector execution
+- Collectors are written by the game (not by eon_engine, not by backends)
+- Render_graph_collector is a parallel executor — no phases, no ordering, just run everything concurrently
+- Render_graph_collector is backend-agnostic (no knowledge of rendering techniques)
 
-**Implementation Note**: The pipeline is implemented as a regular module (not a functor) that works with any command type. The signature is polymorphic, and the implementation uses OCaml's module system to handle the generic command type.
-
-### 5.3 Implementation Strategy
-
-The render pipeline manages phases and collectors. **Collectors are backend-specific** because:
-- Each backend defines its own command types (extending base commands)
-- Collectors add backend-specific commands to the graph
-- Backend knows which commands it can process
-
-**Pipeline Implementation**:
-```ocaml
-module Make = struct
-  type world = Eon_ecs.World.t
-  type graph = Render_graph.t
-  type phase = string  (* or a polymorphic variant *)
-  type collector = world -> graph -> unit
-
-  type t = {
-    world : world;
-    phases : phase list;
-    before_edges : (phase * phase) list;
-    collectors : (phase * collector) list;
-  }
-
-  let create world = 
-    { world; phases = []; before_edges = []; collectors = [] }
-
-  let add_phase phase t =
-    if List.mem phase t.phases then t
-    else { t with phases = phase :: t.phases }
-
-  let before ~earlier ~later t =
-    { t with before_edges = (earlier, later) :: t.before_edges }
-
-  let after ~later ~earlier t =
-    before ~earlier ~later t
-
-  let add_collector phase collector t =
-    { t with collectors = (phase, collector) :: t.collectors }
-
-  let collect t graph =
-    (* Resolve topological order of phases *)
-    let ordered_phases = resolve_phases t.phases t.before_edges in
-    
-    (* Execute collectors in phase order *)
-    List.iter (fun phase ->
-      List.iter (fun (p, collector) ->
-        if p = phase then collector t.world graph
-      ) t.collectors
-    ) ordered_phases
-
-  let phases t = resolve_phases t.phases t.before_edges
-end
-```
-
-**Collector Implementation Example** (provided by backend):
-```ocaml
-(* Backend defines collectors that know about its specific commands *)
-
-module OpenGL_backend = struct
-  (* Define backend-specific command type *)
-  type command = [
-    | `Draw_sprite of { texture_id : string; position : float * float; 
-                        rotation : float option; scale : (float * float) option }
-    | `Set_camera of { camera : Camera.t; target : (float * float) option }
-    | `Apply_shader of shader  (* backend-specific extension *)
-  ]
-
-  (* Backend defines collectors that add its specific commands *)
-  let collect_opaque world graph =
-    Query.iter2 world "Position" "Sprite" (fun _entity pos sprite ->
-      Render_graph.add graph (`Draw_sprite {
-        texture_id = sprite.texture_id;
-        position = (pos.x, pos.y);
-        rotation = None;
-        scale = None;
-      }))
-
-  let collect_cameras world graph =
-    Query.iter2 world "Position" "Camera" (fun _entity pos camera ->
-      let target =
-        match World.get_component world _entity "Camera_target" with
-        | Some target ->
-            (match World.get_component world target.target_entity_id "Position" with
-             | Some target_pos -> Some (target_pos.x, target_pos.y)
-             | None -> None)
-        | None -> None
-      in
-      Render_graph.add graph (`Set_camera { camera; target }))
-end
-```
-
-**Key Points**:
-- Collectors are backend-specific (not in eon_engine)
-- Backend knows which commands it can process
-- eon_engine doesn't need to know about backend-specific commands
-- Clean decoupling: eon_engine provides infrastructure, backend provides content
-- RenderPipeline only manages phase ordering and collector execution
-- RenderPipeline is backend-agnostic (no knowledge of rendering techniques)
-
-## 6. RenderingBackend
+## 6. Rendering_backend
 
 ### 6.1 Purpose
 
-The `RenderingBackend` is the only component that knows how to render. It receives a `RenderGraph` (already populated by the RenderPipeline) and produces a render result. The backend has complete autonomy over rendering decisions.
+The `Rendering_backend` is the only component that knows how to render. It receives a `Render_graph` (already populated by the Render_graph_collector) and produces a render result. The backend has complete autonomy over rendering decisions.
 
 ### 6.2 Design
 
@@ -390,47 +500,55 @@ val error_to_string : error -> string
 (* rendering_backend.mli *)
 
 module type S = sig
-  (** The command type this backend processes. *)
+  (** The command type this backend processes.
+
+      Defined as a polymorphic variant that extends the base command set.
+      The game writes collectors that emit these commands; the backend
+      documents what each extended command does and what data it expects.
+  *)
   type command
 
-  (** Collectors that populate the RenderGraph with backend-specific commands.
-      
-      These must be registered in the RenderPipeline by the game developer.
-      The engine cannot do this automatically — see the convention note below.
-  *)
-  val collectors : (Eon_ecs.World.t -> command Render_graph.t -> unit) list
+  (** Load all assets known to [lookup] before the game loop starts.
+      The lookup module drives asset discovery; the backend decides how to
+      load and store each (logical_id, absolute_path) pair. *)
+  val init : (module Asset_lookup.S) -> unit
 
   (** Render the populated render graph.
       
-      Called by Platform.S.Renderer in the Render slot (engine loop, after Drain).
-      The graph was built by RenderSystem during the Tick phase and stored in
+      Called by the engine loop in the Render slot (after Drain) via Platform.Rendering_backend.
+      The graph was built by Render_system during the Tick phase and stored in
       the world data plane.
       
       @param graph The populated render graph
       @return Result containing errors and metadata about the rendering process
   *)
   val render : command Render_graph.t -> dt:float -> Rendering_result.t
+
+  (** Release all GPU resources acquired during [init]. *)
+  val shutdown : unit -> unit
 end
 ```
 
-**Convention: Wiring Backend Collectors**
+**Wiring collectors**
 
-Because the command type is a polymorphic variant that backends extend, the engine cannot automatically discover or register backend-specific collectors. The game developer must explicitly add them to the RenderPipeline:
+The game developer adds all collectors explicitly. Collectors that emit only base
+commands work with any backend (`[> Render_commands.command]`). Collectors that
+emit backend-extended commands are tied to backends that include those variants —
+the type system enforces this at the `Render_system.Make` application site:
 
 ```ocaml
-let render_pipeline =
-  Render_pipeline.create world
-  (* Engine base collectors *)
-  |> Render_pipeline.add_collector `Opaque Render_collectors.collect_sprites
-  |> Render_pipeline.add_collector `Cameras Render_collectors.collect_cameras
-  (* Backend collectors — must be added manually *)
-  |> Render_pipeline.add_collectors `Opaque My_backend.collectors
+let render_graph_collector =
+  Render_graph_collector.Default.create ()
+  |> Render_graph_collector.Default.add_collector Game.collect_sprites
+  |> Render_graph_collector.Default.add_collector Game.collect_cameras
+  |> Render_graph_collector.Default.add_collector Game.collect_particles
 ```
 
-This is a **convention enforced by documentation, not by types**. If backend collectors are omitted from the pipeline, backend-specific commands will never appear in the RenderGraph and the backend will silently produce incomplete frames. The canonical location for a backend's collectors is `My_backend.collectors`.
+If a collector is omitted, those commands never appear in the Render_graph and the
+backend silently produces an incomplete frame.
 
 **Key Points**:
-- Backend receives an already-populated `RenderGraph`
+- Backend receives an already-populated `Render_graph`
 - Backend does not create the pipeline or graph
 - Backend has complete control over how to render the graph
 - Backend can implement any rendering technique (shaders, batching, culling, etc.)
@@ -447,21 +565,23 @@ module Terminal_backend = struct
   (* Backend uses base commands only *)
   type command = Render_commands.command
 
-  (* No backend-specific collectors needed for base commands *)
-  let collectors = []
-
   let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
       let sprite_count = ref 0 in
       let camera_count = ref 0 in
       Render_graph.iter graph (function
-        | `Draw_sprite { texture_id; position; rotation; scale } ->
-            draw_ascii_sprite texture_id position rotation scale;
+        | `Draw_texture { texture_id; source; dest; rotation; tint; _ } ->
+            draw_ascii_texture texture_id source dest rotation tint;
             incr sprite_count
-        | `Set_camera { camera; target } ->
-            set_ascii_camera camera target;
+        | `Set_camera { position; zoom; rotation; target; viewport } ->
+            set_ascii_camera position zoom rotation target viewport;
             incr camera_count
+        | `Clear_background color -> clear_ascii color
+        | `Draw_text { text; position; _ } -> draw_ascii_text text position
+        | `Draw_rect { rect; color; filled; _ } -> draw_ascii_rect rect color filled
+        | `Draw_circle { center; radius; color; _ } -> draw_ascii_circle center radius color
+        | `Draw_line { start; stop; _ } -> ignore (start, stop)
       );
       result
       |> Rendering_result.with_metadata "backend" "terminal"
@@ -479,28 +599,27 @@ end
 
 ```ocaml
 module Custom_backend = struct
-  (* Backend extends base commands with its own *)
+  (* Backend extends base commands with its own.
+     The game writes collectors that emit these; the backend only consumes them. *)
   type command = [
     | Render_commands.command
     | `Draw_particles of particle_system
     | `Apply_shader of shader
   ]
 
-  (* Backend provides collectors for its own command types *)
-  let collect_particles world graph =
-    Query.iter1 world "ParticleSystem" (fun _entity ps ->
-      Render_graph.add graph (`Draw_particles ps))
-
-  let collectors = [ collect_particles ]
-
   let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
       Render_graph.iter graph (function
-        | `Draw_sprite data   -> (* handle sprite *)
+        | `Draw_texture data  -> (* handle texture/sprite *)
         | `Set_camera data    -> (* handle camera *)
-        | `Draw_particles ps  -> (* handle particles *)
-        | `Apply_shader s     -> (* apply shader *)
+        | `Clear_background c -> (* clear *)
+        | `Draw_text data     -> (* handle text *)
+        | `Draw_rect data     -> (* handle rect *)
+        | `Draw_circle data   -> (* handle circle *)
+        | `Draw_line data     -> (* handle line *)
+        | `Draw_particles ps  -> (* handle particles — extended command *)
+        | `Apply_shader s     -> (* apply shader — extended command *)
       );
       result
     with exn ->
@@ -515,17 +634,112 @@ end
 - Errors are caught and returned in the result (no unhandled exceptions)
 - Metadata provides rendering statistics and debugging information
 
-## 7. RenderSystem
+### 6.4 Asset Loading — Backend Responsibility
+
+The `Rendering_backend` is responsible for loading and managing its own assets.
+There is no central asset manager in the engine. Each backend owns the GPU handles,
+font atlases, and any other resources it needs — the game never sees them.
+
+The game uses stable string identifiers (`texture_id`, `font_id`) as logical names.
+The backend resolves those strings to its internal resource handles at render time.
+
+**Asset_lookup.S — the asset discovery seam**
+
+Asset discovery is abstracted behind a signature, consistent with every other
+platform seam in the engine:
+
+```ocaml
+(* asset_lookup.mli *)
+
+module type S = sig
+  (** Iterate all known (logical_id, absolute_path) pairs.
+      Called by the backend at init time to preload all assets.
+      The backend drives iteration; the lookup module feeds it one pair at a time. *)
+  val iter : (string -> string -> unit) -> unit
+end
+
+(** Scans [asset_dir] recursively at init time. The relative path from
+    [asset_dir] becomes the logical identifier. [asset_dir] is resolved
+    relative to the game binary via [Sys.executable_name]. *)
+module Dir : sig
+  include S
+  val create : asset_dir:string -> (module S)
+end
+
+(** Always empty — for tests that do not need real assets. *)
+module Null : S
+
+(** Hand-maintained list of (logical_id, absolute_path) pairs — for tests
+    that need precise control over which assets are visible. *)
+module Scripted : sig
+  include S
+  val create : (string * string) list -> (module S)
+end
+```
+
+The backend at `init` time calls `iter` and loads whatever the lookup module
+provides:
+
+```ocaml
+let init (module Lookup : Asset_lookup.S) =
+  Lookup.iter (fun logical_id absolute_path ->
+    let handle = load_gpu_texture absolute_path in
+    Hashtbl.add internal_map logical_id handle)
+```
+
+**Production wiring** uses `Asset_lookup.Dir` — the directory structure is the
+manifest; drop a file in the right folder and it is immediately available:
+
+```
+assets/
+  sprites/player.png     → texture_id: "sprites/player.png"
+  sprites/tileset.png    → texture_id: "sprites/tileset.png"
+  fonts/ui.ttf           → font_id:    "fonts/ui.ttf"
+```
+
+```ocaml
+let lookup = Asset_lookup.Dir.create ~asset_dir:"assets"
+let () = Platform.Rendering_backend.init lookup
+```
+
+**Test wiring** uses `Asset_lookup.Null` — backend initialises without touching
+the filesystem:
+
+```ocaml
+let () = Test_backend.init (module Asset_lookup.Null)
+```
+
+Game code uses only the logical key — never a path:
+
+```ocaml
+Render_graph.add_world graph (`Draw_texture {
+  texture_id = "sprites/player.png";
+  (* ... *)
+})
+```
+
+**Key Points**:
+- The engine has no asset manager — each backend owns its resources from `init` to `shutdown`
+- `Asset_lookup.S` is a seam like `Input_backend.S` — swappable without touching the backend
+- `Dir` is the production default; `Null` and `Scripted` make tests filesystem-free
+- `Audio_backend.init` takes its own `Asset_lookup.S`; the two are fully independent
+- Hot reloading and streaming can be layered on top later without changing the interface —
+  a coordinator system sets a `needs_reload` flag on the relevant component, the collector
+  propagates it into the command, and the backend reloads from disk when it sees the flag
+- GC-style eviction is a natural backend implementation option — the backend tracks
+  `last_used_frame` per asset and evicts anything not seen in the graph for N frames;
+  zone transitions become automatic with no explicit load/unload calls from game code;
+  revisit when implementing `eon_raylib`
 
 ### 7.1 Purpose
 
-The `RenderSystem` is a standard ECS system that:
-1. Overwrites the RenderGraph resource in the world data plane with a fresh empty graph
-2. Runs the RenderPipeline (collectors extract rendering data from entities)
-3. Stores the populated RenderGraph back into the world data plane
+The `Render_system` is a standard ECS system that:
+1. Overwrites the Render_graph resource in the world data plane with a fresh empty graph
+2. Runs the Render_graph_collector (collectors extract rendering data from entities)
+3. Stores the populated Render_graph back into the world data plane
 
-The RenderSystem **never calls the backend**. It only builds and stores the graph.
-Backend.render is called by `Platform.S.Renderer` in the Render slot (engine loop, after Drain).
+The Render_system **never calls the backend**. It only builds and stores the graph.
+Platform.Rendering_backend.render is called by the engine loop in the Render slot (after Drain).
 
 ### 7.2 Design
 
@@ -535,7 +749,7 @@ Backend.render is called by `Platform.S.Renderer` in the Render slot (engine loo
 (** Functor that creates a render system bound to a specific command type.
     
     The functor binds the pipeline's command type at construction time,
-    ensuring the stored RenderGraph matches what Platform.S.Renderer will read.
+    ensuring the stored Render_graph command type matches Platform.Rendering_backend.command.
     
     @param B The backend module (must implement Rendering_backend.S)
 *)
@@ -543,46 +757,37 @@ module Make (B : Rendering_backend.S) : sig
   (** Create a render system.
       
       Each frame the system:
-      1. Overwrites the RenderGraph resource with a fresh empty graph
-      2. Runs the RenderPipeline (collectors populate the graph)
+      1. Overwrites the Render_graph resource with a fresh empty graph
+      2. Runs the Render_graph_collector (collectors populate the graph)
       3. Stores the populated graph back into the world data plane
       
       The graph is always overwritten — no double-buffering.
       
-      @param render_pipeline Pipeline configured with collectors
-      @return ECS system that builds and stores the RenderGraph
+      @param render_graph_collector Pipeline configured with collectors
+      @return ECS system that builds and stores the Render_graph
   *)
-  val make : render_pipeline:B.command Render_pipeline.t -> Eon_ecs.System.t
+  val make : render_graph_collector:B.command Render_graph_collector.t -> Eon_engine.System.Default.t
 end
 ```
 
 **Key Architecture**:
-- RenderSystem is purely a graph-builder — no backend dependency at runtime
+- Render_system is purely a graph-builder — no backend dependency at runtime
 - The world data plane (resource store) is the handoff between Tick and Render
-- `Platform.S.Renderer` owns the backend call at the engine level; `eon_ecs` is clean of all rendering concerns
+- the engine loop owns the `Platform.Rendering_backend.render` call; `eon_ecs` is clean of all rendering concerns
 
 ### 7.3 Integration with ECS Pipeline
 
 ```ocaml
-(* Define render pipeline with phases and collectors *)
-let render_pipeline =
-  Render_pipeline.create world
-  |> Render_pipeline.add_phase `Background
-  |> Render_pipeline.add_phase `Opaque
-  |> Render_pipeline.add_phase `Transparent
-  |> Render_pipeline.add_phase `UI
-  |> Render_pipeline.before ~earlier:`Background ~later:`Opaque
-  |> Render_pipeline.before ~earlier:`Opaque ~later:`Transparent
-  |> Render_pipeline.before ~earlier:`Transparent ~later:`UI
-  (* Engine base collectors *)
-  |> Render_pipeline.add_collector `Opaque Render_collectors.collect_sprites
-  |> Render_pipeline.add_collector `Cameras Render_collectors.collect_cameras
-  (* Backend collectors — must be added manually (see convention note in §6.2) *)
-  |> Render_pipeline.add_collectors `Opaque My_backend.collectors
+(* Register collectors — no phases, no ordering; all run in parallel *)
+let render_graph_collector =
+  Render_graph_collector.Default.create ()
+  |> Render_graph_collector.Default.add_collector Game.collect_sprites
+  |> Render_graph_collector.Default.add_collector Game.collect_cameras
+  |> Render_graph_collector.Default.add_collector Game.collect_particles
 
-(* Create render system *)
-module My_render_system = Render_system.Make(My_backend)
-let render_system = My_render_system.make ~render_pipeline
+(* Create render system — always via Platform.Rendering_backend, not the backend module directly *)
+module My_render_system = Render_system.Make(My_platform.Rendering_backend)
+let render_system = My_render_system.make ~render_graph_collector
 
 (* Add to ECS pipeline *)
 let ecs_pipeline =
@@ -593,37 +798,36 @@ let ecs_pipeline =
 
 ### 7.4 System Execution Flow
 
-When the RenderSystem runs (during ECS Pipeline Tick phase):
+When the Render_system runs (during ECS Pipeline Tick phase):
 
 ```
-RenderSystem.update world dt:
-1. graph = Render_graph.create ()           (* fresh graph, discards previous *)
-2. World.set_resource world `RenderGraph graph   (* store in data plane *)
-3. Render_pipeline.collect render_pipeline graph
-   - Collectors query world state and add commands to graph
+Render_system.update world dt:
+1. graph = Render_graph.create ()                    (* fresh graph, discards previous *)
+2. World.set_data world `Render_graph graph           (* store mutable ref in data plane *)
+3. Render_graph_collector.collect render_graph_collector (World.readonly world) graph
+   - Collectors query world state and add commands to graph (mutates graph in place)
    - Commands are polymorphic variants (extensible by backend)
 4. Return unit
    (graph remains in data plane until next frame overwrites it)
 
-Platform.Renderer.render world ~dt:         (* called in Render slot, after Drain *)
-1. graph = World.get_resource world `RenderGraph
-2. result = Backend.render graph ~dt
+Platform.Rendering_backend.render (called by engine loop in Render slot, after Drain):
+1. graph = World.get_data world `Render_graph
+2. result = Platform.Rendering_backend.render graph ~dt
 3. Log errors; store metadata
 ```
 
 ### 7.5 Loop Integration
 
-The `eon_ecs` loop (`Loop.Make`) carries no renderer — it is `collect → tick → drain` only. The render call happens in the `eon_engine` loop via `Platform.S.Renderer`, which reads the RenderGraph from the world data plane and calls the backend. It is created via a functor and wired into the platform:
+The `eon_ecs` loop carries no renderer — it is `collect → tick → drain` only.
+The render call happens in the `eon_engine` loop; `Loop.Make` internally derives
+the renderer from `Platform.Rendering_backend`. Game code only provides the
+platform:
 
 ```ocaml
-(* Make_renderer creates the Platform.Renderer for a specific backend *)
-module My_renderer = Render_loop_renderer.Make(My_backend)
-
-(* Platform bundles renderer + input_backend *)
 module My_platform : Platform.S = struct
   type t = [ `My_platform ]
-  module Renderer      = My_renderer      (* reads RenderGraph, calls My_backend.render *)
-  module Input_backend = My_input
+  module Rendering_backend = My_render_backend
+  module Input_backend  = My_input_backend
 end
 
 module Loop = Eon_engine.Loop.Make
@@ -633,100 +837,69 @@ module Loop = Eon_engine.Loop.Make
   (Eon_engine.Loop_buses)
 ```
 
-**Result Processing**:
-- `My_renderer` handles the `Rendering_result.t` (logs errors, stores metadata)
-- The engine loop orchestrates the render call after drain; `eon_ecs` is entirely free of rendering concerns
+The engine loop reads the `Render_graph` from the world data plane, calls
+`Platform.Rendering_backend.render`, and handles `Rendering_result.t` (logging
+errors). `eon_ecs` is entirely free of rendering concerns.
 
 ## 8. Platform.S Integration
 
 ### 8.1 Overview
 
-`Platform.S` currently carries only `Input_backend` — `Renderer` was
-intentionally omitted until the rendering layer exists. Implementing this design
-document requires extending `Platform.S` with a `Renderer` module and updating
-`eon_engine` Loop.Make to call it after drain each frame.
+`Platform.S` currently carries only `Input_backend`. Implementing the rendering
+layer requires adding `Rendering_backend` — named to match `Input_backend`. The
+game developer names their backend exactly once, in their `Platform.S`
+implementation. The engine loop reads the graph and calls the backend directly —
+no adapter module in between.
 
-This section describes exactly what to add and how the pieces connect.
-
-### 8.2 Renderer.S — the platform seam
-
-`Renderer.S` is the interface `Platform.S.Renderer` must satisfy. It receives
-the world (read-write, so platform-managed buffers in the data plane can be
-written) and the frame delta:
-
-```ocaml
-(* eon_engine/renderer.mli *)
-module type S = sig
-  val render : World.rw World.t -> dt:float -> unit
-end
-
-module Noop : S
-```
-
-The implementation reads the `RenderGraph` from the world data plane and calls
-the backend. It never touches the ECS entities or components.
-
-### 8.3 Render_loop_renderer.Make — bridging the data plane and the backend
-
-`Render_loop_renderer.Make(B)` is a functor that takes a backend and produces
-the `Renderer.S` implementation for `Platform.S`:
-
-```ocaml
-(* eon_engine/render_loop_renderer.ml *)
-module Make (B : Rendering_backend.S) : Renderer.S = struct
-  let render world ~dt =
-    match World.get_data world `Render_graph with
-    | None -> ()   (* RenderSystem has not run yet — first frame or headless *)
-    | Some (graph : B.command Render_graph.t) ->
-        let result = B.render graph ~dt in
-        if Rendering_result.has_errors result then
-          List.iter
-            (fun e -> Printf.eprintf "[renderer] %s\n" (Rendering_result.error_to_string e))
-            result.errors
-end
-```
-
-### 8.4 Extended Platform.S
-
-Once the rendering layer is implemented, `Platform.S` gains the `Renderer`
-module:
+### 8.2 Extended Platform.S
 
 ```ocaml
 (* platform.mli — target state after rendering layer is implemented *)
 module type S = sig
   type t
-  module Renderer      : Renderer.S
-  module Input_backend : Input_backend.S
+  module Rendering_backend : Rendering_backend.S
+  module Input_backend  : Input_backend.S
 end
 ```
 
-`Platform.Headless` adds a no-op renderer (suitable for servers, CI, tests that
-do not need visual output):
+`Platform.Headless` gains a null render backend for servers, CI, and tests:
 
 ```ocaml
 module Headless = struct
   type t = [ `Headless ]
-  module Renderer      = Renderer.Noop
-  module Input_backend = Input_backend.Null
+  module Rendering_backend = Rendering_backend.Null
+  module Input_backend  = Input_backend.Null
 end
 ```
 
-A game platform module wires `Render_loop_renderer.Make` to the chosen backend:
+A real platform module names the backend once — no separate functor application:
 
 ```ocaml
-module My_renderer = Render_loop_renderer.Make(My_backend)
-
-module My_platform : Platform.S = struct
-  type t = [ `My_platform ]
-  module Renderer      = My_renderer
-  module Input_backend = My_input_backend
+module Raylib_platform : Platform.S = struct
+  type t = [ `Raylib ]
+  module Rendering_backend = Raylib_render_backend
+  module Input_backend  = Raylib_input_backend
 end
 ```
 
-### 8.5 Updated Loop.Make — render call after drain
+### 8.3 Render_system.Make — the only backend functor application
 
-With `Renderer` in `Platform.S`, `eon_engine` Loop.Make adds the render call
-as the final step of each frame:
+The game wires the backend into the render system via `Platform.Rendering_backend`,
+not by naming the backend module independently:
+
+```ocaml
+module My_render_system = Render_system.Make(Raylib_platform.Rendering_backend)
+let render_system = My_render_system.make ~render_graph_collector
+```
+
+This is the only place in game code where the backend functor is applied. The
+type system ensures the `render_graph_collector` command type matches the backend's
+command type at this point.
+
+### 8.4 Loop.Make — render call after drain
+
+No adapter module is needed. `Loop.Make` reads the graph from the world data
+plane and calls `Platform.Rendering_backend.render` directly:
 
 ```ocaml
 let step ~progress ~world ~last_time ~now ~should_continue =
@@ -736,20 +909,27 @@ let step ~progress ~world ~last_time ~now ~should_continue =
   let dt = now -. last_time in
   let world = Progress.tick progress ~world ~dt in
   Buses.drain ();
-  Platform.Renderer.render world ~dt;   (* reads RenderGraph, calls backend *)
+  (match World.get_data world `Render_graph with
+   | None -> ()   (* first frame only — Render_system has not run yet *)
+   | Some (graph : Platform.Rendering_backend.command Render_graph.t) ->
+       let result = Platform.Rendering_backend.render graph ~dt in
+       if Rendering_result.has_errors result then
+         List.iter
+           (fun e -> Printf.eprintf "[renderer] %s\n" (Rendering_result.error_to_string e))
+           result.errors);
   let continue = should_continue world in
   (world, now, continue)
 ```
 
-Updated frame order:
+Frame order:
 
 ```
 1. Platform.Input_backend.collect () — poll backend; write Raw_input_frame
 2. Buses.collect — Signals → Events → Commands
-3. Progress.tick — all systems run, including RenderSystem:
-     RenderSystem clears RenderGraph, runs RenderPipeline, stores graph
+3. Progress.tick — all systems run, including Render_system:
+     Render_system clears Render_graph, runs Render_graph_collector, stores graph
 4. Buses.drain — Signals → Commands → Events
-5. Platform.Renderer.render world ~dt — reads RenderGraph, calls backend
+5. Platform.Rendering_backend.render graph ~dt — reads Render_graph, calls backend
 ```
 
 `eon_ecs` Loop.Make remains `collect → tick → drain` only — it never grows a
@@ -794,142 +974,60 @@ type t = {
 
 ### 9.2 Query Patterns
 
-Collectors (attached to RenderPipeline phases) use the query system to find renderable entities and add rendering commands:
+Game collectors use the query builder to find renderable entities and emit base
+commands. The game writes these — the engine has no opinion on component names
+or layout:
 
 ```ocaml
-(* Sprites with positions *)
-let collect_sprites world graph =
-  Query.iter2 world "Position" "Sprite" (fun _entity pos sprite ->
-    Render_graph.add graph (`Draw_sprite {
-      texture_id = sprite.texture_id;
-      position = (pos.x, pos.y);
-      rotation = None;
-      scale = None;
-    }))
+(* game code *)
+let collect_sprites (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Sprite.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let sprite = View.get view (module Components.Sprite) in
+       Render_graph.add_world graph (`Draw_texture {
+         texture_id = sprite.texture_id;
+         source     = sprite.source_rect;
+         dest       = { x = pos.x; y = pos.y; w = sprite.w; h = sprite.h };
+         rotation   = None;
+         origin     = None;
+         tint       = None;
+         layer      = sprite.layer;
+       }))
 
-(* Animated sprites (rotation can be extracted from Animation component) *)
-let collect_animated_sprites world graph =
-  Query.iter3 world "Position" "Sprite" "Animation" 
-    (fun _entity pos sprite anim ->
-      let rotation = Some (anim.current_angle) in
-      Render_graph.add graph (`Draw_sprite {
-        texture_id = sprite.texture_id;
-        position = (pos.x, pos.y);
-        rotation;
-        scale = None;
-      }))
-
-(* Cameras *)
-let collect_cameras world graph =
-  Query.iter2 world "Position" "Camera" (fun _entity pos camera ->
-    Render_graph.add graph (`Set_camera { camera; target = None }))
+let collect_cameras (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Camera.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let camera = View.get view (module Components.Camera) in
+       Render_graph.add_world graph (`Set_camera {
+         position = (pos.x, pos.y);
+         zoom     = camera.zoom;
+         rotation = camera.rotation;
+         target   = None;
+         viewport = camera.viewport;
+       }))
 ```
 
-## 10. Design Goals
+Collectors for backend-extended commands (particles, shaders, etc.) follow the
+same pattern — query game components, emit backend-specific variants, attach to
+an appropriate phase. The backend documents what each extended command expects.
 
-### 10.1 Backend Autonomy
-
-- Backend decides rendering order (by layer, shader, distance, etc.)
-- Backend decides shader usage and techniques
-- Backend decides output format (terminal, OpenGL, Vulkan, etc.)
-- Engine provides data; backend decides how to use it
-
-### 10.2 Minimal Interface
-
-- `Rendering_backend.S` has minimal methods
-- Ideally just `render` function
-- Backend can extend with additional methods as needed
-- No forced rendering techniques
-
-### 10.3 Pluggable Backends
-
-- Backends selected at compile time via functor application
-- Easy to swap backends for different platforms
-- Users can create custom backends for specific needs
-
-### 10.4 Decoupled Design
-
-- Engine doesn't know about rendering details
-- Rendering components are just data
-- No rendering logic in engine core
-- Backend is the only component with rendering knowledge
-
-## 11. Future Extensions
-
-### 11.1 Render Graph Extensions
-
-- **Particles**: Particle system entities
-- **Text**: Text rendering entities
-- **UI Elements**: UI component entities
-- **Post-processing**: Full-screen effects
-
-### 11.2 Backend Features
-
-- **Shader System**: Backend-managed shaders
-- **Batching**: Automatic draw call batching
-- **Culling**: Frustum or occlusion culling
-- **Instancing**: Hardware instancing support
-
-### 11.3 Pipeline Features
-
-- **Layer System**: Automatic layer sorting
-- **Render Groups**: Group entities by shader/technique
-- **Render States**: State change optimization
-
-## 12. UI Rendering
+## 10. UI Rendering
 
 UI rendering (microui integration, UI primitive commands, the raygui tradeoff)
 is specified in `docs/design/microui_ui_system_design.md`. That work is deferred
-until the core rendering layer (phases 1–5 below) is complete.
+until the core rendering layer is implemented.
 
-## 13. Implementation Roadmap
-
-**Note**: The implementation roadmap below provides a suggested sequence of phases. The exact details and API may be refined during implementation. This is a guideline, not a fixed specification. Task IDs are TBD — ecs-021 is assigned to the parallel pipeline; rendering tasks will be numbered from wherever the sequence lands after that.
-
-### Phase 1: Base Commands and Collectors
-- [ ] Define `Render_commands.mli` with base command type
-- [ ] Define base collectors (collect_sprites, collect_cameras, etc.)
-- [ ] Implement base collectors that add base commands
-- [ ] Unit tests for base commands and collectors
-
-### Phase 2: Render Graph
-- [ ] Define `Render_graph.S` signature (generic over command type)
-- [ ] Implement generic render graph structure
-- [ ] Support for adding and iterating commands
-- [ ] Unit tests for graph operations
-
-### Phase 3: Render Pipeline
-- [ ] Define `Render_pipeline.S` signature (mirrors ECS Pipeline, generic over command type)
-- [ ] Implement pipeline with phases and ordering (before/after)
-- [ ] Support for collectors attached to phases
-- [ ] Topological phase ordering
-- [ ] Integration tests
-
-### Phase 4: Render System
-- [ ] Define `Render_system.S` signature
-- [ ] Implement system that:
-  - Initializes RenderGraph each frame
-  - Runs RenderPipeline to populate graph
-  - Calls backend.render with graph
-- [ ] Integration with ECS Pipeline
-
-### Phase 5: Rendering Backend
-- [ ] Define `Rendering_backend.S` signature
-- [ ] Implement simple reference backend
-- [ ] Show how backends extend base commands
-- [ ] Documentation for backend creation
-
-### Phase 6: Backend Implementations
-- [ ] Implement terminal backend (ASCII art)
-- [ ] Implement simple OpenGL backend
-- [ ] Document backend creation patterns
-- [ ] Example projects using different backends
-
-## 14. Example Usage
+## 11. Example Usage
 
 **Important Note**: The examples below are illustrative guidelines, not final implementations. They represent ideas that will be iterated over in later phases. The exact API and implementation details may change as the rendering layer evolves.
 
-### 14.1 Basic Usage
+### 12.1 Basic Usage
 
 ```ocaml
 (* Create world and register components *)
@@ -937,26 +1035,22 @@ let world = Eon_ecs.World.create ()
 let () = Eon_engine.Components.Engine_components.register_all world
 
 (* Create entities with rendering components *)
-let player = Eon_ecs.World.create_entity world
-let () = Eon_ecs.World.add_component world player ~name:"Position" (0.0, 0.0)
-let () = Eon_ecs.World.add_component world player ~name:"Sprite" {
-  texture_id = "player.png";
-  layer = 10;
-  flip_x = false;
-  flip_y = false;
-}
+let player = World.create_entity world
+let () =
+  World.add_component world player Components.Position.component { x = 0.0; y = 0.0 };
+  World.add_component world player Components.Sprite.component {
+    texture_id = "player.png";
+    layer      = 10;
+    flip_x     = false;
+    flip_y     = false;
+  }
 
-(* Backend extends base commands with custom commands *)
+(* Backend extends base commands with custom commands — documents them, consumes them *)
 module My_backend = struct
   type command = [
     | Render_commands.command  (* base commands *)
-    | `Apply_shader of shader  (* backend-specific *)
+    | `Apply_shader of shader  (* backend-specific: documented in My_backend docs *)
   ]
-
-  (* Collectors for backend-specific commands *)
-  let collect_shaders world graph = (* ... *)
-
-  let collectors = [ collect_shaders ]
 
   let render graph ~dt:_ =
     let result = Rendering_result.empty in
@@ -964,34 +1058,31 @@ module My_backend = struct
     result
 end
 
-(* Define render pipeline — engine base collectors + backend collectors *)
-let render_pipeline =
-  Render_pipeline.create world
-  |> Render_pipeline.add_phase `Opaque
-  |> Render_pipeline.add_phase `Cameras
-  |> Render_pipeline.add_collector `Opaque Render_collectors.collect_sprites
-  |> Render_pipeline.add_collector `Cameras Render_collectors.collect_cameras
-  (* Backend collectors must be added manually *)
-  |> Render_pipeline.add_collectors `Opaque My_backend.collectors
+(* Game writes all collectors — base and backend-extended *)
+let collect_shaders (world : World.ro World.t) graph = (* query ShaderComponent, emit `Apply_shader *)
 
-(* Create render system (builds and stores RenderGraph each Tick) *)
-module My_render_system = Render_system.Make(My_backend)
-let render_system = My_render_system.make ~render_pipeline
+let render_graph_collector =
+  Render_graph_collector.Default.create ()
+  |> Render_graph_collector.Default.add_collector Game.collect_sprites
+  |> Render_graph_collector.Default.add_collector Game.collect_cameras
+  |> Render_graph_collector.Default.add_collector collect_shaders
+
+(* Platform — Rendering_backend named once; Loop.Make derives the internal renderer *)
+module My_platform : Platform.S = struct
+  type t = [ `My_platform ]
+  module Rendering_backend = My_backend
+  module Input_backend  = My_input_backend
+end
+
+(* Render system — uses Platform.Rendering_backend to fix the command type *)
+module My_render_system = Render_system.Make(My_platform.Rendering_backend)
+let render_system = My_render_system.make ~render_graph_collector
 
 (* Add render system to ECS pipeline *)
 let ecs_pipeline =
   Pipeline.create ()
   |> Pipeline.add_phase `Render
   |> Pipeline.add_system `Render render_system
-
-(* Platform.Renderer reads RenderGraph from data plane and calls My_backend.render *)
-module My_renderer = Render_loop_renderer.Make(My_backend)
-
-module My_platform : Platform.S = struct
-  type t = [ `My_platform ]
-  module Renderer      = My_renderer
-  module Input_backend = My_input
-end
 
 module Loop = Eon_engine.Loop.Make
   (Eon_ecs.Clock.Mtime)
@@ -1004,76 +1095,83 @@ let () =
   Loop.run ~progress ~world ~should_continue:(fun _ -> true) ()
 ```
 
-### 14.2 Custom Backend
+### 12.2 Custom Backend
 
 ```ocaml
 module Custom_backend = struct
   (* Backend uses base commands only *)
   type command = Render_commands.command
 
-  (* No backend-specific collectors needed *)
-  let collectors = []
-
-  (* render is called by Platform.S.Renderer in the Render slot (engine loop, after Drain) *)
+  (* render is called by the engine loop via Platform.Rendering_backend in the Render slot (after Drain) *)
   let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
-      let sprite_count = ref 0 in
+      let texture_count = ref 0 in
       Render_graph.iter graph (function
-        | `Draw_sprite { texture_id; position; rotation; scale } ->
-            draw_sprite ?rotation ?scale position texture_id;
-            incr sprite_count
-        | `Set_camera { camera; target } ->
-            set_camera camera target
+        | `Clear_background color          -> clear color
+        | `Set_camera { position; zoom; rotation; target; viewport } ->
+            set_camera position zoom rotation target viewport
+        | `Draw_texture { texture_id; source; dest; rotation; tint; _ } ->
+            draw_texture texture_id source dest rotation tint;
+            incr texture_count
+        | `Draw_text { text; position; font_id; size; color; _ } ->
+            draw_text text position font_id size color
+        | `Draw_rect { rect; color; filled; _ } -> draw_rect rect color filled
+        | `Draw_circle { center; radius; color; filled; _ } -> draw_circle center radius color filled
+        | `Draw_line { start; stop; thickness; color; _ } -> draw_line start stop thickness color
       );
-      Rendering_result.with_metadata result "sprites_rendered"
-        (string_of_int !sprite_count)
+      Rendering_result.with_metadata result "textures_rendered"
+        (string_of_int !texture_count)
     with exn ->
       Rendering_result.with_error result (`Backend_error (Printexc.to_string exn))
 end
 ```
 
 **Key Points**:
-- RenderGraph contains rendering commands (polymorphic variants); no entity references
-- Backend.render is called only by `Platform.S.Renderer` in the Render slot (after drain, in the engine loop)
-- RenderSystem only builds and stores the graph — it never calls the backend
+- Render_graph contains rendering commands (polymorphic variants); no entity references
+- `Platform.Rendering_backend.render` is called only by the engine loop in the Render slot (after drain)
+- Render_system only builds and stores the graph — it never calls the backend
 - Backends can extend the command set using polymorphic variant inclusion
-- Backend collectors for extended commands must be added to the RenderPipeline manually
+- The game writes collectors for extended commands the same way it writes collectors for base commands
 
-## 15. Conclusion
+## 12. Conclusion
 
 The rendering layer provides a clean separation of concerns:
-- **Engine**: Provides infrastructure, base commands, and base collectors
-- **RenderPipeline**: Phase-based collection pipeline (mirrors ECS Pipeline)
-- **RenderSystem**: ECS system that builds and stores the RenderGraph in the world data plane
-- **Platform.S.Renderer**: Reads the RenderGraph from the data plane and calls Backend.render (via engine loop, after drain)
-- **RenderingBackend**: Has complete control over how to render the graph
+- **Engine**: Infrastructure, base command vocabulary, collector type
+- **Render_graph_collector**: Phase-based collector executor (mirrors ECS Pipeline)
+- **Render_system**: ECS system that drives the pipeline each tick and stores the graph in the world data plane
+- **eon_engine Loop.Make**: Internally reads the graph and calls `Platform.Rendering_backend.render` after drain
+- **Platform.Rendering_backend**: Has complete control over how to render the graph
 
 **Frame contract**:
 - Collect: Signals → Events → Commands
-- Tick: All systems run (including RenderSystem — builds RenderGraph, stores in data plane)
+- Tick: All systems run (including Render_system — clears graph, runs pipeline, stores graph)
 - Drain: Signals → Commands → Events
-- Render: `Platform.S.Renderer` reads RenderGraph from data plane, calls Backend.render
+- Render: engine loop reads Render_graph from data plane, calls `Platform.Rendering_backend.render`
 
-Note: `eon_ecs` Loop carries no renderer — it is `collect → tick → drain` only. The Render slot is an engine-layer concern, orchestrated by `eon_engine` Loop via `Platform.S`.
+`eon_ecs` Loop carries no renderer — it is `collect → tick → drain` only. The Render slot is an `eon_engine` concern exclusively.
 
-**RenderSystem should run after all other systems** to ensure the world state is fully updated before collecting rendering data.
+**Render_system should run after all other systems** to ensure world state is fully updated before collecting rendering data.
 
-**RenderGraph handoff**:
-- The RenderGraph resource in the world data plane is overwritten every frame (no double-buffering)
-- This is safe because the Render slot always consumes the graph written in the same Tick
-- RenderSystem never calls the backend; `Platform.S.Renderer` never touches the ECS pipeline
+**Render_graph handoff**:
+- Overwritten every frame — no double-buffering needed
+- Safe because the Render slot always consumes the graph written in the same Tick
+- Render_system never calls the backend; the engine loop never touches the ECS pipeline
+
+**Backend naming**:
+- The game names `Platform.Rendering_backend` exactly once, in its `Platform.S` implementation
+- `Render_system.Make(My_platform.Rendering_backend)` is the only functor application in game code
+- `Loop.Make` calls `Platform.Rendering_backend.render` directly — no adapter in between
 
 **Command-Based Design**:
-- **Base commands**: Backend-agnostic commands in eon_engine (sprites, cameras, etc.)
-- **Base collectors**: Provided by eon_engine; work with any command type that includes base commands
-- **Backend extension**: Backends extend base commands using polymorphic variant inclusion
-- **Backend collectors**: Provided by the backend for its own command types; exposed as `Backend.collectors`
-- **Convention**: The game developer must register backend collectors in the RenderPipeline manually (not enforced by types — see §6.2)
+- **Base commands**: Backend-agnostic; defined in eon_engine; any backend can consume them
+- **Game collectors**: Written by the game for all commands — base and backend-extended alike
+- **Backend extension**: Backends extend base commands via polymorphic variant inclusion and document each extended command
+- **Type safety**: `Render_system.Make(Platform.Rendering_backend)` fixes the command type; mismatched collectors are a compile error
 
 **Decoupling Architecture**:
-- eon_engine provides: RenderGraph, RenderPipeline, RenderSystem, base commands, base collectors
-- Backend provides: Extended command type, `collectors` for those types, `render` logic
-- `Platform.S.Renderer` (`Render_loop_renderer.Make(B)`) bridges the data plane and the backend
+- eon_engine provides: Render_graph, Render_graph_collector, Render_system, base command vocabulary, collector type
+- Platform.Rendering_backend provides: Extended command type and `render` logic
+- Game provides: All collectors; the `Platform.S` implementation; the `render_graph_collector`
 
 **Note**: This design document provides architectural guidelines and implementation ideas. The exact API and implementation details will be refined during implementation phases.

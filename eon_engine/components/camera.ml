@@ -1,14 +1,9 @@
-(** Camera component for Eon Engine. *)
-
 open Component_descriptor
 
 type t = {
-  x          : float;
-  y          : float;
-  zoom       : float;
-  viewport_w : float;
-  viewport_h : float;
-  rotation   : float;
+  zoom     : float option;
+  rotation : float option;
+  viewport : (float * float * float * float) option;
 }
 
 let component : t component_descriptor = component "Camera"
