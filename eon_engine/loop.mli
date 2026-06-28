@@ -7,24 +7,17 @@
     1. [Buses.collect]
     2. [Progress.tick]
     3. [Buses.drain]
-    4. [Renderer.render]
 
     Typical usage:
     {[
       module Engine_progress = Eon_engine.Progress.Make(Eon_engine.Pipeline.Default)
       module Engine_loop =
-        Eon_engine.Loop.Make(Eon_ecs.Clock.Mtime)(Engine_progress)(Renderer)(Eon_engine.Loop_buses)
+        Eon_engine.Loop.Make(Eon_ecs.Clock.Mtime)(Engine_progress)(Eon_engine.Loop_buses)
     ]}
 *)
 
 module type CLOCK = sig
   val now : unit -> float
-end
-
-module type RENDERER = sig
-  type world
-  type result
-  val render : world -> dt:float -> result
 end
 
 module type BUSES = sig
@@ -39,7 +32,6 @@ module Make
        type world
        val tick : 'phase t -> world:world -> dt:float -> world
      end)
-    (Renderer : RENDERER with type world = Progress.world)
     (_ : BUSES)
 : sig
   val step :
@@ -47,14 +39,13 @@ module Make
     world:Progress.world ->
     last_time:float ->
     now:float ->
-    should_continue:(Progress.world -> Renderer.result -> bool) ->
-    Progress.world * float * Renderer.result * bool
+    should_continue:(Progress.world -> bool) ->
+    Progress.world * float * bool
 
   val run :
-    ?render_initial:bool ->
     progress:'phase Progress.t ->
     world:Progress.world ->
-    should_continue:(Progress.world -> Renderer.result -> bool) ->
+    should_continue:(Progress.world -> bool) ->
     unit ->
     Progress.world
 end

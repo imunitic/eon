@@ -57,7 +57,7 @@ Eon Engine builds on top of [eon-ecs] and adds:
   (* 7. Run *)
   let progress = Progress.create ~mode:Progress.Variable pipeline
   let _world =
-    Loop.run ~progress ~world ~should_continue:(fun _w _r -> false) ()
+    Loop.run ~progress ~world ~should_continue:(fun _w -> false) ()
 ]}
 
 {1 Core concepts}
@@ -341,20 +341,22 @@ collect/drain semantics are identical to [eon_ecs]:
 {2 Loop}
 
 {!Eon_engine.Loop} delegates to [Eon_ecs.Loop.Make] typed for [World.rw World.t].
-Frame order is the same as the core:
+Frame order:
 
 + [collect] — Signals, then Events, then Commands
 + [Progress.tick] — runs the pipeline (parallel phases go through the executor)
 + [drain] — Signals, then Commands, then Events
-+ [Renderer.render]
+
+The [eon_ecs] loop carries no renderer. At the engine layer, rendering is
+invoked via [Platform.S.Renderer] after drain — supplied as part of the
+[PLATFORM] signature that [eon_engine.Loop.Make] will accept.
 
 {[
   let final_world =
     Loop.run
-      ~render_initial:true
       ~progress
       ~world
-      ~should_continue:(fun _world _result -> true)
+      ~should_continue:(fun _world -> true)
       ()
 ]}
 

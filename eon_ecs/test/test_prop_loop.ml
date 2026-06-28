@@ -4,8 +4,7 @@ type event =
   | Collect
   | Tick of float
   | Drain
-  | Render of float
-  | Continue of float
+  | Continue
 
 let events : event list ref = ref []
 let push e = events := e :: !events
@@ -26,21 +25,12 @@ module Test_progress = struct
     world
 end
 
-module Test_renderer = struct
-  type world = world_state
-  type result = float
-
-  let render _world ~dt =
-    push (Render dt);
-    dt
-end
-
 module Test_buses = struct
   let collect () = push Collect
   let drain   () = push Drain
 end
 
-module Test_loop = Loop.Make (Clock_stub) (Test_progress) (Test_renderer) (Test_buses)
+module Test_loop = Loop.Make (Clock_stub) (Test_progress) (Test_buses)
 
 type step_case = {
   last_ms : int;
@@ -69,10 +59,8 @@ let approx_equal a b = Float.abs (a -. b) <= 1e-9
 
 let events_match actual expected_dt =
   match actual with
-  | [ Collect; Tick dt1; Drain; Render dt2; Continue result ] ->
+  | [ Collect; Tick dt1; Drain; Continue ] ->
       approx_equal dt1 expected_dt
-      && approx_equal dt2 expected_dt
-      && approx_equal result expected_dt
   | _ -> false
 
 let prop_loop_step_sequence =
@@ -82,11 +70,11 @@ let prop_loop_step_sequence =
     let last_time = float_of_int c.last_ms /. 1_000.0 in
     let dt = float_of_int c.dt_ms /. 1_000.0 in
     let now = last_time +. dt in
-    let should_continue _world result =
-      push (Continue result);
+    let should_continue _world =
+      push Continue;
       c.continue
     in
-    let _, next_last_time, render_result, continue =
+    let _, next_last_time, continue =
       Test_loop.step
         ~progress:()
         ~world:w
@@ -96,11 +84,10 @@ let prop_loop_step_sequence =
     in
     continue = c.continue
     && approx_equal next_last_time now
-    && approx_equal render_result dt
     && events_match (List.rev !events) dt
   in
   QCheck.Test.make
-    ~name:"Loop.step sequencing collect->tick->drain->render->continue"
+    ~name:"Loop.step sequencing collect->tick->drain->continue"
     ~count:1_000
     arb_step_case
     test_fn

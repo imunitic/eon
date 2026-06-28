@@ -51,7 +51,7 @@ can use directly or customise via functors.
     Loop.run
       ~progress
       ~world
-      ~should_continue:(fun _world _result -> false)
+      ~should_continue:(fun _world -> false)
       ()
 ]}
 
@@ -202,17 +202,18 @@ systems are added.
 + [collect] — Signals, then Events, then Commands
 + [Progress.tick] — runs the pipeline
 + [drain] — Signals, then Commands, then Events
-+ [Renderer.render]
+
+The loop carries no renderer — rendering is a [Variable] system in a [Render]
+phase, ordered after your simulation phases.
 
 {[
   module Loop = Eon_ecs.Loop.Default
 
   let final_world =
     Loop.run
-      ~render_initial:true
       ~progress
       ~world
-      ~should_continue:(fun _world _result -> true)
+      ~should_continue:(fun _world -> true)
       ()
 ]}
 

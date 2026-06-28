@@ -9,7 +9,7 @@ module Commands_bus = Eon_ecs__Single_bus
 module Default_buses = Eon_ecs__Loop_default_buses
 module Buses = Eon_ecs__Buses
 
-let fixed_should_continue _ _ = false
+let fixed_should_continue _ = false
 
 type mini_world = {
   mutable ticks : int;
@@ -24,20 +24,12 @@ module Mini_progress = struct
     world
 end
 
-module Mini_renderer = struct
-  type world = mini_world
-  type result = unit
-
-  let render _ ~dt:_ = ()
-end
-
 module Mini_buses = struct
   let collect () = ()
   let drain   () = ()
 end
 
-module Mini_loop = Loop.Make (struct let now () = 0.0 end) (Mini_progress)
-    (Mini_renderer) (Mini_buses)
+module Mini_loop = Loop.Make (struct let now () = 0.0 end) (Mini_progress) (Mini_buses)
 
 module Empty_progress = struct
   type 'phase t = unit
@@ -46,16 +38,8 @@ module Empty_progress = struct
   let tick () ~world ~dt:_ = world
 end
 
-module Empty_renderer = struct
-  type world = World.t
-  type result = unit
-
-  let render _ ~dt:_ = ()
-end
-
 module Empty_loop =
-  Loop.Make (struct let now () = 0.0 end) (Empty_progress) (Empty_renderer)
-    (Default_buses)
+  Loop.Make (struct let now () = 0.0 end) (Empty_progress) (Default_buses)
 
 module Traffic_progress = struct
   type 'phase t = {
@@ -79,16 +63,8 @@ module Traffic_progress = struct
     world
 end
 
-module Traffic_renderer = struct
-  type world = World.t
-  type result = unit
-
-  let render _ ~dt:_ = ()
-end
-
 module Traffic_loop =
-  Loop.Make (struct let now () = 0.0 end) (Traffic_progress) (Traffic_renderer)
-    (Default_buses)
+  Loop.Make (struct let now () = 0.0 end) (Traffic_progress) (Default_buses)
 
 let mk_loop_step_minimal ~cycles =
   if cycles <= 0 then invalid_arg "cycles must be > 0";

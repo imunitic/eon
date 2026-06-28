@@ -33,7 +33,7 @@ Frame Order:
    - RenderSystem stores populated RenderGraph back into world data plane
      (overwritten each frame — no double-buffering needed)
 3. Drain: Signals → Commands → Events
-4. Render: Loop.RENDERER reads RenderGraph from world data plane,
+4. Render: Platform.Renderer reads RenderGraph from world data plane,
            calls Backend.render(RenderGraph)
 ```
 
@@ -41,7 +41,8 @@ Frame Order:
 - RenderSystem is a standard ECS system that runs during the Tick phase
 - RenderSystem never calls the backend — it only builds and stores the RenderGraph
 - The world data plane is the handoff point between Tick and Render
-- Loop.RENDERER is the only caller of Backend.render, always in the Render slot
+- `Platform.S.Renderer` is the only caller of Backend.render, always in the Render slot
+- The `eon_ecs` loop carries no renderer — the render call happens in the `eon_engine` loop via `Platform.S`
 - RenderPipeline is independent from ECS Pipeline but called by RenderSystem
 - RenderPipeline has phases/ordering like ECS Pipeline
 
@@ -401,9 +402,9 @@ module type S = sig
 
   (** Render the populated render graph.
       
-      Called by Loop.RENDERER in the Render slot, after all systems have run
-      and all buses have been drained. The graph was built by RenderSystem
-      during the Tick phase and stored in the world data plane.
+      Called by Platform.S.Renderer in the Render slot (engine loop, after Drain).
+      The graph was built by RenderSystem during the Tick phase and stored in
+      the world data plane.
       
       @param graph The populated render graph
       @return Result containing errors and metadata about the rendering process
@@ -524,7 +525,7 @@ The `RenderSystem` is a standard ECS system that:
 3. Stores the populated RenderGraph back into the world data plane
 
 The RenderSystem **never calls the backend**. It only builds and stores the graph.
-Backend.render is called by Loop.RENDERER in the Render slot (after Drain).
+Backend.render is called by `Platform.S.Renderer` in the Render slot (engine loop, after Drain).
 
 ### 7.2 Design
 
@@ -534,7 +535,7 @@ Backend.render is called by Loop.RENDERER in the Render slot (after Drain).
 (** Functor that creates a render system bound to a specific command type.
     
     The functor binds the pipeline's command type at construction time,
-    ensuring the stored RenderGraph matches what the Loop.RENDERER will read.
+    ensuring the stored RenderGraph matches what Platform.S.Renderer will read.
     
     @param B The backend module (must implement Rendering_backend.S)
 *)
@@ -558,7 +559,7 @@ end
 **Key Architecture**:
 - RenderSystem is purely a graph-builder — no backend dependency at runtime
 - The world data plane (resource store) is the handoff between Tick and Render
-- Loop.RENDERER owns the backend call, keeping eon_ecs clean of rendering concerns
+- `Platform.S.Renderer` owns the backend call at the engine level; `eon_ecs` is clean of all rendering concerns
 
 ### 7.3 Integration with ECS Pipeline
 
@@ -604,7 +605,7 @@ RenderSystem.update world dt:
 4. Return unit
    (graph remains in data plane until next frame overwrites it)
 
-Loop.RENDERER.render world ~dt:             (* called in Render slot, after Drain *)
+Platform.Renderer.render world ~dt:         (* called in Render slot, after Drain *)
 1. graph = World.get_resource world `RenderGraph
 2. result = Backend.render graph ~dt
 3. Log errors; store metadata
@@ -612,24 +613,29 @@ Loop.RENDERER.render world ~dt:             (* called in Render slot, after Drai
 
 ### 7.5 Loop Integration
 
-The Loop.RENDERER is a real renderer that reads the RenderGraph from the world
-data plane and calls the backend. It is created via a functor:
+The `eon_ecs` loop (`Loop.Make`) carries no renderer — it is `collect → tick → drain` only. The render call happens in the `eon_engine` loop via `Platform.S.Renderer`, which reads the RenderGraph from the world data plane and calls the backend. It is created via a functor and wired into the platform:
 
 ```ocaml
-(* Make_renderer creates a Loop.RENDERER for a specific backend *)
+(* Make_renderer creates the Platform.Renderer for a specific backend *)
 module My_renderer = Render_loop_renderer.Make(My_backend)
 
-module Loop = Eon_ecs.Loop.Make
+(* Platform bundles renderer + input_backend *)
+module My_platform : Platform.S = struct
+  type t = [ `My_platform ]
+  module Renderer      = My_renderer      (* reads RenderGraph, calls My_backend.render *)
+  module Input_backend = My_input
+end
+
+module Loop = Eon_engine.Loop.Make
   (Eon_ecs.Clock.Mtime)
-  (Eon_ecs.Loop.Progress_adapter)
-  (My_renderer)                (* reads RenderGraph, calls My_backend.render *)
-  (Eon_ecs.Loop.Default_buses)
+  (Engine_progress)
+  (My_platform)
+  (Eon_engine.Loop_buses)
 ```
 
 **Result Processing**:
-- My_renderer handles the `Rendering_result.t` (logs errors, stores metadata)
-- Loop doesn't receive or process the rendering result directly
-- This keeps the Loop generic and eon_ecs free of engine-level rendering concerns
+- `My_renderer` handles the `Rendering_result.t` (logs errors, stores metadata)
+- The engine loop orchestrates the render call after drain; `eon_ecs` is entirely free of rendering concerns
 
 ## 8. Component Integration
 
@@ -972,19 +978,24 @@ let ecs_pipeline =
   |> Pipeline.add_phase `Render
   |> Pipeline.add_system `Render render_system
 
-(* Loop.RENDERER reads RenderGraph from data plane and calls My_backend.render *)
+(* Platform.Renderer reads RenderGraph from data plane and calls My_backend.render *)
 module My_renderer = Render_loop_renderer.Make(My_backend)
 
-module Loop = Eon_ecs.Loop.Make
+module My_platform : Platform.S = struct
+  type t = [ `My_platform ]
+  module Renderer      = My_renderer
+  module Input_backend = My_input
+end
+
+module Loop = Eon_engine.Loop.Make
   (Eon_ecs.Clock.Mtime)
-  (Eon_ecs.Loop.Progress_adapter)
-  (My_renderer)
-  (Eon_ecs.Loop.Default_buses)
+  (Engine_progress)
+  (My_platform)
+  (Eon_engine.Loop_buses)
 
 let () =
-  let progress = Eon_ecs.Progress.create_fixed 60.0 in
-  Loop.run ~render_initial:true ~progress ~world
-    ~should_continue:(fun _ _ -> true) ()
+  let progress = Engine_progress.create ~mode:Progress.Variable pipeline in
+  Loop.run ~progress ~world ~should_continue:(fun _ -> true) ()
 ```
 
 ### 12.2 Custom Backend
@@ -997,7 +1008,7 @@ module Custom_backend = struct
   (* No backend-specific collectors needed *)
   let collectors = []
 
-  (* render is called by Loop.RENDERER in the Render slot, after Drain *)
+  (* render is called by Platform.S.Renderer in the Render slot (engine loop, after Drain) *)
   let render graph ~dt:_ =
     let result = Rendering_result.empty in
     try
@@ -1018,7 +1029,7 @@ end
 
 **Key Points**:
 - RenderGraph contains rendering commands (polymorphic variants); no entity references
-- Backend.render is called only by Loop.RENDERER in the Render slot
+- Backend.render is called only by `Platform.S.Renderer` in the Render slot (after drain, in the engine loop)
 - RenderSystem only builds and stores the graph — it never calls the backend
 - Backends can extend the command set using polymorphic variant inclusion
 - Backend collectors for extended commands must be added to the RenderPipeline manually
@@ -1029,21 +1040,23 @@ The rendering layer provides a clean separation of concerns:
 - **Engine**: Provides infrastructure, base commands, and base collectors
 - **RenderPipeline**: Phase-based collection pipeline (mirrors ECS Pipeline)
 - **RenderSystem**: ECS system that builds and stores the RenderGraph in the world data plane
-- **Loop.RENDERER**: Reads the RenderGraph from the data plane and calls Backend.render
+- **Platform.S.Renderer**: Reads the RenderGraph from the data plane and calls Backend.render (via engine loop, after drain)
 - **RenderingBackend**: Has complete control over how to render the graph
 
 **Frame contract**:
 - Collect: Signals → Events → Commands
 - Tick: All systems run (including RenderSystem — builds RenderGraph, stores in data plane)
 - Drain: Signals → Commands → Events
-- Render: Loop.RENDERER reads RenderGraph from data plane, calls Backend.render
+- Render: `Platform.S.Renderer` reads RenderGraph from data plane, calls Backend.render
+
+Note: `eon_ecs` Loop carries no renderer — it is `collect → tick → drain` only. The Render slot is an engine-layer concern, orchestrated by `eon_engine` Loop via `Platform.S`.
 
 **RenderSystem should run after all other systems** to ensure the world state is fully updated before collecting rendering data.
 
 **RenderGraph handoff**:
 - The RenderGraph resource in the world data plane is overwritten every frame (no double-buffering)
 - This is safe because the Render slot always consumes the graph written in the same Tick
-- RenderSystem never calls the backend; Loop.RENDERER never touches the ECS pipeline
+- RenderSystem never calls the backend; `Platform.S.Renderer` never touches the ECS pipeline
 
 **Command-Based Design**:
 - **Base commands**: Backend-agnostic commands in eon_engine (sprites, cameras, etc.)
@@ -1055,6 +1068,6 @@ The rendering layer provides a clean separation of concerns:
 **Decoupling Architecture**:
 - eon_engine provides: RenderGraph, RenderPipeline, RenderSystem, base commands, base collectors
 - Backend provides: Extended command type, `collectors` for those types, `render` logic
-- Loop.RENDERER (`Render_loop_renderer.Make(B)`) bridges the data plane and the backend
+- `Platform.S.Renderer` (`Render_loop_renderer.Make(B)`) bridges the data plane and the backend
 
 **Note**: This design document provides architectural guidelines and implementation ideas. The exact API and implementation details will be refined during implementation phases.

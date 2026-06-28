@@ -350,12 +350,12 @@ raw frame write happens directly in the loop body, not inside the pipeline.
 
 ## 8. Loop Integration
 
-### 8.1 Removing RENDERER from `eon_ecs`
+### 8.1 RENDERER removed from `eon_ecs` (done in ecs-028)
 
-The introduction of `Input_backend` as a loop parameter forces a principled
+The introduction of `Input_backend` as a loop parameter forced a principled
 decision about the `eon_ecs` / `eon_engine` boundary. `eon_ecs` Loop.Make
-currently carries a `RENDERER` parameter. Adding `INPUT_BACKEND` there too would
-set the precedent for every future platform concern — audio, windowing, asset
+previously carried a `RENDERER` parameter. Adding `INPUT_BACKEND` there too would
+have set the precedent for every future platform concern — audio, windowing, asset
 loading — to accumulate in the core. That slope ends with a game engine in
 `eon_ecs`, not a pure ECS library.
 
@@ -368,13 +368,12 @@ The correct boundary:
   use `eon_engine`. Games wanting full control write their own loop around
   `eon_ecs` and place input and rendering wherever they choose.
 
-`RENDERER` is therefore **removed from `eon_ecs` Loop.Make** as part of this
-task. The snake examples in `eon_ecs` that currently pass a renderer to
-`Loop.Make` will need minor updates — rendering moves outside the loop or into a
-drain-phase system. This is a small price for a clean, stable core that does not
-grow with every new engine concern.
+`RENDERER` has been **removed from `eon_ecs` Loop.Make**. The snake examples
+in `eon_ecs` were updated to use a `Variable` render system in a `Render` phase
+(ordered after `Gameplay`). This is a small price for a clean, stable core that
+does not grow with every new engine concern.
 
-### 8.2 `eon_ecs` Loop after the change
+### 8.2 `eon_ecs` Loop — current signature
 
 ```ocaml
 (* eon_ecs — no platform parameters *)

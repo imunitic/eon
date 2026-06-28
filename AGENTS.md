@@ -12,7 +12,7 @@ Core modules:
 - `System`: reactive systems (`register`, `update`, `on_signal`, `on_event`, `on_command`).
 - `Pipeline`: phase graph + dependency ordering.
 - `Progress`: variable/fixed/hybrid ticking over pipeline kinds.
-- `Loop`: frame orchestrator (`collect -> tick -> drain -> render`).
+- `Loop`: frame orchestrator (`collect -> tick -> drain`).
 
 Core design goals:
 - Minimal primitives.
@@ -62,7 +62,6 @@ Bus order invariants:
 1. Collect: `Signals`, then `Events`, then `Commands`
 2. Tick: `Progress.tick`
 3. Drain: `Signals`, then `Commands`, then `Events`
-4. Render/read-only work after drains
 
 Bus semantics:
 - **Signals** (`Single_bus`): `drain = collect`; dispatches emitted messages to subscribers immediately. Same-frame: emitted during a frame are dispatched during `drain` at end of that frame.

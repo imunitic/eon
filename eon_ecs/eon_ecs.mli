@@ -250,7 +250,8 @@ module Loop : sig
       1. collect Signals -> Events -> Commands
       2. tick Progress
       3. drain Signals -> Commands -> Events
-      4. render
+
+      Rendering is a game-layer concern; handle it in a pipeline system.
 
       Example:
       {[
@@ -260,17 +261,15 @@ module Loop : sig
           Loop.run
             ~progress
             ~world
-            ~should_continue:(fun _world () -> false)
+            ~should_continue:(fun _world -> false)
             ()
       ]}
   *)
   (** Clock signature required by loop implementations. *)
   module type CLOCK = Loop.CLOCK
-  (** Renderer signature consumed by loop implementations. *)
-  module type RENDERER = Loop.RENDERER
   (** Bus orchestration signature consumed by loop implementations. *)
   module type BUSES = Loop.BUSES
-  (** Functor producing a loop from its clock, progress, renderer, and buses. *)
+  (** Functor producing a loop from its clock, progress, and buses. *)
   module Make = Loop.Make
   module Progress_adapter : sig
     (** Reuse default progress controller internals for the loop functor. *)
@@ -284,14 +283,11 @@ module Loop : sig
   (** Default bus collect/drain ordering (Signals -> Events -> Commands collect;
       Signals -> Commands -> Events drain). *)
   module Default_buses : BUSES
-  (** Renderer that performs no output. *)
-  module Noop_renderer : RENDERER with type world = World.t and type result = unit
   (** Ready-to-use loop wired to defaults for the ECS core. *)
   module Default :
     module type of
       Make
         (Clock.Mtime)
         (Progress_adapter)
-        (Noop_renderer)
         (Default_buses)
 end

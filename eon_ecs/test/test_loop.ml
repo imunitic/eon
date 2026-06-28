@@ -30,33 +30,23 @@ module Test_progress = struct
     world
 end
 
-module Test_renderer = struct
-  type world = world_state
-  type result = float
-
-  let render _world ~dt =
-    log (Printf.sprintf "render %.3f" dt);
-    dt
-end
-
 module Test_buses = struct
   let collect () = log "collect"
   let drain   () = log "drain"
 end
 
-module Test_loop = Loop.Make(Clock_stub)(Test_progress)(Test_renderer)(Test_buses)
+module Test_loop = Loop.Make(Clock_stub)(Test_progress)(Test_buses)
 
 let test_step () =
   event_log := [];
   let w = world () in
-  let should_continue _world result =
+  let should_continue _world =
     log (Printf.sprintf "continue %b" false);
-    ignore result;
     false
   in
   let last_time = 1.0 in
   let now = 1.5 in
-  let _, _, render_dt, continue =
+  let _, _, continue =
     Test_loop.step
       ~progress:()
       ~world:w
@@ -68,23 +58,21 @@ let test_step () =
     [ "collect"
     ; "tick 0.500"
     ; "drain"
-    ; "render 0.500"
     ; "continue false"
     ]
   in
   check (list string) "step order"
     expected
     (List.rev !event_log);
-  check bool "continue flag" false continue;
-  check (float 0.0001) "render dt" 0.5 render_dt
+  check bool "continue flag" false continue
 
 let test_run () =
   event_log := [];
   let w = world () in
   Clock_stub.reset [ 0.0; 0.5; 1.0 ];
   let remaining = ref 2 in
-  let should_continue _world render_dt =
-    log (Printf.sprintf "continue %d %.3f" !remaining render_dt);
+  let should_continue _world =
+    log (Printf.sprintf "continue %d" !remaining);
     let decision =
       if !remaining > 1 then true else false
     in
@@ -101,13 +89,11 @@ let test_run () =
     [ "collect"
     ; "tick 0.500"
     ; "drain"
-    ; "render 0.500"
-    ; "continue 2 0.500"
+    ; "continue 2"
     ; "collect"
     ; "tick 0.500"
     ; "drain"
-    ; "render 0.500"
-    ; "continue 1 0.500"
+    ; "continue 1"
     ]
   in
   check (list string) "run order"

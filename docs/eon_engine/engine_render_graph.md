@@ -23,11 +23,11 @@ Three main components:
              - Runs RenderPipeline (collectors populate graph)
              - Stores populated graph back into world data plane
 3. Drain:   Signals → Commands → Events
-4. Render:  Loop.RENDERER reads RenderGraph from data plane,
+4. Render:  Platform.S.Renderer reads RenderGraph from data plane,
             calls Backend.render(graph)
 ```
 
-RenderSystem **never calls the backend** — it only builds and stores the graph. `Loop.RENDERER` is the only caller of `Backend.render`.
+RenderSystem **never calls the backend** — it only builds and stores the graph. `Platform.S.Renderer` is the only caller of `Backend.render`. Note: `eon_ecs` Loop carries no renderer; the Render slot is orchestrated by the `eon_engine` Loop via `Platform.S`.
 
 ## Commands
 

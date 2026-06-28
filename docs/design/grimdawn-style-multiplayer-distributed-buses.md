@@ -16,7 +16,7 @@ The render graph design (see `rendering_layer_design.md`) is already well-suited
 
 ### 2.1 Server binary requires no renderer
 
-The `Loop.RENDERER` is a compile-time functor parameter. A server binary substitutes a no-op renderer at that slot. All simulation code — systems, pipeline, progress, buses — is identical between client and server binaries. The rendering layer is never reached on the server.
+The renderer is supplied at compile time via the `Platform.S` parameter of the engine loop. A server binary substitutes `Platform.Headless` (which contains a no-op renderer) at that slot. All simulation code — systems, pipeline, progress, buses — is identical between client and server binaries. The rendering layer is never reached on the server.
 
 ### 2.2 RenderGraph is derived data — never snapshot it
 
