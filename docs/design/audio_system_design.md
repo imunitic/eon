@@ -47,16 +47,19 @@ audio hardware, not the game loop.
 - No file I/O, no system calls that can block
 
 This is why the engine does not call audio functions directly. It accumulates
-commands during the game tick and sends them to the backend at the end of the
-frame. The backend owns the callback loop, the mixer, and the lock-free
-communication to the audio thread. The engine sees none of this.
+commands during the game tick and submits them to the backend at the end of the
+frame. The engine sees none of the threading or buffering detail.
 
-**Recommendation: use an existing library for the backend.** Correctly implementing
-a real-time safe audio callback, a lock-free ring buffer, sample-rate resampling,
-OGG/MP3 streaming decoding, and cross-platform device management across Windows
-(WASAPI), macOS (CoreAudio), Linux (PulseWire/ALSA), iOS, and Android is
-treacherous. miniaudio (single-header C, used internally by raylib) handles all
-of this correctly. `Raylib_audio` wraps it; the engine never sees it.
+**Every realistic backend library handles all of this for you.** raylib (miniaudio),
+OpenAL Soft, FMOD, SoLoud, and SDL_mixer all own the callback thread, the ring
+buffer, the mixer, and the streaming decoder internally. From the OCaml side,
+`submit` is just a loop over library calls made from the game thread — no OCaml
+Domains, no lock-free data structures, no real-time constraints on your code.
+The real-time safety rules above are the library's problem, not yours.
+
+The only way to run into those constraints is to use a raw platform audio API
+(WASAPI, CoreAudio, ALSA) directly — which are what the above libraries sit on
+top of. There is no reason to do this for a game.
 
 ---
 
@@ -72,17 +75,18 @@ of this correctly. `Raylib_audio` wraps it; the engine never sees it.
 │    reads   Music_state resource     → current track         │
 │    reacts  to Signals bus           → one-shot SFX          │
 │    accumulates Audio_command list                           │
-│    → Audio_backend.send commands                            │
+│    → Audio_backend.submit commands                            │
 └──────────────────────────┬──────────────────────────────────┘
                            │ Audio_command list (once per frame)
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Audio_backend (Raylib_audio / Null_audio)                   │
 │                                                             │
-│  Translates commands → internal mixer state                 │
-│  Mixer runs in audio callback at hardware rate              │
-│  Lock-free ring buffer bridges game thread ↔ audio thread   │
-│  Streaming decoder runs on third thread for music           │
+│  submit: translates commands → library API calls            │
+│  (everything below this line is the C library's concern)    │
+│  ·  mixer running in audio callback at hardware rate        │
+│  ·  lock-free ring buffer bridging game thread ↔ audio      │
+│  ·  streaming decoder on a dedicated thread for music       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -96,31 +100,37 @@ The entire backend contract is one function:
 
 ```ocaml
 module type S = sig
-  val init    : unit -> unit
-  val send    : Audio_command.t list -> unit
+  val init     : (module Asset_lookup.S) -> unit
+  val submit   : Audio_command.t list -> unit
   val shutdown : unit -> unit
 end
 ```
 
-`init` opens the audio device and starts the callback loop. `send` is called once
-per frame with the accumulated command list — the backend translates these into
-internal mixer state and communicates them to the audio thread safely. `shutdown`
-stops playback and closes the device.
+`init` opens the audio device and scans the asset lookup to pre-load sound effects
+(WAV files as PCM buffers; OGG music paths stored for streaming). The backend
+resolves string identifiers to internal handles once at startup — game code never
+touches backend handles. `submit` is called once per frame with the accumulated
+command list; it translates each command to a library call (`PlaySound`,
+`SetSoundVolume`, etc.) made from the game thread. The library handles all
+threading and buffering internally. `shutdown` stops playback and closes the
+device.
 
 ### 4.2 Concrete backends
 
 ```ocaml
 (* Raylib — backed by miniaudio; default platform backend *)
 module Raylib_audio : Audio_backend.S = struct
-  let init ()         = InitAudioDevice ()
-  let send commands   = List.iter apply_command commands
+  let init (module Assets : Asset_lookup.S) =
+    InitAudioDevice ();
+    Assets.iter (fun logical_id path -> preload_sound logical_id path)
+  let submit commands = List.iter apply_command commands
   let shutdown ()     = CloseAudioDevice ()
 end
 
 (* Null — silent; used in Headless platform for CI and tests *)
 module Null_audio : Audio_backend.S = struct
-  let init ()       = ()
-  let send _        = ()
+  let init _assets  = ()
+  let submit _      = ()
   let shutdown ()   = ()
 end
 ```
@@ -130,26 +140,24 @@ end
 ## 5. Audio Command Vocabulary
 
 The command list is the DSL of the audio layer — analogous to `Input_mapping` for
-the input system and the RenderGraph command language for rendering. The engine
+the input system and the `Render_stream` command language for rendering. The engine
 sends commands; the backend executes them.
 
 ```ocaml
-type sound_handle  (* opaque — identifies a playing voice *)
-
 type audio_command =
   (* one-shot and looping sounds *)
   | Play_sound  of {
-      id      : string;           (* asset id *)
-      volume  : float;            (* 0.0–1.0 *)
-      pitch   : float;            (* 1.0 = normal *)
-      pan     : float;            (* -1.0 left .. 1.0 right; 0.0 centre *)
-      loop    : bool;
-      handle  : sound_handle ref; (* backend fills this in; caller stores for later control *)
+      id          : string;        (* asset id — resolved by backend via Asset_lookup.S *)
+      instance_id : string option; (* caller-provided tag for later control; None = fire-and-forget *)
+      volume      : float;         (* 0.0–1.0 *)
+      pitch       : float;         (* 1.0 = normal *)
+      pan         : float;         (* -1.0 left .. 1.0 right; 0.0 centre *)
+      loop        : bool;
     }
-  | Stop_sound  of sound_handle
-  | Set_volume  of sound_handle * float
-  | Set_pitch   of sound_handle * float
-  | Set_pan     of sound_handle * float
+  | Stop_sound  of string          (* instance_id *)
+  | Set_volume  of string * float  (* instance_id, volume *)
+  | Set_pitch   of string * float  (* instance_id, pitch *)
+  | Set_pan     of string * float  (* instance_id, pan *)
 
   (* music streaming — separate voice budget from SFX *)
   | Play_music  of { id: string; volume: float; loop: bool }
@@ -164,9 +172,15 @@ type audio_command =
   | Stop_all
 ```
 
-`sound_handle` is opaque — the backend allocates a voice slot and writes the
-handle into the `ref`. The caller (AudioSystem) stores it in the `Audio_emitter`
-component for later `Stop_sound` or `Set_volume` calls on looping voices.
+`instance_id` is a stable, caller-provided string that the backend maps to an
+internal voice slot. The backend owns voice allocation entirely — no handle leaks
+into the public API. Game code uses string identifiers throughout; the backend
+resolves them to internal handles via `Asset_lookup.S` at `init` time.
+
+For fire-and-forget one-shot sounds, `instance_id = None` — the backend manages
+the voice lifetime and the caller never needs to reference it again. For looping or
+spatial sounds that need stopping or updating, the caller provides a stable string
+(typically derived from the entity id) and reuses it across frames.
 
 ---
 
@@ -179,17 +193,19 @@ ambient sources, fire, traps:
 
 ```ocaml
 type t = {
-  sound_id    : string;
-  volume      : float;
-  range       : float;         (* world units; beyond this distance: silent *)
-  loop        : bool;
-  playing     : bool;          (* AudioSystem controls this *)
-  handle      : sound_handle option;  (* None = not currently playing *)
+  sound_id : string;
+  volume   : float;
+  range    : float;   (* world units; beyond this distance: silent *)
+  loop     : bool;
+  playing  : bool;   (* AudioSystem tracks this; drives play/stop commands *)
 }
 ```
 
 The AudioSystem queries all emitters each frame, computes distance and pan from
 the listener position, and starts/stops/updates the corresponding backend voice.
+The instance id for each emitter is derived from the entity id — `"emitter:" ^
+Entity_id.to_string (View.entity view)` — so the backend can be addressed without
+storing any backend-opaque state in the component.
 
 ### 6.2 `Audio_listener`
 
@@ -245,31 +261,34 @@ The AudioSystem has two parts — same ro/rw split as every other eon system:
 Each frame, the spatial update:
 
 ```ocaml
+let emitter_instance_id view =
+  "emitter:" ^ Entity_id.to_string (View.entity view)
+
 let update world _dt =
-  let listener  = World.get_data world Audio_listener in
-  let commands  = Buffer.create 16 in
+  let listener = World.get_data world Audio_listener in
+  let commands = Buffer.create 16 in
   Query.from world
   |> Query.having Audio_emitter.name
   |> Query.iter (fun view ->
        let emitter = View.get view (module Audio_emitter) in
        let pos     = View.get view (module Position) in
+       let iid     = emitter_instance_id view in
        let dist    = distance listener.position pos in
-       if dist > emitter.range then
-         (* out of range — stop if playing *)
-         Option.iter (fun h -> Buffer.add commands (Stop_sound h)) emitter.handle
-       else
+       if dist > emitter.range then begin
+         if emitter.playing then
+           Buffer.add commands (Stop_sound iid)
+       end else begin
          let vol = emitter.volume *. attenuation dist emitter.range in
          let pan = compute_pan listener.position pos in
-         match emitter.handle with
-         | None ->
-           let h = ref dummy_handle in
-           Buffer.add commands (Play_sound { id=emitter.sound_id; volume=vol;
-                                             pitch=1.0; pan; loop=true; handle=h });
-           (* h will be filled by backend after send — store next frame *)
-         | Some h ->
-           Buffer.add commands (Set_volume (h, vol));
-           Buffer.add commands (Set_pan    (h, pan)));
-  Audio_backend.send (Buffer.contents commands)
+         if not emitter.playing then
+           Buffer.add commands (Play_sound { id=emitter.sound_id; instance_id=Some iid;
+                                             volume=vol; pitch=1.0; pan; loop=true })
+         else begin
+           Buffer.add commands (Set_volume (iid, vol));
+           Buffer.add commands (Set_pan    (iid, pan))
+         end
+       end);
+  Audio_backend.submit (Buffer.contents commands)
 ```
 
 ### 7.3 The reactive path — one-shot SFX
@@ -280,16 +299,18 @@ about game entities — it just maps signal → sound:
 
 ```ocaml
 let on_signal _world = function
-  | `Enemy_died     -> Audio_backend.send [Play_sound { id="death_01"; volume=0.8;
-                                            pitch=1.0; pan=0.0; loop=false;
-                                            handle=ref dummy_handle }]
-  | `Skill_used id  -> Audio_backend.send [Play_sound { id=sfx_for_skill id; ... }]
-  | `Player_hit     -> Audio_backend.send [Play_sound { id="hit_grunt"; ... }]
-  | _               -> ()
+  | `Enemy_died    -> Audio_backend.submit [Play_sound { id="death_01"; instance_id=None;
+                                           volume=0.8; pitch=1.0; pan=0.0; loop=false }]
+  | `Skill_used id -> Audio_backend.submit [Play_sound { id=sfx_for_skill id;
+                                           instance_id=None; volume=1.0;
+                                           pitch=1.0; pan=0.0; loop=false }]
+  | `Player_hit    -> Audio_backend.submit [Play_sound { id="hit_grunt"; instance_id=None;
+                                           volume=0.9; pitch=1.0; pan=0.0; loop=false }]
+  | _              -> ()
 ```
 
-One-shot sounds are fire-and-forget — the handle is discarded because there is no
-need to stop them; they finish on their own.
+One-shot sounds are fire-and-forget — `instance_id = None` because there is no
+need to stop them; they finish on their own. The backend manages the voice lifetime.
 
 ### 7.4 Voice budget and prioritization
 
@@ -299,7 +320,7 @@ must see all sound requests in the same frame** — split systems cannot priorit
 across each other.
 
 When the frame produces more play commands than available voices, the AudioSystem
-culls by priority before calling `send`:
+culls by priority before calling `submit`:
 
 1. Music — never culled
 2. Player sounds (hit, skill) — highest SFX priority
@@ -349,31 +370,31 @@ The AudioSystem is a regular ECS system registered in the pipeline. `Audio_backe
 completes the PLATFORM trifecta:
 
 ```ocaml
-module type PLATFORM = sig
+module type S = sig
   type t
-  module Renderer      : Renderer.S
-  module Input_backend : Input_backend.S
-  module Audio_backend : Audio_backend.S    (* ← completes the trifecta *)
+  module Rendering_backend : Rendering_backend.S
+  module Input_backend     : Input_backend.S
+  module Audio_backend     : Audio_backend.S    (* ← completes the trifecta *)
 end
 
-module Raylib : PLATFORM = struct
+module Raylib_platform : Platform.S = struct
   type t = [ `Raylib ]
-  module Renderer      = Raylib_renderer
-  module Input_backend = Raylib_input
-  module Audio_backend = Raylib_audio
+  module Rendering_backend = Raylib_rendering_backend
+  module Input_backend     = Raylib_input_backend
+  module Audio_backend     = Raylib_audio
 end
 
-module Headless : PLATFORM = struct
+module Headless : Platform.S = struct
   type t = [ `Headless ]
-  module Renderer      = Noop_renderer
-  module Input_backend = Noop_input
-  module Audio_backend = Null_audio       (* silent; CI runs without a sound device *)
+  module Rendering_backend = Null_rendering_backend
+  module Input_backend     = Null_input_backend
+  module Audio_backend     = Null_audio   (* silent; CI runs without a sound device *)
 end
 ```
 
-`Loop.Make` calls `Platform.Audio_backend.init ()` at startup and
-`Platform.Audio_backend.shutdown ()` on exit. The AudioSystem calls
-`Platform.Audio_backend.send` at the end of each tick.
+`Loop.Make` calls `Platform.Audio_backend.init (module Assets)` at startup (after
+the asset lookup is constructed) and `Platform.Audio_backend.shutdown ()` on exit.
+The AudioSystem calls `Platform.Audio_backend.submit` at the end of each tick.
 
 ---
 
@@ -381,7 +402,7 @@ end
 
 ```
 eon_engine/
-  audio_backend.ml/.mli       (* module type S = sig val init / send / shutdown end *)
+  audio_backend.ml/.mli       (* module type S = sig val init / submit / shutdown end *)
   audio_command.ml/.mli       (* command type: Play_sound, Stop_sound, Play_music, ... *)
   audio_components/
     audio_emitter.ml/.mli     (* looping / spatial sounds on entities *)
@@ -430,12 +451,12 @@ eon_engine/
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Backend contract | `init / send / shutdown` | Minimal seam; backend owns callback, mixer, ring buffer |
+| Backend contract | `init / submit / shutdown` | Minimal seam; backend owns callback, mixer, ring buffer |
 | Backend implementation | Wrap raylib/miniaudio | Real-time audio is treacherous to implement correctly; existing libs handle platform fragmentation |
-| Command delivery | Accumulated list, sent once per frame | Matches game tick cadence; allows prioritization before send |
+| Command delivery | Accumulated list, submitted once per frame | Matches game tick cadence; allows prioritization before submit |
 | One-shot SFX | Signals bus → `on_signal` | Fire-and-forget; decoupled from game entities |
 | Looping/spatial | `Audio_emitter` component, polled | Needs per-frame position update and distance attenuation |
 | Music | `Music_state` world resource | Global, not per-entity; engine manages streaming lifecycle |
 | Voice prioritization | Single AudioSystem sees all requests | Voice budget is global; split systems cannot cross-prioritize |
 | Network boundary | Audio is local-only | Game state is replicated; each client plays sounds independently |
-| PLATFORM trifecta | Renderer + Input_backend + Audio_backend | Compiler-enforced porting checklist; Headless bundles all no-ops |
+| Platform.S trifecta | Rendering_backend + Input_backend + Audio_backend | Compiler-enforced porting checklist; Headless bundles all no-ops |

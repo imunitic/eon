@@ -10,25 +10,25 @@ This is explicitly **not** a Path of Exile-style architecture. PoE requires dedi
 
 What this document also captures is a design insight about the Eon bus system: if game code is written to be **fully reactive** (all coordination through buses, all payloads plain data), then adding the listen server model later reduces primarily to implementing **distributed buses** — the game systems themselves do not change.
 
-## 2. Render Graph Compatibility with Multiplayer
+## 2. Render Stream Compatibility with Multiplayer
 
-The render graph design (see `rendering_layer_design.md`) is already well-suited for multiplayer without any modification.
+The render stream design (see `rendering_layer_design.md`) is already well-suited for multiplayer without any modification.
 
 ### 2.1 Server binary requires no renderer
 
-The renderer is supplied at compile time via the `Platform.S` parameter of the engine loop. A server binary substitutes `Platform.Headless` (which contains a no-op renderer) at that slot. All simulation code — systems, pipeline, progress, buses — is identical between client and server binaries. The rendering layer is never reached on the server.
+The renderer is supplied at compile time via the `Platform.S` parameter of the engine loop. A server binary substitutes `Platform.Headless` (which contains a null renderer and null input backend) at that slot. All simulation code — systems, pipeline, progress, buses — is identical between client and server binaries. The rendering layer is never reached on the server.
 
-### 2.2 RenderGraph is derived data — never snapshot it
+### 2.2 Render_stream is derived data — never snapshot it
 
-Client-side prediction and rollback require snapshotting and restoring world state. Because the `RenderGraph` is computed *from* world state during Tick (not a source of truth), it is excluded from snapshots entirely. After rollback and re-simulation, the graph is re-derived automatically on the next frame.
+Client-side prediction and rollback require snapshotting and restoring world state. Because the `Render_stream` is computed *from* world state by `Render_system` during tick (not a source of truth), it is excluded from snapshots entirely. After rollback and re-simulation, the stream is re-derived automatically on the next frame.
 
-### 2.3 Rendering collectors are identifiable and skippable
+### 2.3 Render_system is identifiable and skippable
 
-During rollback re-simulation, only intermediate world states need to be computed — the intermediate frames are never rendered. Because rendering work lives in clearly-marked collector systems attached to the `RenderPipeline`, they can be skipped during re-simulation using the existing system kind / `run_by_filter` mechanism. Only the final predicted frame runs the collectors and renders.
+During rollback re-simulation, only intermediate world states need to be computed — the intermediate frames are never rendered. Because rendering work lives in `Render_system` — a normal ECS system added to the pipeline at the `Render` phase — it can be skipped during re-simulation by not running the render phase. Only the final predicted frame runs the collector and renders.
 
 ### 2.4 Summary
 
-The render graph boundary — `Tick` populates it, `Render` slot consumes it, nothing else touches it — is exactly the right separation for any multiplayer model. Server = no renderer. Client = same simulation code + renderer.
+The render stream boundary — `Render_system` populates it during tick, the engine loop reads it after drain and calls `Platform.Rendering_backend.render`, nothing else touches it — is exactly the right separation for any multiplayer model. Server = no renderer. Client = same simulation code + renderer.
 
 ## 3. Transport Layer: Wire-Compatible Pure OCaml ENet Port
 
@@ -226,4 +226,4 @@ If payloads are kept as plain data from the start, every event type written for 
 | Forward-looking constraint | All event/command payloads must be plain algebraic data (no closures, no world refs) |
 | Current status | No implementation planned; this document records the design for future reference |
 
-The render graph design, the bus architecture, and the ECS pipeline are already the right foundation. If multiplayer ever happens, it is an additive concern that slots in at the bus and transport layers — not a rearchitecture.
+The render stream design, the bus architecture, and the ECS pipeline are already the right foundation. If multiplayer ever happens, it is an additive concern that slots in at the bus and transport layers — not a rearchitecture.
