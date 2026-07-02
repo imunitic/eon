@@ -23,9 +23,9 @@ module Make
     let continue = should_continue world in
     (world, now, continue)
 
-  let run ~progress ~world ~should_continue () =
+  let run ~progress ~world ~assets ~should_continue () =
     Platform.Input_backend.init ();
-    Platform.Audio_backend.init ();
+    Platform.Audio_backend.init assets;
     let rec loop world last_time =
       let now = Clock.now () in
       let world, _, continue =

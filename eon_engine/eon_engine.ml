@@ -46,6 +46,7 @@ module Pipeline = struct
   module Default = Pipeline.Make(System.Default)(Executor.Sequential)(Buses.Default)
 end
 
+module Asset_lookup         = Asset_lookup
 module Audio_command        = Audio_command
 module Audio_command_buffer = Audio_command_buffer
 module Audio_backend        = Audio_backend

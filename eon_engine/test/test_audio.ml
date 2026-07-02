@@ -33,7 +33,7 @@ let test_clear_empties_buffer () =
 (* ------------------------------------------------------------------ *)
 
 let test_null_init_is_noop () =
-  Audio_backend.Null.init ();
+  Audio_backend.Null.init (module Asset_lookup.Null);
   Alcotest.(check pass) "init is a noop" () ()
 
 let test_null_submit_is_noop () =
@@ -56,7 +56,7 @@ module Test_platform = struct
   let submitted : Audio_command.t list ref = ref []
 
   module Audio_backend = struct
-    let init ()        = submitted := []
+    let init _assets   = submitted := []
     let submit cmds    = submitted := cmds
     let shutdown ()    = submitted := []
   end
