@@ -235,6 +235,17 @@ module Progress : sig
   include module type of Progress
 end
 
+(** {2 Audio} *)
+
+(** Audio command vocabulary — [Play_sound], [Stop_sound], [Play_music], etc. *)
+module Audio_command : module type of Audio_command
+
+(** Per-frame audio command accumulator; stored in the world data plane. *)
+module Audio_command_buffer : module type of Audio_command_buffer
+
+(** Audio backend seam with [Null] implementation. *)
+module Audio_backend : module type of Audio_backend
+
 (** {2 Input} *)
 
 (** Engine-defined keyboard keys — backend-agnostic. *)

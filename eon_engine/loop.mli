@@ -6,12 +6,12 @@
     2. [Buses.collect]
     3. [Progress.tick] — run the pipeline
     4. [Buses.drain]
+    5. [Platform.Audio_backend.submit] — submit accumulated audio commands;
+       [Audio_command_buffer] is cleared immediately after
 
-    [Loop.run] also calls [Platform.Input_backend.init] before the loop and
-    [Platform.Input_backend.shutdown] after it returns.
-
-    Rendering is not yet part of [Platform.S] — it will be added when the
-    rendering layer task is scoped and implemented.
+    [Loop.run] also calls [Platform.Input_backend.init] and
+    [Platform.Audio_backend.init] before the loop, and their [shutdown]
+    counterparts after it returns.
 
     Typical usage:
     {[

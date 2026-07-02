@@ -132,8 +132,8 @@ module Raylib_audio : Audio_backend.S = struct
   let shutdown ()     = CloseAudioDevice ()
 end
 
-(* Null — silent; used in Headless platform for CI and tests *)
-module Null_audio : Audio_backend.S = struct
+(* Null — silent; lives inside audio_backend.ml, same pattern as Input_backend.Null *)
+module Null : S = struct
   let init _assets  = ()
   let submit _      = ()
   let shutdown ()   = ()
@@ -216,6 +216,29 @@ val to_list : t -> Audio_command.t list
 
 The buffer is created once and stored in the world data plane. Game code accesses
 it via `World.get_data world \`Audio_command_buffer`.
+
+### Lock-free concurrent appends
+
+The `commands` field is declared `[@atomic]` (OCaml 5.4), making `add` a
+lock-free CAS loop. Because there is no central audio system, any number of
+parallel systems can append to the same buffer concurrently with no mutex and
+no serialization point:
+
+```ocaml
+(* audio_command_buffer.ml *)
+type t = { mutable commands : Audio_command.t list [@atomic] }
+
+let add buf cmd =
+  let rec loop () =
+    let before = Atomic.Loc.get [%atomic.loc buf.commands] in
+    if not (Atomic.Loc.compare_and_set [%atomic.loc buf.commands] before (cmd :: before))
+    then loop ()
+  in
+  loop ()
+```
+
+`clear` and `to_list` are called only from the loop (single-threaded, after
+drain), so they use plain `Atomic.Loc.set` / `Atomic.Loc.get` without CAS.
 
 ### Frame flow
 
@@ -373,7 +396,7 @@ module Headless : Platform.S = struct
   type t = [ `Headless ]
   module Rendering_backend = Null_rendering_backend
   module Input_backend     = Null_input_backend
-  module Audio_backend     = Null_audio   (* silent; CI runs without a sound device *)
+  module Audio_backend     = Audio_backend.Null   (* silent; CI runs without a sound device *)
 end
 ```
 
@@ -389,12 +412,16 @@ the buffer.
 
 ```
 eon_engine/
-  audio_backend.ml/.mli        (* module type S = sig val init / submit / shutdown end *)
-  audio_command.ml/.mli        (* command type: Play_sound, Stop_sound, Play_music, ... *)
-  audio_command_buffer.ml/.mli (* per-frame accumulator; stored in world data plane *)
-  audio_backends/
-    null.ml                    (* Null_audio — silent, for Headless platform *)
+  audio/
+    audio_backend.ml/.mli        (* module type S = sig val init / submit / shutdown end *)
+    audio_command.ml/.mli        (* command type: Play_sound, Stop_sound, Play_music, ... *)
+    audio_command_buffer.ml/.mli (* per-frame accumulator; stored in world data plane *)
+    audio_backend.ml/.mli        (* module type S + Null submodule — mirrors Input_backend pattern *)
     (* raylib.ml — in game layer, not engine; wraps InitAudioDevice / PlaySound *)
+  input/
+    ...                          (* existing: key, mouse_button, gamepad_button, raw_input_frame, input_backend *)
+  render/
+    ...                          (* future *)
 
 (* game layer — not part of eon_engine *)
 game/

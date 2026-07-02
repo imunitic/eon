@@ -15,4 +15,5 @@ let () =
     ("Pipeline", Test_pipeline.tests);
     ("Executor", Test_executor.tests);
     ("Input", Test_input.tests);
+    ("Audio", Test_audio.tests);
   ]
