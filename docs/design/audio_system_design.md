@@ -101,31 +101,35 @@ top of. There is no reason to do this for a game.
 
 ### 4.1 Contract
 
-The entire backend contract is one function:
+The entire backend contract is three functions:
 
 ```ocaml
 module type S = sig
-  val init     : (module Asset_lookup.S) -> unit
+  val init     : unit -> unit
   val submit   : Audio_command.t list -> unit
   val shutdown : unit -> unit
 end
 ```
 
-`init` opens the audio device and scans the asset lookup to pre-load sound effects
-(WAV files as PCM buffers; OGG music paths stored for streaming). The backend
-resolves string identifiers to internal handles once at startup — game code never
-touches backend handles. `submit` is called once per frame with the accumulated
+`init` opens the audio device and pre-loads assets into internal handles.
+How it does this is entirely the backend's choice — it may use
+`Asset_lookup.S` (see §4.2), hardcode paths, read a manifest, or do
+anything else. `submit` is called once per frame with the accumulated
 command list; it translates each command to a library call (`PlaySound`,
 `SetSoundVolume`, etc.) made from the game thread. The library handles all
 threading and buffering internally. `shutdown` stops playback and closes the
-device.
+device. The loop has no knowledge of asset loading — that responsibility
+belongs at backend construction time.
 
 ### 4.2 Concrete backends
 
+A backend that uses `Asset_lookup` accepts it as a functor parameter at
+construction time — `Loop.run` never sees it:
+
 ```ocaml
-(* Raylib — backed by miniaudio; default platform backend *)
-module Raylib_audio : Audio_backend.S = struct
-  let init (module Assets : Asset_lookup.S) =
+(* Raylib — backed by miniaudio; constructed with an asset lookup *)
+module Raylib_audio (Assets : Asset_lookup.S) : Audio_backend.S = struct
+  let init () =
     InitAudioDevice ();
     Assets.iter (fun logical_id path -> preload_sound logical_id path)
   let submit commands = List.iter apply_command commands
@@ -134,10 +138,25 @@ end
 
 (* Null — silent; lives inside audio_backend.ml, same pattern as Input_backend.Null *)
 module Null : S = struct
-  let init _assets  = ()
-  let submit _      = ()
-  let shutdown ()   = ()
+  let init ()    = ()
+  let submit _   = ()
+  let shutdown () = ()
 end
+```
+
+A backend is free to ignore `Asset_lookup` entirely and load assets any
+other way — hardcoded paths, a JSON manifest, a network fetch. The seam
+does not care:
+
+```ocaml
+(* minimal backend with hardcoded assets — also valid *)
+module My_audio : Audio_backend.S = struct
+  let sounds = ["hit", "/assets/hit.wav"; "death", "/assets/death.ogg"]
+  let init ()        = List.iter (fun (id, path) -> preload id path) sounds
+  let submit commands = List.iter apply_command commands
+  let shutdown ()    = CloseAudioDevice ()
+end
+```
 ```
 
 ---
@@ -473,6 +492,8 @@ game/
 |----------|--------|-----------|
 | Backend contract | `init / submit / shutdown` | Minimal seam; backend owns callback, mixer, ring buffer |
 | Backend implementation | Wrap raylib/miniaudio | Real-time audio is treacherous to implement correctly; existing libs handle platform fragmentation |
+| Asset loading | Backend's own responsibility at `init` time | `Loop.run` has no knowledge of assets; backends choose their loading strategy (Asset_lookup, hardcoded paths, manifest, etc.) |
+| `Asset_lookup.S` role | Utility and functor parameter type, not a seam | Shared `Dir`/`Null`/`Scripted` implementations; backends that want it accept it as a functor parameter; backends that don't simply ignore it |
 | Command accumulator | `Audio_command_buffer` in world data plane | Mirrors `Render_stream`; any system appends, loop submits once per frame |
 | Engine ships no audio systems or components | Game layer responsibility | Engine cannot know game's component structure; same philosophy as rendering collectors |
 | Voice prioritization | Optional game-layer system reading the buffer before submit | Buffer collects all frame requests in one place; a single prioritization pass sees everything |

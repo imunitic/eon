@@ -269,7 +269,7 @@ val has_errors : t -> bool
 module type S = sig
   type command
 
-  val init        : (module Asset_lookup.S) -> unit
+  val init        : unit -> unit
   val render      : command Render_stream.t -> dt:float -> Rendering_result.t
   val diagnostics : unit -> (string * string) list
   (* Returns diagnostic information for the most recently completed render call.
@@ -283,18 +283,18 @@ end
 
 There is no central asset manager. Each backend owns its GPU handles and font atlases from `init` to `shutdown`. Game code uses only stable string identifiers (`texture_id`, `font_id`); the backend resolves those to internal handles at render time.
 
+Asset loading is entirely the backend's concern — the loop calls `init ()` and has no knowledge of assets. A backend that wants to scan the asset directory accepts `Asset_lookup.S` as a functor parameter at construction time:
+
 ```ocaml
-(* asset_lookup.mli *)
-
-module type S = sig
-  val iter : (string -> string -> unit) -> unit
-  (* f logical_id absolute_path *)
+module Raylib_renderer (Assets : Asset_lookup.S) : Rendering_backend.S = struct
+  let init () =
+    InitWindow (...);
+    Assets.iter (fun logical_id path -> preload_texture logical_id path)
+  ...
 end
-
-module Dir      : S  (* scans asset_dir recursively; relative path = logical id *)
-module Null     : S  (* always empty; for tests that need no assets *)
-module Scripted : S  (* hand-maintained list; for tests needing precise control *)
 ```
+
+`Asset_lookup` (in `eon_engine/asset_lookup.ml`) provides `Dir`, `Null`, and `Scripted` implementations as shared utilities — backends that don't need them can ignore them entirely.
 
 The directory structure is the manifest — drop a file in the right folder and it is immediately available:
 
