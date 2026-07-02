@@ -46,6 +46,10 @@ module Pipeline = struct
   module Default = Pipeline.Make(System.Default)(Executor.Sequential)(Buses.Default)
 end
 
+module Audio_command        = Audio_command
+module Audio_command_buffer = Audio_command_buffer
+module Audio_backend        = Audio_backend
+
 module Key             = Key
 module Mouse_button    = Mouse_button
 module Gamepad_button  = Gamepad_button

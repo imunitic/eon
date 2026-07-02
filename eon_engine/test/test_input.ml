@@ -66,6 +66,7 @@ let test_scripted_shutdown_clears () =
 module Test_platform = struct
   type t = [ `Test ]
   module Input_backend = Input_backend.Scripted
+  module Audio_backend = Audio_backend.Null
 end
 
 module My_progress = Progress.Make (Pipeline.Default)
