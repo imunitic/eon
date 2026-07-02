@@ -235,6 +235,12 @@ module Progress : sig
   include module type of Progress
 end
 
+(** {2 Assets} *)
+
+(** Asset lookup — maps logical string ids to absolute file paths.
+    Passed to backends at [init] time for pre-loading. *)
+module Asset_lookup : module type of Asset_lookup
+
 (** {2 Audio} *)
 
 (** Audio command vocabulary — [Play_sound], [Stop_sound], [Play_music], etc. *)
