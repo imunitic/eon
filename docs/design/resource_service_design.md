@@ -185,7 +185,72 @@ The module *is* the API. No indirection needed.
 
 ---
 
-## 6. What NOT to Do
+## 6. Make_resource and Make_service Functors
+
+When a game defines many resources or services the per-module boilerplate
+becomes repetitive — `type t`, a private key, `fetch`, `store` / `register`
+are identical in structure across all of them. `Make_resource` and
+`Make_service` capture that invariant:
+
+```ocaml
+(* eon_engine/resource.ml *)
+module Make (T : sig
+  type t
+  val key : [> ]
+end) : S with type t = T.t = struct
+  type t = T.t
+  let fetch world =
+    match World.get_data world T.key with
+    | Some v -> v
+    | None   -> failwith ("resource not registered: " ^ Obj.Extension_constructor.(name (of_val T.key)))
+  let store world v = World.set_data world T.key v
+end
+
+(* eon_engine/service.ml *)
+module Make (T : sig
+  type t
+  val key : [> ]
+end) : S with type t = T.t = struct
+  type t = T.t
+  let fetch world =
+    match World.get_service world T.key with
+    | Some v -> v
+    | None   -> failwith ("service not registered: " ^ Obj.Extension_constructor.(name (of_val T.key)))
+  let register world v = World.add_service world T.key v
+end
+```
+
+A game with 50 resources reduces each definition to just the two things
+that actually differ — the type and the key:
+
+```ocaml
+module Delta_time    = Resource.Make(struct type t = float  let key = `Delta_time    end)
+module Level_config  = Resource.Make(struct type t = Config.t let key = `Level_config end)
+module Physics_state = Resource.Make(struct type t = Physics.t let key = `Physics_state end)
+
+module Steam_api     = Service.Make(struct type t = Steam.t  let key = `Steam_api    end)
+module Analytics     = Service.Make(struct type t = Analytics.t let key = `Analytics end)
+```
+
+Modules with non-trivial `fetch` logic — like `Audio_command_buffer` which
+has `add`, `clear`, and `to_list` on top of `fetch`/`store` — still write
+the full module manually and satisfy `Resource.S` explicitly. `Make` is for
+the common case, not a requirement.
+
+`World.get_resource` is trivially derivable if a generic accessor is ever
+needed:
+
+```ocaml
+let get_resource world (module S : Resource.S) = S.fetch world
+let get_service  world (module S : Service.S)  = S.fetch world
+```
+
+This is a one-liner when the use case arises. There is no reason to add it
+before then.
+
+---
+
+## 7. What NOT to Do
 
 - **Do not call `store` from parallel systems.** `store` requires `rw` and
   parallel systems hold `ro` — the compiler prevents it. If you need to
@@ -207,7 +272,7 @@ The module *is* the API. No indirection needed.
 
 ---
 
-## 7. Key Decisions
+## 8. Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -216,3 +281,5 @@ The module *is* the API. No indirection needed.
 | `Resource.S` vs `Service.S` | Semantic distinction, not a type-level one | `store` vs `register` signals intent; both use same storage primitives |
 | No new storage layer | Polymorphic variant keys + existing `get_data`/`set_data` | `Resource.S` is a typed facade; no migration cost to storage |
 | `fetch` raises on absent | Fail loudly | Absent resource is a programming error; `fetch_opt` can be added per-module if genuinely optional |
+| `Make_resource` / `Make_service` functors | Provided as convenience, not required | Eliminates boilerplate for simple resources; modules with richer APIs (e.g. `Audio_command_buffer`) write the full module manually |
+| `World.get_resource` / `World.get_service` | Not added until a use case arises | Trivially derivable as a one-liner; no reason to add before then |
