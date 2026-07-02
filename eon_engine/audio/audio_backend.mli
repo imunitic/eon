@@ -10,11 +10,11 @@
     from the game thread. *)
 
 module type S = sig
-  val init     : (module Asset_lookup.S) -> unit
+  val init     : unit -> unit
   val submit   : Audio_command.t list -> unit
   val shutdown : unit -> unit
 end
 
-(** Null backend — silent; ignores all assets and discards all commands.
+(** Null backend — silent; discards all commands.
     Used by [Platform.Headless] for CI and tests. *)
 module Null : S
