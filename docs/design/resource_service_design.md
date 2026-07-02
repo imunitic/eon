@@ -202,7 +202,7 @@ end) : S with type t = T.t = struct
   let fetch world =
     match World.get_data world T.key with
     | Some v -> v
-    | None   -> failwith ("resource not registered: " ^ Obj.Extension_constructor.(name (of_val T.key)))
+    | None   -> failwith "resource not registered"
   let store world v = World.set_data world T.key v
 end
 
@@ -215,7 +215,7 @@ end) : S with type t = T.t = struct
   let fetch world =
     match World.get_service world T.key with
     | Some v -> v
-    | None   -> failwith ("service not registered: " ^ Obj.Extension_constructor.(name (of_val T.key)))
+    | None   -> failwith "service not registered"
   let register world v = World.add_service world T.key v
 end
 ```
