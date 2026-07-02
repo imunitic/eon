@@ -9,9 +9,10 @@
     5. [Platform.Audio_backend.submit] — submit accumulated audio commands;
        [Audio_command_buffer] is cleared immediately after
 
-    [Loop.run] takes [~assets:(module Asset_lookup.S)] and passes it to
-    [Platform.Audio_backend.init] before the loop starts. [shutdown]
-    counterparts for both backends are called after the loop returns.
+    [Loop.run] calls [Platform.Input_backend.init] and
+    [Platform.Audio_backend.init] before the loop starts, and their [shutdown]
+    counterparts after it returns. Asset lookup is baked into each backend at
+    construction time — [Loop.run] has no knowledge of assets.
 
     Typical usage:
     {[
@@ -46,7 +47,6 @@ module Make
   val run :
     progress:'phase Progress.t ->
     world:Progress.world ->
-    assets:(module Asset_lookup.S) ->
     should_continue:(Progress.world -> bool) ->
     unit ->
     Progress.world
