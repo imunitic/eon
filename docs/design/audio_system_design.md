@@ -157,7 +157,6 @@ module My_audio : Audio_backend.S = struct
   let shutdown ()    = CloseAudioDevice ()
 end
 ```
-```
 
 ---
 
