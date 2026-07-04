@@ -97,25 +97,11 @@ end
 module Make_with_kind
     (Kind : System.KIND)
     (Pipeline : Pipeline.S with type kind = Kind.kind) : sig
-  (** Internal packaging of a time mode. *)
-  type custom_mode =
-    | Mode :
-        {
-          init : unit -> 'state;
-          advance :
-            'state ->
-            world:Pipeline.world ->
-            dt:float ->
-            run:(world:Pipeline.world -> kind:Pipeline.kind -> dt:float -> Pipeline.world) ->
-            'state * Pipeline.world;
-        } -> custom_mode
-
   (** Supported simulation modes. *)
   type mode =
     | Variable
     | Fixed of float
     | Hybrid of float
-    | Custom of custom_mode
 
   (** Progress controller state. *)
   type 'phase t

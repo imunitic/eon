@@ -144,21 +144,10 @@ module Make_with_kind
 
   type world = Pipeline.world
 
-  type custom_mode =
-    | Mode :
-        { init    : unit -> 'state;
-          advance : 'state ->
-                    world:world ->
-                    dt:float ->
-                    run:(world:world -> kind:Pipeline.kind -> dt:float -> world) ->
-                    'state * world;
-        } -> custom_mode
-
   type mode =
     | Variable
     | Fixed  of float
     | Hybrid of float
-    | Custom of custom_mode
 
   type mode_state =
     | Mode_state :
@@ -182,8 +171,6 @@ module Make_with_kind
       Mode_state { state = Fixed_mode.with_step step; advance = Fixed_mode.advance }
     | Hybrid step ->
       Mode_state { state = Hybrid_mode.with_step step; advance = Hybrid_mode.advance }
-    | Custom (Mode m) ->
-      Mode_state { state = m.init (); advance = m.advance }
 
   let create ?(mode = Variable) pipeline =
     { mode = instantiate_mode mode; pipeline }
