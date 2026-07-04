@@ -165,7 +165,6 @@ digraph functor_instantiation {
     ecs_commands  [label="Commands\n(Single_bus)"]
     ecs_bdefs     [label="Buses.Default"]
     ecs_clock     [label="Clock.Mtime"]
-    ecs_prog_adp  [label="Progress_adapter"]
     ecs_lbuses    [label="Loop_default_buses"]
 
     // functors
@@ -180,6 +179,7 @@ digraph functor_instantiation {
     ecs_sys_def   [label="System.Default"]
     ecs_pip_def   [label="Pipeline.Default"]
     ecs_prog_def  [label="Progress.Default"]
+    ecs_prog_adp  [label="Progress_adapter"]
     ecs_loop_def  [label="Loop.Default"]
 
     ecs_signals  -> ecs_sys_make
@@ -194,10 +194,10 @@ digraph functor_instantiation {
     ecs_pip_def   -> ecs_prog_make
     ecs_prog_make -> ecs_prog_def
 
-    ecs_prog_def -> ecs_prog_adp
-    ecs_clock    -> ecs_loop_make
-    ecs_prog_adp -> ecs_loop_make
-    ecs_lbuses   -> ecs_loop_make
+    ecs_prog_def  -> ecs_prog_adp
+    ecs_clock     -> ecs_loop_make
+    ecs_prog_adp  -> ecs_loop_make
+    ecs_lbuses    -> ecs_loop_make
     ecs_loop_make -> ecs_loop_def
   }
 
