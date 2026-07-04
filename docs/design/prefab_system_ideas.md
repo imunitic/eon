@@ -62,6 +62,25 @@ new component values. No OCaml touched. Dream.
 
 ---
 
+## Mod System — Not the Engine's Problem
+
+A full mod system is not an `eon_engine` concern. The prefab system's
+`Source.S` seam is sufficient — the engine just loads named entities from
+whatever source you give it. Mod support is built on top by the game:
+
+- `eon_engine` — `Prefab.load world "goblin"` via `Source.S`
+- `eon_game` — plug in a `Source.S` that reads from base game folder OR
+  a Steam Workshop folder, with whatever priority and conflict rules the
+  game wants
+
+The engine is oblivious to what a mod is. Validation, versioning, load
+order, conflict resolution — all game responsibility. If mods never happen,
+the prefab system still pays for itself in development ergonomics alone.
+
+---
+
 ## Not Now
 
-After core engine works and the game content pipeline becomes real friction.
+Earlier than originally thought — development ergonomics alone justify it.
+Want it working before serious game content starts, not after. Natural time:
+right after `Resource.S` / `Service.S` are implemented.
