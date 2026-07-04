@@ -4,119 +4,174 @@
 
 `Eon_ecs.World` provides two resource stores: the data-plane and the service-plane. Both are flat — there is no concept of a namespace at the ECS core level, and there never will be. Namespacing is not an ECS problem. The ECS core is responsible for entity lifecycle, component storage, and query iteration. Resource stores are a convenience layer for attaching world-scoped data and services to the simulation. Keeping them flat at the core level preserves simplicity and avoids layering concerns that belong higher up.
 
-## 2. How the Data-Plane and Service-Plane Work in Eon_ecs
+## 2. How the Data-Plane and Service-Plane Work in Eon_engine
 
-Both stores accept any OCaml value as a key via open polymorphic variants. The variant is converted to an `Obj.t` using `Obj.repr`, giving a stable identity-based handle usable in a hash table.
+`Eon_engine.World` wraps `Eon_ecs.World` and carries a phantom permission type — the same `ro`/`rw` distinction used by the parallel pipeline:
 
 ```ocaml
-let world = World.create () in
+type 'perm t = {
+  raw        : 'perm Eon_ecs.World.t;
+  namespaces : (string, 'perm t) Hashtbl.t;
+}
 
-(* Data-plane: per-world simulation parameters *)
-World.add_data world `Gravity 9.81;
-World.add_data world `Timescale 1.0;
-let g = World.get_data world `Gravity in  (* Some 9.81 *)
-
-(* Service-plane: long-lived singletons *)
-World.add_service world `Renderer (Renderer.create ());
-let r = World.get_service world `Renderer in
+type ro = [ `R ]
+type rw = [ `R | `W ]
 ```
+
+The data and service APIs mirror `Eon_ecs.World` but add phantom constraints. Writes require `rw`; reads accept any permission:
+
+```ocaml
+(* Data-plane *)
+val add_data   : rw t -> [> ] -> 'a -> unit
+val set_data   : rw t -> [> ] -> 'a -> unit
+val get_data   : [> ro] t -> [> ] -> 'a option
+val count_data : [> ro] t -> unit -> int
+
+(* Service-plane *)
+val add_service : rw t -> [> ] -> 'a -> unit
+val get_service : [> ro] t -> [> ] -> 'a option
+```
+
+Both stores accept open polymorphic variants as keys. The variant is converted to an `Obj.t` via `Obj.repr`, giving a stable identity-based handle usable in a hash table.
 
 **Structural difference between the two stores:**
 
-The **service-plane** uses a `Hashtbl` keyed by `Obj.repr key`. Services are registered once at startup and retrieved by point lookup. Typical services are message buses, asset loaders, audio engines, and physics contexts — registered once, referenced many times.
+The **service-plane** uses a `Hashtbl` keyed by `Obj.repr key`. Services are registered once at startup and retrieved by point lookup. Typical services are audio engines, physics contexts, and network sessions — registered once, referenced many times.
 
-The **data-plane** maps variant keys to integer IDs and stores values in a `Sparse_set`. This gives both O(1) keyed access and O(n) dense iteration over all entries. Data-plane entries represent simulation parameters that systems may iterate — gravity, time scale, environmental constants. The sparse set keeps these densely packed for cache-friendly access.
+The **data-plane** maps variant keys to integer IDs and stores values in a `Sparse_set`. This gives O(1) keyed access and O(n) dense iteration. Data-plane entries represent per-frame or simulation-scoped data — input frames, command buffers, environmental constants. The sparse set keeps these densely packed for cache-friendly access.
+
+There is no `?ns` parameter on any data or service operation. Namespace routing is handled entirely by `Namespace.S` — the World API stays clean.
 
 ## 3. The Namespacing Problem
 
-`Eon_ecs.World.create ()` creates a world with its own private resource store. Worlds are already isolated — there is nothing to namespace within a single world. What makes namespacing meaningful is **shared state across worlds**.
+`World.create ()` creates a world with its own private resource store. Worlds are isolated — there is nothing to namespace within a single world. What makes namespacing meaningful is typed, ergonomic access across worlds.
 
-A game with multiple worlds — one per level, one for the UI, one for the background scene — needs some data and services to be shared (a renderer, an audio engine, player state) while other data remains strictly private per world (level gravity, local timescale, level-specific services). There is no mechanism in `Eon_ecs` to express this, nor should there be.
+A game with multiple worlds — one per level, one for UI, one for background simulation — needs some resources and services to be shared (an audio backend, player state, a physics engine) while other data remains private per world (level gravity, local timescale, level-specific services). There is no mechanism in `Eon_ecs` for this, nor should there be.
 
-The goal at the `eon_engine` layer is:
+The goal at the `eon_engine` layer:
 
-- Works identically to today if you never use namespacing — fully isolated worlds with zero overhead
-- Opt-in: attach named references to other worlds; their stores become reachable via a namespace string at the call site
-- No explicit store reference needed at call sites — the namespace string is the indirection
+- Zero overhead if namespacing is never used — one world, no topology, no new concepts
+- Opt-in: attach named references to other worlds; `Namespace.S` routes typed access to the target world's local store
+- No call-site boilerplate — the aggregator pattern (§7) gives named module-path access with no first-class modules at call sites
 
-## 4. The Model: Namespacing is World Composition
+## 4. The Model: World Graph + Namespace.S
 
-The key insight is that a shared resource store is just a `World.t` you use only for its data and services. There is no new `Store.t` type needed. A namespace is a named reference to another `World.t`.
+Two orthogonal concerns, each with a clear owner:
 
-`Eon_engine.World.t` holds a **namespace map**: a `(string, World.t) Hashtbl.t`. When a data or service call includes a `~ns` argument, the world looks up that string in its namespace map and routes the call to the target world's resource store. When no `~ns` is given, the call routes to the world's own private store.
+**`Eon_engine.World` manages the graph.** Each world holds a namespace map — a `(string, 'perm t) Hashtbl.t` of named references to other worlds. `attach_ns` wires the graph at startup. This is structural configuration, not data access. The World API exposes no namespace-routing parameters.
 
-```ocaml
-type t = {
-  raw        : Eon_ecs.World.t;
-  namespaces : (string, t) Hashtbl.t;
-}
-```
+**`Namespace.S` does typed routing.** A `Namespace.t` is an abstract handle — a world reference plus optional routing. `Namespace.get_resource` resolves the target world and delegates to `Resource.S.fetch` on it. The resource module never knows it was routed; it sees a plain local world access.
 
-Sharing is configured once at construction time. Call sites stay clean — they only know the namespace string, not the target world.
+The graph is **flat by design**. Every world is at most one hop away — `Namespace.named "global" world` resolves directly to the attached world. Nested traversal is unnecessary because `Namespace.S` gives direct typed access to any world in the graph: each world only knows about the worlds it explicitly attached, and systems reach them by name through `Namespace.S`.
 
-## 5. Opt-In: Isolated Worlds Still Work
+## 5. World Structural API
 
-A world created with `World.create ()` has an empty namespace map. All data and service calls route to its own private store. This is identical to the current behavior — no overhead, no shared state, no new concepts needed. The namespacing feature is completely transparent to code that does not use it.
+Graph management operations — separate from data access:
 
 ```ocaml
-(* This always works regardless of namespacing *)
-let world = World.create () in
-World.add_data world `Gravity 9.81;
-World.add_service world `Renderer (Renderer.create ());
-```
+val create : unit -> rw t
 
-## 6. API
-
-### 6.1 Namespace management
-
-```ocaml
-(* Register a named reference to another world *)
-val attach_ns : t -> ns:string -> t -> unit
-(* attach_ns world ~ns:"global" global_world *)
+(* Attach a named reference to another world *)
+val attach_ns     : 'perm t -> string -> 'perm t -> unit
 
 (* Convenience: attach the same namespace to many worlds at once *)
-val attach_ns_all : ns:string -> t -> t list -> unit
-(* attach_ns_all ~ns:"global" global [level_1; level_2; level_3] *)
+val attach_ns_all : string -> 'perm t -> 'perm t list -> unit
+
+(* Look up an attached world by name *)
+val get_ns     : 'perm t -> string -> 'perm t       (* raises Unknown_namespace *)
+val get_ns_opt : 'perm t -> string -> 'perm t option
 ```
 
-`attach_ns` is the primitive — it mutates `world`'s namespace map; the target world is not modified. `attach_ns_all` is a pure convenience wrapper over `List.iter (fun w -> attach_ns w ~ns target) worlds` and adds no new semantics.
+`attach_ns` mutates the source world's namespace map; the target world is not modified. `get_ns` / `get_ns_opt` return the attached world with the same permission as the caller — a `ro` handle gives a `ro` view of the attached world. Permission does not escalate through lookup.
 
-### 6.2 Data-plane
+## 6. Namespace.S
+
+`Namespace.S` is a module signature for typed, permission-aware routing to a world's local store via `Resource.S` and `Service.S`:
 
 ```ocaml
-val add_data   : t -> ?ns:string -> [> ] -> 'a -> unit
-val set_data   : t -> ?ns:string -> [> ] -> 'a -> unit
-val get_data   : t -> ?ns:string -> [> ] -> 'a option
-val count_data : t -> ?ns:string -> unit -> int
+module type S = sig
+  type 'perm t
+
+  val local : 'perm World.t -> 'perm t
+  (** Routes to the world's own local store — no namespace lookup. *)
+
+  val named : string -> 'perm World.t -> 'perm t
+  (** Routes to the world attached under the given namespace string. *)
+
+  val resolve : 'perm t -> 'perm World.t
+  (** Returns the resolved target world for direct access. *)
+
+  val get_resource : (module Resource.S with type t = 'a) -> [> World.ro] t -> 'a
+  val set_resource : (module Resource.S with type t = 'a) -> World.rw t -> 'a -> unit
+
+  val get_service  : (module Service.S  with type t = 'a) -> [> World.ro] t -> 'a
+  val reg_service  : (module Service.S  with type t = 'a) -> World.rw t -> 'a -> unit
+end
 ```
 
-### 6.3 Service-plane
+The concrete `Namespace` module satisfies `Namespace.S`. `get_resource` is a one-liner:
 
 ```ocaml
-val add_service   : t -> ?ns:string -> [> ] -> 'a -> unit
-val get_service   : t -> ?ns:string -> [> ] -> 'a option
-val list_services : t -> ?ns:string -> unit -> int list
+let get_resource (module R : Resource.S) ns_t = R.fetch (resolve ns_t)
 ```
 
-### 6.4 Namespace resolution
+`resolve ns_t` returns the target `World.t` — either the world itself (`local`) or the attached world (`named`). `R.fetch` then accesses that world's local store. The resource module has no knowledge of routing; it sees a plain local access.
+
+`resolve` is public so callers can reach any function on a resource module through a namespace handle — useful for modules with richer APIs than `fetch`/`store`:
 
 ```ocaml
-let resolve world ns_opt =
-  match ns_opt with
-  | None    -> world.raw
-  | Some ns ->
-    match Hashtbl.find_opt world.namespaces ns with
-    | Some target -> target.raw
-    | None        -> raise (Unknown_namespace ns)
+let world = Namespace.resolve global_ns in
+Audio_command_buffer.add (Audio_command_buffer.fetch world) cmd
 ```
 
-All data and service operations call `resolve` first, then delegate to `Eon_ecs.World` on the result. The target world's `Eon_ecs.World.t` is what receives the operation — that world's private entity state is untouched; only its resource store is accessed.
+**Phantom type propagation:** `get_resource` constrains its handle to `[> World.ro] t`, matching `Resource.S.fetch`. `set_resource` requires `World.rw t`, matching `Resource.S.store`. A `ro` namespace handle cannot call `set_resource` — the compiler rejects it at the call site, no runtime check needed.
 
-## 7. World Topologies
+## 7. The Aggregator Pattern
 
-### 7.1 Fully isolated worlds (default)
+`Namespace.S` is most useful as a foundation for a concrete game-specific module that centralises all resource and service definitions for a world. This module has two roles: a single registration point at startup, and named shorthand accessors throughout the codebase. Call sites use module paths — no first-class modules, no string keys:
 
-No `attach_ns` calls. Each world owns its data and services completely. This is the common case for simple games or tools.
+```ocaml
+(* game/world_ns.ml *)
+module World_ns = struct
+  include Namespace.Local   (* or Namespace.Make(struct let ns = "global" end) *)
+
+  (* Named accessors — call sites use World_ns.input, World_ns.audio, etc. *)
+  let physics world = get_resource (module Physics_state)        world
+  let input   world = get_resource (module Raw_input_frame)      world
+  let audio   world = get_resource (module Audio_command_buffer) world
+  let steam   world = get_service  (module Steam_api)            world
+
+  (* All registration in one place — called once before the loop starts *)
+  let init world steam_instance =
+    reg_service  (module Steam_api)            world steam_instance;
+    set_resource (module Audio_command_buffer) world (Audio_command_buffer.create ());
+    set_resource (module Physics_state)        world (Physics_state.create ())
+end
+
+(* In a system *)
+let update world _dt =
+  let ns    = World_ns.local world in
+  let input = World_ns.input ns in
+  let audio = World_ns.audio ns in
+  Audio_command_buffer.add audio (Play_sound { id = "hit"; volume = 1.0; ... })
+```
+
+`eon_engine` provides the machinery — `Namespace.S`, `Resource.S`, `Service.S`. The aggregator module is written by the game developer and names their specific resources and services. A game using multiple worlds defines one aggregator per logical namespace:
+
+```ocaml
+(* accessing resources from two worlds in the same system *)
+let global_ns = World_ns.named "global" world in
+let local_ns  = World_ns.local world in
+
+let steam = World_ns.steam  global_ns in   (* → global world *)
+let input = World_ns.input  local_ns  in   (* → this world's local store *)
+```
+
+## 8. World Topologies
+
+### 8.1 Fully isolated worlds (default)
+
+No `attach_ns` calls. Each world owns its data and services completely. No `Namespace.S` needed.
 
 ```ocaml
 let world_a = World.create () in
@@ -127,70 +182,60 @@ World.add_data world_b `Gravity 0.0;
 (* No connection. No conflict. *)
 ```
 
-### 7.2 Shared global services
+### 8.2 Shared global services
 
-A single shared world holds cross-cutting services. Each level world attaches it under a common namespace string.
+A shared world holds cross-cutting services. Level worlds attach it at startup and access it through a `Namespace.t` handle:
 
 ```ocaml
-let global = World.create () in
-World.add_service global `Renderer (Renderer.create ());
-World.add_service global `Audio    (Audio.create ());
-
+(* startup *)
+let global  = World.create () in
 let level_1 = World.create () in
 let level_2 = World.create () in
-World.attach_ns level_1 ~ns:"global" global;
-World.attach_ns level_2 ~ns:"global" global;
 
-(* Both levels reach the same renderer *)
-let r1 = World.get_service level_1 ~ns:"global" `Renderer in
-let r2 = World.get_service level_2 ~ns:"global" `Renderer in
-(* r1 and r2 are the same object *)
+Global_ns.init global (Steam.connect ());
+World.attach_ns_all "global" global [level_1; level_2];
 
-(* Private data remains isolated *)
-World.add_data level_1 `Gravity 9.81;
-World.add_data level_2 `Gravity 0.0;
+(* in a system running on level_1's world *)
+let update world _dt =
+  let gns = World_ns.named "global" world in
+  let lns = World_ns.local world in
+  let steam = World_ns.steam gns in   (* → global world *)
+  let input = World_ns.input lns in   (* → level_1 local *)
+  ...
 ```
 
-### 7.3 Parent–child worlds
+### 8.3 Multiple attached worlds
 
-A child world is granted read/write access to a parent's data and services by attaching the parent under a namespace. The parent's entity state is not exposed — only its resource stores are reachable.
+A world attaches multiple others under distinct names. The graph is flat — each attachment is a direct named reference, one hop:
 
 ```ocaml
-let parent = World.create () in
-World.add_data parent `Config { max_enemies = 10; ... };
+World.attach_ns game_world "global" global;
+World.attach_ns game_world "ui"     ui_world;
 
-let child = World.create () in
-World.attach_ns child ~ns:"parent" parent;
+let global_ns = World_ns.named "global" game_world in
+let ui_ns     = Ui_ns.named   "ui"     game_world in
 
-let config = World.get_data child ~ns:"parent" `Config in
+let steam    = World_ns.steam  global_ns in
+let ui_state = Ui_ns.state     ui_ns     in
 ```
 
-### 7.4 Multiple shared namespaces
+## 9. Everything Is Optional
 
-A world can attach multiple shared worlds, each under a distinct namespace string. This supports tiered sharing: global cross-cutting services, level-scoped shared state, and private per-world data all coexist.
+The three `eon_engine` layers are independently opt-in:
 
-```ocaml
-let global      = World.create () in
-let level_scope = World.create () in
-let system_a    = World.create () in
+| Layer | What it adds | Skip when |
+|---|---|---|
+| `Eon_engine.World` | `'perm` phantom types, `attach_ns` graph | Single world, `Eon_ecs.World` is enough |
+| `Resource.S` / `Service.S` | Typed, phantom-constrained local access | Raw `World.get_data` / `get_service` is acceptable |
+| `Namespace.S` + aggregator | Typed cross-world routing, named call-site ergonomics | Single world, no cross-world access needed |
 
-World.attach_ns system_a ~ns:"global" global;
-World.attach_ns system_a ~ns:"level"  level_scope;
+A card game developer uses one world, stores data under polymorphic variant keys, and ignores all three layers. A multiplayer action game with a shared global world and per-player simulation worlds adopts all three. Each layer adds value only at the scale that needs it.
 
-World.add_service system_a ~ns:"global" `Renderer r;  (* → global *)
-World.add_data    system_a ~ns:"level"  `Enemy_count 0; (* → level_scope *)
-World.add_data    system_a             `Local_timer 0.0; (* → system_a private *)
-```
+## 10. The Global Namespace Convention
 
-## 8. What Stays in Eon_ecs
+When multiple worlds share a common world (§8.2), every `attach_ns` call must agree on the namespace string. Without a shared constant, drift happens — `"global"` in one file, `"globals"` in another.
 
-Nothing changes in `Eon_ecs`. The core continues to expose a flat key space. The namespace routing is entirely an `Eon_engine.World` concern. `Eon_ecs` users who work without the engine layer retain the current API without any overhead.
-
-## 9. The Global Namespace Convention
-
-The shared global world pattern (section 7.2) requires all participating worlds to agree on a namespace string. Without a shared constant, different parts of a codebase can drift apart — `"global"` in one file, `"globals"` in another, `"shared"` in a third.
-
-`Eon_engine` provides a single string constant to anchor the convention:
+`Eon_engine` provides a single string constant:
 
 ```ocaml
 (* eon_engine.mli *)
@@ -198,50 +243,32 @@ val default_global_ns : string
 (* = "global" *)
 ```
 
-This is nothing more than a string. The engine does not pre-create a global world, does not hold any shared mutable state, and does not force any topology. The developer still creates the global world explicitly — one intentional line — and attaches it using the constant:
+This is nothing more than a string. The engine does not pre-create a global world, holds no shared mutable state, and forces no topology. The developer creates the global world and attaches it explicitly:
 
 ```ocaml
 let global = World.create () in
-
-let level_1 = World.create () in
-World.attach_ns level_1 ~ns:Eon_engine.default_global_ns global;
+World.attach_ns level_1 Eon_engine.default_global_ns global;
 ```
 
-**Why not pre-create the global world in the engine?**
+**Why not pre-create the global world in the engine?** A module-level `let global = World.create ()` in `Eon_engine` is evaluated once at module load time and shared for the process lifetime:
 
-A module-level `let global = World.create ()` in `Eon_engine` would be evaluated once at module load time and shared for the lifetime of the process. This creates two problems:
+- **Test isolation**: tests that touch the global world pollute each other — teardown is easy to forget.
+- **Multiple simulations**: a server running independent game instances in the same process shares one global world across all of them — invisible and wrong.
 
-- **Test isolation**: tests that touch the global world pollute each other. Resetting it requires an explicit teardown call that is easy to forget.
-- **Multiple simulations**: a server running independent game instances in the same process would have a single shared global world across all of them — invisible and wrong.
+The constant gives consistent naming. The developer retains lifecycle ownership.
 
-The constant gives consistent naming. The developer retains ownership of the world's lifecycle.
+## 11. Future: App.Make and Game Initialization
 
-## 10. Future: App.Make and Game Initialization
-
-The existing functor stack in `eon_ecs` already functions as an implicit application constructor:
-
-```ocaml
-module Loop = Eon_ecs.Loop.Make(Clock.Mtime)(Progress_adapter)(My_renderer)(Buses)
-```
-
-The "app" is the composed set of functors applied at module level. There is no `App.t` because there is no object — the module *is* the application. What Bevy's runtime `App` does by calling `app.add_system(...)` at runtime, OCaml modules express at compile time through functor composition.
-
-An explicit `Engine.Make` functor would provide a **blessed composition** with a clear entry point, consolidating the variation points a developer must supply:
+An explicit `Engine.Make` functor would provide a blessed composition with a clear entry point, consolidating the variation points a developer must supply:
 
 ```ocaml
 module App = Eon_engine.App.Make(struct
   module Renderer = My_renderer
   module Clock    = Eon_ecs.Clock.Mtime
-  let global_ns   = "global"
+  let global_ns   = Eon_engine.default_global_ns
 end)
 ```
 
-The resulting `App` module would expose `App.world` and `App.global` as module-level values — compile-time artifacts of the functor application, not runtime-constructed objects. The topology (which renderer, which clock, which buses) is fixed at compile time. Systems are still registered at runtime via `Pipeline.Default`, but the structural wiring is not.
+The resulting `App` module would expose `App.world` and `App.global` as module-level values — compile-time artifacts of functor application. The `global_ns` field is the natural long-term home for the namespace convention, replacing `default_global_ns` once `App.Make` exists.
 
-This is a meaningful distinction from the Bevy model. In Bevy, the application is a mutable runtime object. In eon, the application is an OCaml module. The `global_ns` field in the `App.Make` struct argument is the natural long-term home for the global namespace convention — replacing the `default_global_ns` constant once this concept exists.
-
-**This is not a near-term task.** `App.Make` makes sense as the last thing composed, once the variation points are known: rendering backends are settled, the World wrapper is stable, and the query builder is in place. Building it now would risk designing it around the wrong seams. The `default_global_ns` constant is the right answer until then.
-
-## 11. Future: Recursive Traversal
-
-In the current design namespace resolution is single-hop — `~ns:"global"` reaches the directly attached world. A natural extension is multi-hop traversal: a namespace string like `"global.meta"` could resolve by first looking up `"global"`, then looking up `"meta"` in the resulting world's namespace map. This is not part of the initial implementation but the data structure supports it without modification — worlds referencing worlds is already a graph, traversal depth is the only variable.
+**This is not a near-term task.** `App.Make` makes sense once the variation points are settled: rendering backends, the World wrapper, and the query layer. Building it now risks designing it around the wrong seams. `default_global_ns` is the right answer until then.

@@ -31,6 +31,8 @@ This works but has two weaknesses:
 `Resource.S` and `Service.S` solve both. Each module carries its own typed
 `fetch` and `store` functions, with phantom-type constraints that make
 read-only access available everywhere and writes exclusive to `rw` worlds.
+`World.t` here means `Eon_engine.World.t` — the phantom-typed wrapper around
+`Eon_ecs.World.t` described in `data_service_plane_namespacing.md`.
 
 ---
 
@@ -94,8 +96,10 @@ let fetch world =
 let store world frame = World.set_data world key frame
 ```
 
-`World.get_data` and `World.set_data` remain the underlying primitives.
-`Resource.S` is a module-level contract, not a new storage layer.
+`World.get_data` and `World.set_data` are the underlying primitives.
+`Resource.S` is a module-level contract, not a new storage layer. Keys are
+private — nothing outside the module can construct a correctly typed access
+to this resource's slot.
 
 ---
 
@@ -170,18 +174,15 @@ resources or services. Each module self-describes — if you have the module,
 you can call `fetch`; if you have a `rw` world, you can call `store` or
 `register`. Discovery is a compile-time concern, not a runtime one.
 
-This means no `World.get_resource world (module Raw_input_frame)` — the
-module itself provides the function:
+The module *is* the API. No indirection:
 
 ```ocaml
 (* not this *)
 World.get_resource world (module Raw_input_frame)
 
-(* this — the module is the accessor *)
+(* this *)
 Raw_input_frame.fetch world
 ```
-
-The module *is* the API. No indirection needed.
 
 ---
 
@@ -220,16 +221,16 @@ end) : S with type t = T.t = struct
 end
 ```
 
-A game with 50 resources reduces each definition to just the two things
+A game with many resources reduces each definition to just the two things
 that actually differ — the type and the key:
 
 ```ocaml
-module Delta_time    = Resource.Make(struct type t = float  let key = `Delta_time    end)
-module Level_config  = Resource.Make(struct type t = Config.t let key = `Level_config end)
-module Physics_state = Resource.Make(struct type t = Physics.t let key = `Physics_state end)
+module Delta_time    = Resource.Make(struct type t = float      let key = `Delta_time    end)
+module Level_config  = Resource.Make(struct type t = Config.t   let key = `Level_config  end)
+module Physics_state = Resource.Make(struct type t = Physics.t  let key = `Physics_state end)
 
-module Steam_api     = Service.Make(struct type t = Steam.t  let key = `Steam_api    end)
-module Analytics     = Service.Make(struct type t = Analytics.t let key = `Analytics end)
+module Steam_api     = Service.Make(struct type t = Steam.t     let key = `Steam_api     end)
+module Analytics     = Service.Make(struct type t = Analytics.t let key = `Analytics     end)
 ```
 
 Modules with non-trivial `fetch` logic — like `Audio_command_buffer` which
@@ -237,20 +238,68 @@ has `add`, `clear`, and `to_list` on top of `fetch`/`store` — still write
 the full module manually and satisfy `Resource.S` explicitly. `Make` is for
 the common case, not a requirement.
 
-`World.get_resource` is trivially derivable if a generic accessor is ever
-needed:
+---
+
+## 7. Composition with Namespace.S
+
+`Resource.S` and `Service.S` are **local-store only**. `fetch` and `store`
+always access the world passed directly to them — they have no knowledge of
+namespace routing, no `?ns` parameter, and no awareness that other worlds
+exist. This is by design: a resource module is a typed accessor for one
+piece of data; where that data lives in the world graph is not its concern.
+
+Cross-world access is the job of `Namespace.S`, described in full in
+`data_service_plane_namespacing.md`. `Namespace.get_resource` resolves the
+target world first, then delegates to `Resource.S.fetch` as a plain local
+access:
 
 ```ocaml
-let get_resource world (module S : Resource.S) = S.fetch world
-let get_service  world (module S : Service.S)  = S.fetch world
+(* inside Namespace *)
+let get_resource (module R : Resource.S) ns_t = R.fetch (resolve ns_t)
 ```
 
-This is a one-liner when the use case arises. There is no reason to add it
-before then.
+`Resource.S` and `Service.S` are unmodified — the routing is transparent.
+
+### The aggregator pattern
+
+The recommended way to combine `Resource.S`, `Service.S`, and `Namespace.S`
+is an aggregator module that centralises all resource and service definitions
+for a world. It serves as the single registration point at startup and
+exposes named shorthand accessors throughout the codebase:
+
+```ocaml
+(* game/world_ns.ml *)
+module World_ns = struct
+  include Namespace.Local
+
+  (* Named accessors — no first-class modules at call sites *)
+  let physics world = get_resource (module Physics_state)        world
+  let input   world = get_resource (module Raw_input_frame)      world
+  let audio   world = get_resource (module Audio_command_buffer) world
+  let steam   world = get_service  (module Steam_api)            world
+
+  (* All registration in one place *)
+  let init world steam_instance =
+    reg_service  (module Steam_api)            world steam_instance;
+    set_resource (module Audio_command_buffer) world (Audio_command_buffer.create ());
+    set_resource (module Physics_state)        world (Physics_state.create ())
+end
+
+(* In a system — call sites use module paths, nothing else *)
+let update world _dt =
+  let ns    = World_ns.local world in
+  let input = World_ns.input ns in
+  let audio = World_ns.audio ns in
+  Audio_command_buffer.add audio (Play_sound { id = "hit"; volume = 1.0; ... })
+```
+
+A game that never needs multiple connected worlds can skip `Namespace.S`
+entirely and call `Raw_input_frame.fetch world` directly. The aggregator
+pattern is an ergonomic choice, not a requirement.
 
 ---
 
-## 7. What NOT to Do
+## 8. What NOT to Do
 
 - **Do not call `store` from parallel systems.** `store` requires `rw` and
   parallel systems hold `ro` — the compiler prevents it. If you need to
@@ -270,9 +319,13 @@ before then.
   is a programming error, not a normal condition — fail loudly rather than
   returning `None` silently.
 
+- **Do not bypass `Namespace.S` for cross-world access.** Calling
+  `World.get_ns` and then passing the result to `Resource.S.fetch` manually
+  is exactly what `Namespace.get_resource` does — use it directly.
+
 ---
 
-## 8. Key Decisions
+## 9. Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -280,6 +333,8 @@ before then.
 | Phantom types on `fetch` / `store` | `[> World.ro]` / `World.rw` | Parallel systems can read; exclusive systems can write; compiler-enforced |
 | `Resource.S` vs `Service.S` | Semantic distinction, not a type-level one | `store` vs `register` signals intent; both use same storage primitives |
 | No new storage layer | Polymorphic variant keys + existing `get_data`/`set_data` | `Resource.S` is a typed facade; no migration cost to storage |
+| Keys are private | Not exposed in `Resource.S` / `Service.S` | Encapsulation — only the module itself can access its storage slot; routing goes through `Namespace.S` |
 | `fetch` raises on absent | Fail loudly | Absent resource is a programming error; `fetch_opt` can be added per-module if genuinely optional |
 | `Make_resource` / `Make_service` functors | Provided as convenience, not required | Eliminates boilerplate for simple resources; modules with richer APIs (e.g. `Audio_command_buffer`) write the full module manually |
-| `World.get_resource` / `World.get_service` | Not added until a use case arises | Trivially derivable as a one-liner; no reason to add before then |
+| `Resource.S` / `Service.S` are local-only | No `?ns` parameter | Cross-world routing is `Namespace.S`'s job; mixing concerns would require every resource to know about world topology |
+| Aggregator pattern | Game-specific module wrapping `Namespace.S` | Named call-site ergonomics; single registration point; `eon_engine` provides machinery, not the specific resource names |
