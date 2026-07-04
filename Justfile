@@ -84,6 +84,10 @@ snake_nonreactive:
 snake_reactive:
     opam exec -- dune exec eon_ecs/examples/snake_reactive.exe
 
+# Generate codebase visualizations (docs/design/codebase_map.md)
+visualizations:
+    bash scripts/gen_visualizations.sh
+
 # Clean build artifacts
 clean:
     opam exec -- dune clean
