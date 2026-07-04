@@ -3,15 +3,9 @@ open Alcotest
 module Sparse_set = Eon_ecs__Sparse_set
 module Entity_id  = Eon_ecs__Entity_id
 
-(* -------------------------------------------------------------------------- *)
-(* Helpers *)
-(* -------------------------------------------------------------------------- *)
 
 let e idx = Entity_id.make idx 0
 
-(* -------------------------------------------------------------------------- *)
-(* Unit Tests *)
-(* -------------------------------------------------------------------------- *)
 
 let test_create_empty () =
   let set = Sparse_set.create ~capacity:4 () in
@@ -81,9 +75,6 @@ let test_set_value () =
   check int "size unchanged" 1 (Sparse_set.size set);
   check (option int) "overwritten value" (Some 42) (Sparse_set.get set ent)
 
-(* -------------------------------------------------------------------------- *)
-(* Register tests *)
-(* -------------------------------------------------------------------------- *)
 
 let tests =
   [

@@ -2,14 +2,11 @@ open Alcotest
 
 module Resource_store = Eon_ecs__Resource_store
 
-(* 1. Create and empty store *)
 let test_create_empty () =
   let store = Resource_store.create () in
   check int "initial services size" 0 (List.length (Resource_store.list_services store));
   check int "inital data size" 0 (Resource_store.count_data store)
 
-(* data-plane tests *)
-(* 2. Add and get value fro the data-plane *)
 let test_data_add_get () =
   let store = Resource_store.create () in
   Resource_store.add_data store `Score (42 : int);
@@ -17,14 +14,12 @@ let test_data_add_get () =
   | Some v -> check int "value retrieved" 42 v
   | None -> fail "value not found"
 
-(* 3. Get non-existent key *)
 let test_data_missing_key () =
   let store = Resource_store.create () in
   match Resource_store.get_data store `Score with
   | None -> ()  (* OK *)
   | Some _ -> fail "expected None for missing key"
 
-(* 4. Remove key *)
 let test_data_remove_key () =
   let store = Resource_store.create () in
   Resource_store.add_data store `Score  (99 : int);
@@ -33,8 +28,6 @@ let test_data_remove_key () =
   | None -> ()
   | Some _ -> fail "key was not removed"
 
-(* service-plane tests *)
-(* 5. Add and get value from the service-plane *)
 let test_service_add_get () =
   let store = Resource_store.create () in
   Resource_store.add_service store `Health true;
@@ -42,7 +35,6 @@ let test_service_add_get () =
   | Some v -> check bool "value retrieved" true v
   | None -> fail "value not found"
 
-(* 6. Get non-existent key *)
 let test_service_missing_key () =
   let store = Resource_store.create () in
   match Resource_store.get_service store `Health with

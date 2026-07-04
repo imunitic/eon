@@ -5,10 +5,6 @@ module Query = Query
 module Clock = Clock
 module Dependency_graph = Dependency_graph
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Buses *)
-(* -------------------------------------------------------------------------- *)
-
 module Bus = struct
   module type S = Bus.S
   module Single = Single_bus
@@ -21,11 +17,6 @@ module Commands = Single_bus
 
 module Buses = Buses
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Systems *)
-(* -------------------------------------------------------------------------- *)
-
-(* Export the functor itself for custom bus configurations *)
 module System = struct
   module type S = System.S
   module type KIND = System.KIND
@@ -35,19 +26,11 @@ module System = struct
   module Default = Make(Signals)(Events)(Commands)
 end
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Pipelines *)
-(* -------------------------------------------------------------------------- *)
-
 module Pipeline = struct
   module type S = Pipeline.S
   module Make = Pipeline.Make
   module Default = Make (System.Default) (Buses.Default)
 end
-
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Progress & Loop *)
-(* -------------------------------------------------------------------------- *)
 
 module Progress = struct
   module type S = Progress.S

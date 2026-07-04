@@ -5,9 +5,6 @@ module Single_bus = Eon_ecs__Single_bus
 module Double_bus = Eon_ecs__Double_bus
 module System = Eon_ecs__System
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Helpers *)
-(* -------------------------------------------------------------------------- *)
 
 let make_world () =
   World.create ()
@@ -18,9 +15,6 @@ let record tag = log := tag :: !log
 let reset_log () = log := []
 let get_log () = List.rev !log
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 System under test *)
-(* -------------------------------------------------------------------------- *)
 
 module Test_system = System.Make(Single_bus)(Double_bus)(Single_bus)
 
@@ -33,9 +27,6 @@ let system_under_test : (string, string, string) Test_system.t =
     ~on_command:(fun _ _ -> record "command")
     ()
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Base System tests *)
-(* -------------------------------------------------------------------------- *)
 
 let test_register_and_update () =
   reset_log ();
@@ -78,9 +69,6 @@ let test_command_handler () =
   Single_bus.drain bus;
   (check (list string)) "command handler executed" [ "command" ] (get_log ())
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 attach Tests *)
-(* -------------------------------------------------------------------------- *)
 
 let test_attach () =
   reset_log ();
@@ -116,9 +104,6 @@ let test_attach () =
     ["signal:sig1"; "command:cmd1"; "event:evt1" ]
     (get_log ())
 
-(* -------------------------------------------------------------------------- *)
-(* 🧩 Export test list *)
-(* -------------------------------------------------------------------------- *)
 
 let tests =
   [

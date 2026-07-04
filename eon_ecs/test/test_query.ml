@@ -6,9 +6,6 @@ module Entity_id = Eon_ecs__Entity_id
 
 let float_eq a b = abs_float (a -. b) < 0.0001
 
-(* ------------------------------------------------------------- *)
-(* iter1 — single component                                      *)
-(* ------------------------------------------------------------- *)
 let test_iter1 () =
   let world = World.create () in
   World.register_component world ~name:"Position" ~id:0 |> ignore;
@@ -27,9 +24,6 @@ let test_iter1 () =
 
   check int "iter1 count" 3 (List.length !results)
 
-(* ------------------------------------------------------------- *)
-(* iter2 — two-component intersection                            *)
-(* ------------------------------------------------------------- *)
 let test_iter2 () =
   let world = World.create () in
   World.register_component world ~name:"Position" ~id:0 |> ignore;
@@ -58,12 +52,6 @@ let test_iter2 () =
   | [ (_, sum) ] -> check bool "sum correct" true (float_eq sum 4.0)
   | _ -> fail "Unexpected results in iter2"
 
-(* ------------------------------------------------------------- *)
-(* iter2 — argument order when c2 set is smaller than c1        *)
-(* Regression test for the base-set swap bug: when s2.size <=   *)
-(* s1.size the wrong set is chosen as the iteration base,        *)
-(* causing c1 and c2 values to be passed to f in swapped order. *)
-(* ------------------------------------------------------------- *)
 let test_iter2_arg_order () =
   let world = World.create () in
   World.register_component world ~name:"Position" ~id:0 |> ignore;
@@ -91,9 +79,6 @@ let test_iter2_arg_order () =
   check bool "velocity x is 1"  true (float_eq (fst !got_vel)  1.0);
   check bool "velocity y is 2"  true (float_eq (snd !got_vel)  2.0)
 
-(* ------------------------------------------------------------- *)
-(* count — shared component count                                *)
-(* ------------------------------------------------------------- *)
 let test_count () =
   let world = World.create () in
   World.register_component world ~name:"Health" ~id:0 |> ignore;
@@ -112,9 +97,6 @@ let test_count () =
   let cnt = Query.count world [ "Health"; "Mana" ] in
   check int "count shared entities" 1 cnt
 
-(* ------------------------------------------------------------- *)
-(* iter3 + iter4 — higher arity queries                          *)
-(* ------------------------------------------------------------- *)
 let test_iter3_iter4 () =
   let world = World.create () in
   World.register_component world ~name:"A" ~id:0 |> ignore;
@@ -139,9 +121,6 @@ let test_iter3_iter4 () =
   check int "iter3 sum" 6 !sum3;
   check int "iter4 sum" 10 !sum4
 
-(* ------------------------------------------------------------- *)
-(* iter_entities tests                                           *)
-(* ------------------------------------------------------------- *)
 
 let test_iter_entities_single () =
   let world = World.create () in
@@ -213,9 +192,6 @@ let test_iter_entities_four_components () =
   Query.iter_entities world ["A"; "B"; "C"; "D"] (fun _ -> incr count);
   check int "four-component intersection" 1 !count
 
-(* ------------------------------------------------------------- *)
-(* Suite registration                                             *)
-(* ------------------------------------------------------------- *)
 let test_count_unregistered_raises () =
   let world = World.create () in
   Alcotest.check_raises

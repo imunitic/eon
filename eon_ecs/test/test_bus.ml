@@ -3,17 +3,11 @@ open Alcotest
 module Single_bus = Eon_ecs__Single_bus
 module Double_bus = Eon_ecs__Double_bus
 
-(* -------------------------------------------------------------------------- *)
-(* Helpers *)
-(* -------------------------------------------------------------------------- *)
 
 let make_collector () =
   let acc = ref [] in
   (acc, fun msg -> acc := msg :: !acc)
 
-(* -------------------------------------------------------------------------- *)
-(* SINGLE_BUS TESTS *)
-(* -------------------------------------------------------------------------- *)
 
 let test_single_bus_basic () =
   let bus = Single_bus.create () in
@@ -37,9 +31,6 @@ let test_single_bus_order () =
   Single_bus.collect bus;
   check (list int) "order preserved" [1; 2; 3] !acc
 
-(* -------------------------------------------------------------------------- *)
-(* DOUBLE_BUS TESTS *)
-(* -------------------------------------------------------------------------- *)
 
 let test_double_bus_basic () =
   let bus = Double_bus.create () in
@@ -70,9 +61,6 @@ let test_double_bus_multiple_frames () =
 
   check (list string) "messages processed in order" ["A"; "B"] !acc
 
-(* -------------------------------------------------------------------------- *)
-(* EXPORTED TESTS *)
-(* -------------------------------------------------------------------------- *)
 
 let tests =
   [

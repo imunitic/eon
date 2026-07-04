@@ -1,9 +1,6 @@
 open Eon_ecs
 open Alcotest
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Setup *)
-(* -------------------------------------------------------------------------- *)
 
 module Single_bus = Eon_ecs__.Single_bus
 module Double_bus = Eon_ecs__.Double_bus
@@ -12,9 +9,6 @@ module Sys = System.Make(Single_bus)(Double_bus)(Single_bus)
 module Buses = Eon_ecs__.Buses.Make(Single_bus)(Double_bus)(Single_bus)
 module Pipeline = Eon_ecs__.Pipeline.Make(Sys)(Buses)
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 1: add_phase *)
-(* -------------------------------------------------------------------------- *)
 
 let test_add_phase () =
   let p =
@@ -26,9 +20,6 @@ let test_add_phase () =
   let phases = Pipeline.phases p in
   check int "phase count" 3 (List.length phases)
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 2: before / after relationships *)
-(* -------------------------------------------------------------------------- *)
 
 let test_before_after () =
   let p =
@@ -43,9 +34,6 @@ let test_before_after () =
   let names = List.map (function `A -> "A" | `B -> "B" | `C -> "C") order in
   check (list string) "topological order" [ "A"; "B"; "C" ] names
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 3: system registration and run order *)
-(* -------------------------------------------------------------------------- *)
 
 let test_run_order () =
   let logs = ref [] in
@@ -83,9 +71,6 @@ let test_run_order () =
       "update:A"; "update:B"; "update:C" ]
     !logs
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Test 4: cycle detection *)
-(* -------------------------------------------------------------------------- *)
 
 let test_cycle_detection () =
   let p =
@@ -101,9 +86,6 @@ let test_cycle_detection () =
   in
   check bool "cycle detected" true raised
 
-(* -------------------------------------------------------------------------- *)
-(* 🔹 Collect tests *)
-(* -------------------------------------------------------------------------- *)
 
 let tests = [
   test_case "add phase"        `Quick test_add_phase;
