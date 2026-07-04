@@ -72,6 +72,27 @@ cost when unused.
 
 ---
 
+## Integration with Progress.Make
+
+Functor parameters in OCaml can't be truly optional — you either pass a
+module or you don't. The clean solution is two explicit functors following
+the existing `Make` / `Make_with_X` eon idiom:
+
+```ocaml
+module Progress.Make(P : Pipeline.S)                        (* no Time *)
+module Progress.Make_with_time(P : Pipeline.S)(T : Time.S) (* with Time *)
+```
+
+`Progress.Make` stays untouched — `eon_ecs` never sees `Time`, the default
+stack is unaffected. `Progress.Make_with_time` is the opt-in variant that
+writes the `Time` resource before dispatching `tick`.
+
+Sentinel module approach (`No_time` dummy) was considered and rejected —
+explicit functor names are more honest and consistent with how `System.Make`
+vs `System.Make_with_kinds` works.
+
+---
+
 ## Not Now
 
 After the core loop and Progress modes are settled — Time depends on
