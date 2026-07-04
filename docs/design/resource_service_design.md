@@ -107,11 +107,11 @@ also provides two convenience helpers that take a first-class `Resource.S`
 module:
 
 ```ocaml
-val get : [> World.ro] World.t -> (module S with type t = 'a) -> 'a
-val set : World.rw World.t     -> (module S with type t = 'a) -> 'a -> unit
+val fetch : [> World.ro] World.t -> (module S with type t = 'a) -> 'a
+val store : World.rw World.t     -> (module S with type t = 'a) -> 'a -> unit
 ```
 
-These are thin wrappers — `Resource.get world (module R)` is `R.fetch world`.
+These are thin wrappers — `Resource.fetch world (module R)` is `R.fetch world`.
 Their value is at call sites where the resource module is a variable rather
 than a known name, and for cross-world access where `Namespace.named` resolves
 the world first:
@@ -120,13 +120,13 @@ the world first:
 (* direct — preferred when the module is known *)
 Raw_input_frame.fetch world
 
-(* via helper — useful when composing with Namespace *)
-Resource.get world (module Raw_input_frame)
-Resource.get (Namespace.named "global" ns) (module Raw_input_frame)
+(* via helper — same verb, useful when composing with Namespace *)
+Resource.fetch world (module Raw_input_frame)
+Resource.fetch (Namespace.named "global" ns) (module Raw_input_frame)
 ```
 
-The phantom type constraints are preserved: `get` accepts `[> ro]`, `set`
-requires `rw`. A parallel system cannot call `set` — type error.
+The phantom type constraints are preserved: `fetch` accepts `[> ro]`, `store`
+requires `rw`. A parallel system cannot call `store` — type error.
 
 ---
 
@@ -183,20 +183,20 @@ let register world api = World.add_service world key api
 The `Service` module provides matching helpers:
 
 ```ocaml
-val get      : [> World.ro] World.t -> (module S with type t = 'a) -> 'a
+val fetch    : [> World.ro] World.t -> (module S with type t = 'a) -> 'a
 val register : World.rw World.t     -> (module S with type t = 'a) -> 'a -> unit
 ```
 
-Same pattern as `Resource` — `Service.get world (module S)` is `S.fetch world`.
+Same pattern as `Resource` — `Service.fetch world (module S)` is `S.fetch world`.
 Composes with `Namespace.named` for cross-world access:
 
 ```ocaml
 (* direct *)
 Steam_api.fetch world
 
-(* via helper — useful with Namespace *)
-Service.get      world              (module Steam_api)
-Service.get      (Namespace.named "global" ns) (module Steam_api)
+(* via helper — same verb, useful with Namespace *)
+Service.fetch    world              (module Steam_api)
+Service.fetch    (Namespace.named "global" ns) (module Steam_api)
 Service.register (Namespace.named "global" ns) (module Steam_api) steam_instance
 ```
 
@@ -283,7 +283,7 @@ Raw_input_frame.fetch world
 Steam_api.fetch world
 ```
 
-`Resource.get` / `Service.get` are helpers for composing with `Namespace`,
+`Resource.fetch` / `Service.fetch` are helpers for composing with `Namespace`,
 not a replacement for the direct form.
 
 ---
@@ -297,19 +297,19 @@ accessor for one piece of data; where that data lives in the world topology
 is not its concern.
 
 Cross-world access is the composition of `Namespace.named` (world lookup)
-with `Resource.get` / `Service.get` (typed access):
+with `Resource.fetch` / `Service.fetch` (typed access):
 
 ```ocaml
 (* local *)
-Resource.get world (module Raw_input_frame)
+Resource.fetch world (module Raw_input_frame)
 
-(* cross-world — Namespace resolves the world, Resource.get accesses it *)
-Resource.get (Namespace.named "global" ns) (module Raw_input_frame)
-Service.get  (Namespace.named "global" ns) (module Steam_api)
+(* cross-world — Namespace resolves the world, Resource.fetch accesses it *)
+Resource.fetch (Namespace.named "global" ns) (module Raw_input_frame)
+Service.fetch  (Namespace.named "global" ns) (module Steam_api)
 ```
 
 `Namespace` and `Resource`/`Service` have no dependency on each other.
-`Namespace.named` returns a `World.t`; `Resource.get` takes a `World.t`.
+`Namespace.named` returns a `World.t`; `Resource.fetch` takes a `World.t`.
 The composition is the API.
 
 ### Example aggregator
@@ -326,9 +326,9 @@ module World_ns = struct
     Namespace.attach ns "global" global_world;
     Service.register (Namespace.named "global" ns) (module Steam_api) steam_instance
 
-  let input world = Resource.get world (module Raw_input_frame)
-  let audio world = Resource.get world (module Audio_command_buffer)
-  let steam ()    = Service.get  (Namespace.named "global" ns) (module Steam_api)
+  let input world = Resource.fetch world (module Raw_input_frame)
+  let audio world = Resource.fetch world (module Audio_command_buffer)
+  let steam ()    = Service.fetch  (Namespace.named "global" ns) (module Steam_api)
 end
 
 (* in a system — no first-class modules at call sites *)
@@ -372,6 +372,6 @@ let update world _dt =
 | Keys are private | Not exposed in `S` signatures | Encapsulation — only the module accesses its slot |
 | `fetch` raises on absent | Fail loudly | Absent resource is a programming error; add `fetch_opt` per-module if genuinely optional |
 | `Make` functors | Convenience, not required | Eliminates boilerplate for simple cases; richer modules (e.g. `Audio_command_buffer`) write manually |
-| `Resource.get` / `Service.get` helpers | On `Resource` / `Service` modules, not on `Namespace` | Namespace resolves worlds; Resource/Service access data — orthogonal concerns that compose |
-| No `?ns` anywhere | Namespace routing is explicit composition | `Resource.get (Namespace.named "global" ns) (module R)` — each step visible and independently useful |
-| Cross-world access pattern | `Resource.get (Namespace.named "global" ns) (module R)` | Composable; no coupling between Namespace and Resource/Service |
+| `Resource.fetch` / `Service.fetch` helpers | On `Resource` / `Service` modules, not on `Namespace` | Namespace resolves worlds; Resource/Service access data — orthogonal concerns that compose |
+| No `?ns` anywhere | Namespace routing is explicit composition | `Resource.fetch (Namespace.named "global" ns) (module R)` — each step visible and independently useful |
+| Cross-world access pattern | `Resource.fetch (Namespace.named "global" ns) (module R)` | Composable; no coupling between Namespace and Resource/Service |
