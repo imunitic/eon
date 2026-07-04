@@ -2,7 +2,7 @@
 
 ## Status
 
-**DESIGN SETTLED** — philosophy and invariants are decided. Implementation is ecs-021. Interacts with
+**IMPLEMENTED** (ecs-021 through ecs-026). Philosophy and invariants decided and implemented. Interacts with
 [world_module_design.md](world_module_design.md) and
 [query_view_design.md](query_view_design.md) (read access via the view).
 

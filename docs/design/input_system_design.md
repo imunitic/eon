@@ -2,7 +2,7 @@
 
 ## Status
 
-**DESIGN** (ecs-027). Implementation follows in a later task.
+**IMPLEMENTED** (ecs-027 design, ecs-028 implementation).
 
 ---
 
