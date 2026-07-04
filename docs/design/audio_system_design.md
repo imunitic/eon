@@ -2,8 +2,7 @@
 
 ## Status
 
-**DRAFT** (no task assigned yet). Design decisions captured from architecture
-discussion. Implementation task to be created later.
+**IMPLEMENTED** (ecs-029). See [GitHub issue #29](https://github.com/imunitic/eon/issues/29).
 
 ---
 
