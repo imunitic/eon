@@ -49,9 +49,12 @@ if a real consumer needs them. Don't add them speculatively.
 
 ## Who Writes It
 
-The loop writes `Time` as a resource at the start of each frame before
-`Progress.tick`. Systems see a consistent snapshot for the entire tick —
-`elapsed` and `frame` don't change mid-frame.
+`Progress` writes `Time` before dispatching `tick` — it already owns all
+the time math (`delta`, `elapsed`, `frame`), so writing the resource is
+just making that computation visible to systems. No dedicated `Time_system`
+needed, no loop leak, no phase ordering concern. If `Time` is registered,
+`Progress` populates it. If not, `Progress` ignores it. Opt-in with zero
+cost when unused.
 
 ---
 
