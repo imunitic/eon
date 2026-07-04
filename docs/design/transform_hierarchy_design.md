@@ -125,7 +125,9 @@ across the whole hierarchy.
 ## 4. Transform System
 
 A single exclusive system. Exclusive because it writes `World_transform`
-and mutates `Children` when processing reparent commands.
+on every entity that has a `Local_transform`. Hierarchy mutations
+(`Parent`, `Children`) are handled in `on_command`, not in `update` — the
+two responsibilities belong to different lifecycle hooks.
 
 ### 4.1 Why not Query.iter
 
@@ -134,14 +136,26 @@ Transform propagation requires parents to be processed before children.
 `Transform_system` owns its traversal — it uses the query API only to find
 entry points (root entities), then drives the rest via `Children`.
 
-### 4.2 Update algorithm
-
-Each frame:
+### 4.2 Lifecycle split
 
 ```
-1. Process all pending Reparent commands — update Parent and Children components
-2. Find all root entities: have Local_transform, no Parent component
-3. For each root — DFS:
+on_command (Reparent) — drain phase, sequential, rw
+  → mutate Parent and Children components to reflect the new hierarchy
+
+update (exclusive) — tick phase, rw
+  → DFS propagation: walk the now-consistent hierarchy, write World_transform
+```
+
+By the time `update` runs the hierarchy is already stable. Reparent commands
+emitted during frame N's tick are processed during frame N's drain; frame N+1's
+update sees the correct tree. One frame of latency on reparenting — correct
+and expected.
+
+### 4.3 Update algorithm
+
+```
+1. Find all root entities: have Local_transform, no Parent component
+2. For each root — DFS:
      a. world_transform(root) = local_transform(root)
      b. for each child in children(root):
           world_transform(child) = world_transform(parent) ∘ local_transform(child)
@@ -181,8 +195,9 @@ type reparent = {
 }
 ```
 
-`Transform_system` drains `Reparent` commands at the start of its exclusive
-update before the DFS pass:
+`Transform_system` handles `Reparent` in its `on_command` handler — part of
+the drain phase, sequential, always `rw`. By the time `update` runs the
+next frame, the hierarchy is already consistent:
 
 - Remove `entity` from old parent's `Children` (if it had one)
 - Add `entity` to new parent's `Children` (if `new_parent` is `Some`)
@@ -282,6 +297,6 @@ In rough priority order:
 | Separate Local/World components | Yes | Read-only contract on World_transform is explicit; systems query only what they need |
 | Children cache | Yes, engine-maintained | O(n) DFS vs O(n²) without it; game code reads only |
 | Traversal strategy | DFS from roots | Natural parent-before-child order; no sort step |
-| Hierarchy mutations | Via Reparent command | Keeps Parent + Children consistent; auditable |
-| Transform_system exclusivity | Exclusive | Writes World_transform and Children — no concurrent access |
+| Hierarchy mutations | Via Reparent command, handled in `on_command` | Keeps Parent + Children consistent; processed during drain before next update |
+| Transform_system exclusivity | Exclusive | Writes World_transform — no concurrent access |
 | Phase placement | Game developer's responsibility | Consistent with how audio and input integrate; engine ships the system, not the phases |
