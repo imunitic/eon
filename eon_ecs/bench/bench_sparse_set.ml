@@ -1,5 +1,4 @@
 open Bechamel
-open Bechamel.Toolkit
 open Staged
 
 module Sparse_set = Eon_ecs__Sparse_set
@@ -66,6 +65,14 @@ let mk_sparse_set_get count =
     (stage (fun () ->
          Array.iter (fun (e, _) -> ignore (Sparse_set.get set e)) mixed))
 
+let mk_sparse_set_get_exn count =
+  let precomputed = int_entities count in
+  let set = Sparse_set.create () in
+  Array.iter (fun (e, v) -> Sparse_set.add set e v) precomputed;
+  Test.make ~name:(Printf.sprintf "get-exn-existing-%d" count)
+    (stage (fun () ->
+         Array.iter (fun (e, _) -> ignore (Sparse_set.get_exn set e)) precomputed))
+
 let mk_sparse_set_remove_existing count =
   let precomputed = int_entities count in
   let set = Sparse_set.create ~capacity:count () in
@@ -107,6 +114,8 @@ let sparse_set_suite =
     ; mk_sparse_set_prefill 10_000
     ; mk_sparse_set_get 1_000
     ; mk_sparse_set_get 10_000
+    ; mk_sparse_set_get_exn 1_000
+    ; mk_sparse_set_get_exn 10_000
     ; mk_sparse_set_remove_existing 1_000
     ; mk_sparse_set_remove_existing 10_000
     ; mk_sparse_set_remove_missing 1_000
@@ -116,7 +125,10 @@ let sparse_set_suite =
     ]
 
 let instances =
-  [ Toolkit.Instance.monotonic_clock ]
+  [ Toolkit.Instance.monotonic_clock
+  ; Toolkit.Instance.minor_allocated
+  ; Toolkit.Instance.major_allocated
+  ]
 
 let benchmark cfg =
   Benchmark.all cfg instances sparse_set_suite
@@ -124,9 +136,9 @@ let benchmark cfg =
 let () =
   let cfg = Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) () in
   let raw = benchmark cfg in
-  let analyzed =
-    Benchmark_helpers.analyze_single_instance Toolkit.Instance.monotonic_clock
-      raw
-  in
-  Benchmark_helpers.pp_results analyzed;
+  List.iter
+    (fun instance ->
+       let analyzed = Benchmark_helpers.analyze_single_instance instance raw in
+       Benchmark_helpers.pp_results analyzed)
+    instances;
   Format.printf "@.Hint: use this file as a template when adding more benches.@."

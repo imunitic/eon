@@ -17,6 +17,9 @@ module type S = sig
   val grow : 'a t -> unit
   val contains : 'a t -> key -> bool
   val get : 'a t -> key -> 'a option
+  val get_exn : 'a t -> key -> 'a
+  (** Like [get] but raises [Not_found] if the key is absent. Zero allocation
+      on the hot path — use when membership is already known. *)
   val add : 'a t -> key -> 'a -> unit
   val set_value : 'a t -> key -> 'a -> unit
   val remove : 'a t -> key -> unit
@@ -35,6 +38,7 @@ val size : 'a t -> int
 val grow : 'a t -> unit
 val contains : 'a t -> Entity_id.t -> bool
 val get : 'a t -> Entity_id.t -> 'a option
+val get_exn : 'a t -> Entity_id.t -> 'a
 val add : 'a t -> Entity_id.t -> 'a -> unit
 val set_value : 'a t -> Entity_id.t -> 'a -> unit
 val remove : 'a t -> Entity_id.t -> unit

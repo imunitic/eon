@@ -13,6 +13,7 @@ module type S = sig
   val grow : 'a t -> unit
   val contains : 'a t -> key -> bool
   val get : 'a t -> key -> 'a option
+  val get_exn : 'a t -> key -> 'a
   val add : 'a t -> key -> 'a -> unit
   val set_value : 'a t -> key -> 'a -> unit
   val remove : 'a t -> key -> unit
@@ -74,6 +75,15 @@ module Make (Key : INDEXED_KEY) : S with type key = Key.t = struct
     else
       None
 
+  let get_exn set key =
+    let idx = Key.index key in
+    if idx < capacity set then
+      let dense_idx = set.sparse.(idx) in
+      if dense_idx <> -1 then set.values.(dense_idx)
+      else raise Not_found
+    else
+      raise Not_found
+
   let add set key value =
     let idx = Key.index key in
     ensure_capacity set idx;
@@ -126,6 +136,7 @@ let size = Entity.size
 let grow = Entity.grow
 let contains = Entity.contains
 let get = Entity.get
+let get_exn = Entity.get_exn
 let add = Entity.add
 let set_value = Entity.set_value
 let remove = Entity.remove

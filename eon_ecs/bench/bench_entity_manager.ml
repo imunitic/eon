@@ -1,5 +1,4 @@
 open Bechamel
-open Bechamel.Toolkit
 open Staged
 
 module Entity_manager = Eon_ecs__Entity_manager
@@ -188,7 +187,10 @@ let entity_manager_suite =
     ]
 
 let instances =
-  [ Toolkit.Instance.monotonic_clock ]
+  [ Toolkit.Instance.monotonic_clock
+  ; Toolkit.Instance.minor_allocated
+  ; Toolkit.Instance.major_allocated
+  ]
 
 let benchmark cfg =
   Benchmark.all cfg instances entity_manager_suite
@@ -196,10 +198,10 @@ let benchmark cfg =
 let () =
   let cfg = Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) () in
   let raw = benchmark cfg in
-  let analyzed =
-    Benchmark_helpers.analyze_single_instance Toolkit.Instance.monotonic_clock
-      raw
-  in
-  Benchmark_helpers.pp_results analyzed;
+  List.iter
+    (fun instance ->
+       let analyzed = Benchmark_helpers.analyze_single_instance instance raw in
+       Benchmark_helpers.pp_results analyzed)
+    instances;
   Format.printf "@.Hint: use this file as a template when adding more benches.@."
 
