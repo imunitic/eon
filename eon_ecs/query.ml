@@ -42,9 +42,8 @@ let iter2 (type a b) world c1 c2 (f : Entity_id.t -> a -> b -> unit) : unit =
      let s2 = (Obj.magic s2 : b Sparse_set.t) in
      let visit id =
        let eid = eid_of world id in
-       match Sparse_set.get s1 eid, Sparse_set.get s2 eid with
-       | Some v1, Some v2 -> f eid v1 v2
-       | _ -> ()
+       if Sparse_set.contains s1 eid && Sparse_set.contains s2 eid then
+         f eid (Sparse_set.get_exn s1 eid) (Sparse_set.get_exn s2 eid)
      in
      if Sparse_set.size s1 < Sparse_set.size s2 then
        Sparse_set.iter (fun id _ -> visit id) s1
@@ -65,11 +64,10 @@ let iter3 (type a b c) world c1 c2 c3 (f : Entity_id.t -> a -> b -> c -> unit) :
           && Sparse_set.contains s2 eid
           && Sparse_set.contains s3 eid
        then
-         match Sparse_set.get s1 eid,
-               Sparse_set.get s2 eid,
-               Sparse_set.get s3 eid with
-         | Some v1, Some v2, Some v3 -> f eid v1 v2 v3
-         | _ -> ()
+         f eid
+           (Sparse_set.get_exn s1 eid)
+           (Sparse_set.get_exn s2 eid)
+           (Sparse_set.get_exn s3 eid)
      in
      let n1 = Sparse_set.size s1
      and n2 = Sparse_set.size s2
@@ -97,12 +95,11 @@ let iter4 (type a b c d) world c1 c2 c3 c4 (f : Entity_id.t -> a -> b -> c -> d 
           && Sparse_set.contains s3 eid
           && Sparse_set.contains s4 eid
        then
-         match Sparse_set.get s1 eid,
-               Sparse_set.get s2 eid,
-               Sparse_set.get s3 eid,
-               Sparse_set.get s4 eid with
-         | Some v1, Some v2, Some v3, Some v4 -> f eid v1 v2 v3 v4
-         | _ -> ()
+         f eid
+           (Sparse_set.get_exn s1 eid)
+           (Sparse_set.get_exn s2 eid)
+           (Sparse_set.get_exn s3 eid)
+           (Sparse_set.get_exn s4 eid)
      in
      let n1 = Sparse_set.size s1
      and n2 = Sparse_set.size s2
