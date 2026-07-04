@@ -15,7 +15,7 @@
 
 (** {1 Abstract Time Modes} *)
 
-module type TIME_MODE = sig
+module type S = sig
   (** Opaque type representing the mode's internal accumulator/state. *)
   type t
 
@@ -54,10 +54,10 @@ module Variable : sig
   end
   (** Functor producing a variable-step mode for a custom kind and world type. *)
   module Make (K : KIND) (W : sig type t end) :
-    TIME_MODE with type kind = K.kind and type world = W.t
+    S with type kind = K.kind and type world = W.t
 
   (** Default variable-step mode using {!System.kind} tags and {!World.t}. *)
-  include TIME_MODE with type kind = System.kind and type world = World.t
+  include S with type kind = System.kind and type world = World.t
 end
 
 module Fixed : sig
@@ -67,12 +67,12 @@ module Fixed : sig
     val variable : kind
   end
   module Make (K : KIND) (W : sig type t end) : sig
-    include TIME_MODE with type kind = K.kind and type world = W.t
+    include S with type kind = K.kind and type world = W.t
     (** Instantiate a fixed-step mode with the provided step duration. *)
     val with_step : float -> t
   end
   (** Default fixed-step mode using {!System.kind} tags and {!World.t}. *)
-  include TIME_MODE with type kind = System.kind and type world = World.t
+  include S with type kind = System.kind and type world = World.t
   val with_step : float -> t
 end
 
@@ -83,12 +83,12 @@ module Hybrid : sig
     val variable : kind
   end
   module Make (K : KIND) (W : sig type t end) : sig
-    include TIME_MODE with type kind = K.kind and type world = W.t
+    include S with type kind = K.kind and type world = W.t
     (** Instantiate a hybrid mode with the provided fixed-step duration. *)
     val with_step : float -> t
   end
   (** Default hybrid mode using {!System.kind} tags and {!World.t}. *)
-  include TIME_MODE with type kind = System.kind and type world = World.t
+  include S with type kind = System.kind and type world = World.t
   val with_step : float -> t
 end
 

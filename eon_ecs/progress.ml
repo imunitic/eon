@@ -4,7 +4,7 @@
     Supports fixed, variable, and hybrid modes.
     ------------------------------------------------------------------ *)
 
-module type TIME_MODE = sig
+module type S = sig
   type t
   type kind
   type world
@@ -27,7 +27,7 @@ module Variable = struct
   end
 
   module Make (K : KIND) (W : sig type t end)
-    : TIME_MODE with type kind = K.kind and type world = W.t = struct
+    : S with type kind = K.kind and type world = W.t = struct
     type kind = K.kind
     type world = W.t
     type t = unit
@@ -57,7 +57,7 @@ module Fixed = struct
   end
 
   module Make (K : KIND) (W : sig type t end) : sig
-    include TIME_MODE with type kind = K.kind and type world = W.t
+    include S with type kind = K.kind and type world = W.t
     val with_step : float -> t
   end = struct
     type kind = K.kind
@@ -99,7 +99,7 @@ module Hybrid = struct
   end
 
   module Make (K : KIND) (W : sig type t end) : sig
-    include TIME_MODE with type kind = K.kind and type world = W.t
+    include S with type kind = K.kind and type world = W.t
     val with_step : float -> t
   end = struct
     type kind = K.kind

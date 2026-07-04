@@ -50,7 +50,7 @@ end
 (* -------------------------------------------------------------------------- *)
 
 module Progress = struct
-  module type S = Progress.TIME_MODE
+  module type S = Progress.S
   module Make_with_kind = Progress.Make_with_kind
   module Make = Progress.Make
   module Default = Make (Pipeline.Default)

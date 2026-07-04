@@ -234,7 +234,7 @@ module Progress : sig
       ]}
   *)
   (** Signature implemented by time modes. *)
-  module type S = Progress.TIME_MODE
+  module type S = Progress.S
   (** Functor producing progress controllers for custom kind sets. *)
   module Make_with_kind : module type of Progress.Make_with_kind
   (** Functor binding progress controllers to the default kind set. *)
