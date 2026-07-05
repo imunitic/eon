@@ -8,127 +8,15 @@ trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$IMAGES"
 
-# ─── 1. Module dependency graph ───────────────────────────────────────────────
+# ─── 1a. eon_ecs internal dependency graph ────────────────────────────────────
 
-echo "→ module_dependency_graph.png"
-cat > "$TMP/deps.dot" << 'EOF'
-digraph module_dependencies {
+echo "→ dep_eon_ecs.png"
+cat > "$TMP/dep_ecs.dot" << 'EOF'
+digraph eon_ecs_dependencies {
   rankdir=RL
   node [fontname="Helvetica" fontsize=11 style=filled]
   edge [fontname="Helvetica" fontsize=9]
 
-  // ── eon_engine ──────────────────────────────────────────────────────────
-  subgraph cluster_engine {
-    label="eon_engine"
-    style=filled
-    fillcolor="#e8f5e9"
-    color="#2e7d32"
-    fontcolor="#2e7d32"
-    fontsize=13
-    fontname="Helvetica-Bold"
-
-    node [fillcolor="#a5d6a7" color="#388e3c"]
-
-    eng_loop          [label="Loop"]
-    eng_progress      [label="Progress"]
-    eng_pipeline      [label="Pipeline"]
-    eng_system        [label="System"]
-    eng_executor      [label="Executor"]
-    eng_world         [label="World"]
-    eng_query         [label="Query"]
-    eng_view          [label="View"]
-    eng_components    [label="Components"]
-    eng_component     [label="Component"]
-    eng_comp_desc     [label="Component_descriptor"]
-    eng_buses         [label="Buses"]
-    eng_single_bus    [label="Single_bus"]
-    eng_double_bus    [label="Double_bus"]
-    eng_loop_buses    [label="Loop_buses"]
-    eng_platform      [label="Platform"]
-    eng_asset_lookup  [label="Asset_lookup"]
-    eng_sparse_set_be [label="Sparse_set_backend"]
-    eng_query_backend [label="Query_backend"]
-    eng_math          [label="Math"]
-
-    // Resource / Service / Namespace
-    eng_resource      [label="Resource"]
-    eng_service       [label="Service"]
-    eng_namespace     [label="Namespace"]
-
-    // Audio seam
-    eng_audio_cmd     [label="Audio_command"]
-    eng_audio_buf     [label="Audio_command_buffer"]
-    eng_audio_be      [label="Audio_backend"]
-
-    // Input seam
-    eng_key           [label="Key"]
-    eng_mouse_btn     [label="Mouse_button"]
-    eng_gamepad_btn   [label="Gamepad_button"]
-    eng_raw_input     [label="Raw_input_frame"]
-    eng_input_be      [label="Input_backend"]
-
-    // Render cluster
-    eng_render_cmds   [label="Render_commands"]
-    eng_render_stream [label="Render_stream"]
-    eng_render_res    [label="Render_stream_resource"]
-    eng_render_coll   [label="Render_stream_collector"]
-    eng_render_sys    [label="Render_system"]
-    eng_rendering_be  [label="Rendering_backend"]
-    eng_rendering_res [label="Rendering_result"]
-
-    eng_loop       -> eng_progress
-    eng_loop       -> eng_loop_buses
-    eng_loop       -> eng_platform
-    eng_loop       -> eng_raw_input
-    eng_loop       -> eng_audio_buf
-    eng_loop       -> eng_render_res
-    eng_platform   -> eng_input_be
-    eng_platform   -> eng_rendering_be
-    eng_platform   -> eng_audio_be
-    eng_progress   -> eng_pipeline
-    eng_pipeline   -> eng_system
-    eng_pipeline   -> eng_executor
-    eng_system     -> eng_world
-    eng_query      -> eng_world
-    eng_query      -> eng_query_backend
-    eng_view       -> eng_world
-    eng_view       -> eng_comp_desc
-    eng_components -> eng_component
-    eng_components -> eng_world
-    eng_component  -> eng_comp_desc
-    eng_buses      -> eng_single_bus
-    eng_buses      -> eng_double_bus
-    eng_loop_buses -> eng_single_bus
-    eng_loop_buses -> eng_double_bus
-    eng_world      -> eng_comp_desc
-    eng_world      -> eng_sparse_set_be
-
-    eng_resource   -> eng_world
-    eng_service    -> eng_world
-    eng_namespace  -> eng_world
-
-    eng_audio_buf  -> eng_world
-    eng_audio_buf  -> eng_audio_cmd
-    eng_audio_be   -> eng_audio_cmd
-
-    eng_raw_input  -> eng_world
-    eng_raw_input  -> eng_key
-    eng_raw_input  -> eng_mouse_btn
-    eng_raw_input  -> eng_gamepad_btn
-    eng_input_be   -> eng_raw_input
-
-    eng_render_stream -> eng_render_cmds
-    eng_render_res    -> eng_world
-    eng_render_res    -> eng_render_stream
-    eng_render_coll   -> eng_render_stream
-    eng_render_coll   -> eng_world
-    eng_render_sys    -> eng_render_res
-    eng_render_sys    -> eng_render_coll
-    eng_rendering_be  -> eng_render_stream
-    eng_rendering_be  -> eng_rendering_res
-  }
-
-  // ── eon_ecs ──────────────────────────────────────────────────────────────
   subgraph cluster_ecs {
     label="eon_ecs"
     style=filled
@@ -181,13 +69,196 @@ digraph module_dependencies {
     ecs_loop_buses -> ecs_double_bus
   }
 
-  // ── External ─────────────────────────────────────────────────────────────
   mtime [label="mtime\n(external)" shape=box fillcolor="#fff3e0" color="#e65100" fontcolor="#bf360c"]
-
   ecs_clock -> mtime [color="#e65100"]
+}
+EOF
+dot -Tpng -o "$IMAGES/dep_eon_ecs.png" "$TMP/dep_ecs.dot"
 
-  // ── Cross-package edges ───────────────────────────────────────────────────
-  edge [color="#cc5500" penwidth=2.0 constraint=false]
+# ─── 1b. eon_engine internal dependency graph ─────────────────────────────────
+
+echo "→ dep_eon_engine.png"
+cat > "$TMP/dep_engine.dot" << 'EOF'
+digraph eon_engine_dependencies {
+  rankdir=RL
+  node [fontname="Helvetica" fontsize=11 style=filled]
+  edge [fontname="Helvetica" fontsize=9]
+
+  subgraph cluster_engine {
+    label="eon_engine"
+    style=filled
+    fillcolor="#e8f5e9"
+    color="#2e7d32"
+    fontcolor="#2e7d32"
+    fontsize=13
+    fontname="Helvetica-Bold"
+
+    node [fillcolor="#a5d6a7" color="#388e3c"]
+
+    // Core pipeline
+    eng_loop          [label="Loop"]
+    eng_progress      [label="Progress"]
+    eng_pipeline      [label="Pipeline"]
+    eng_system        [label="System"]
+    eng_executor      [label="Executor"]
+    eng_world         [label="World"]
+    eng_query         [label="Query"]
+    eng_view          [label="View"]
+    eng_components    [label="Components"]
+    eng_component     [label="Component"]
+    eng_comp_desc     [label="Component_descriptor"]
+    eng_buses         [label="Buses"]
+    eng_single_bus    [label="Single_bus"]
+    eng_double_bus    [label="Double_bus"]
+    eng_loop_buses    [label="Loop_buses"]
+    eng_platform      [label="Platform"]
+    eng_asset_lookup  [label="Asset_lookup"]
+    eng_sparse_set_be [label="Sparse_set_backend"]
+    eng_query_backend [label="Query_backend"]
+    eng_math          [label="Math"]
+
+    // Resource / Service / Namespace
+    eng_resource      [label="Resource"]
+    eng_service       [label="Service"]
+    eng_namespace     [label="Namespace"]
+
+    // Audio seam
+    eng_audio_cmd     [label="Audio_command"]
+    eng_audio_buf     [label="Audio_command_buffer"]
+    eng_audio_be      [label="Audio_backend"]
+
+    // Input seam
+    eng_key           [label="Key"]
+    eng_mouse_btn     [label="Mouse_button"]
+    eng_gamepad_btn   [label="Gamepad_button"]
+    eng_raw_input     [label="Raw_input_frame"]
+    eng_input_be      [label="Input_backend"]
+
+    // Render
+    eng_render_cmds   [label="Render_commands"]
+    eng_render_stream [label="Render_stream"]
+    eng_render_res    [label="Render_stream_resource"]
+    eng_render_coll   [label="Render_stream_collector"]
+    eng_render_sys    [label="Render_system"]
+    eng_rendering_be  [label="Rendering_backend"]
+    eng_rendering_res [label="Rendering_result"]
+
+    // Transform & Lifecycle
+    eng_hierarchy     [label="Hierarchy"]
+    eng_transform_sys [label="Transform_system"]
+    eng_lifecycle_sys [label="Lifecycle_system"]
+
+    eng_loop       -> eng_progress
+    eng_loop       -> eng_loop_buses
+    eng_loop       -> eng_platform
+    eng_loop       -> eng_raw_input
+    eng_loop       -> eng_audio_buf
+    eng_loop       -> eng_render_res
+    eng_platform   -> eng_input_be
+    eng_platform   -> eng_rendering_be
+    eng_platform   -> eng_audio_be
+    eng_progress   -> eng_pipeline
+    eng_pipeline   -> eng_system
+    eng_pipeline   -> eng_executor
+    eng_system     -> eng_world
+    eng_query      -> eng_world
+    eng_query      -> eng_query_backend
+    eng_view       -> eng_world
+    eng_view       -> eng_comp_desc
+    eng_components -> eng_component
+    eng_components -> eng_world
+    eng_component  -> eng_comp_desc
+    eng_buses      -> eng_single_bus
+    eng_buses      -> eng_double_bus
+    eng_loop_buses -> eng_single_bus
+    eng_loop_buses -> eng_double_bus
+    eng_world      -> eng_comp_desc
+    eng_world      -> eng_sparse_set_be
+
+    eng_resource   -> eng_world
+    eng_service    -> eng_world
+    eng_namespace  -> eng_world
+
+    eng_audio_buf  -> eng_world
+    eng_audio_buf  -> eng_audio_cmd
+    eng_audio_be   -> eng_audio_cmd
+
+    eng_raw_input  -> eng_world
+    eng_raw_input  -> eng_key
+    eng_raw_input  -> eng_mouse_btn
+    eng_raw_input  -> eng_gamepad_btn
+    eng_input_be   -> eng_raw_input
+
+    eng_render_stream -> eng_render_cmds
+    eng_render_res    -> eng_world
+    eng_render_res    -> eng_render_stream
+    eng_render_coll   -> eng_render_stream
+    eng_render_coll   -> eng_world
+    eng_render_sys    -> eng_render_res
+    eng_render_sys    -> eng_render_coll
+    eng_rendering_be  -> eng_render_stream
+    eng_rendering_be  -> eng_rendering_res
+
+    eng_hierarchy     -> eng_world
+    eng_hierarchy     -> eng_components
+    eng_transform_sys -> eng_system
+    eng_transform_sys -> eng_world
+    eng_transform_sys -> eng_query
+    eng_transform_sys -> eng_view
+    eng_transform_sys -> eng_components
+    eng_transform_sys -> eng_hierarchy
+    eng_lifecycle_sys -> eng_system
+    eng_lifecycle_sys -> eng_world
+    eng_lifecycle_sys -> eng_hierarchy
+  }
+}
+EOF
+dot -Tpng -o "$IMAGES/dep_eon_engine.png" "$TMP/dep_engine.dot"
+
+# ─── 1c. Cross-package dependency graph ───────────────────────────────────────
+
+echo "→ dep_cross_package.png"
+cat > "$TMP/dep_cross.dot" << 'EOF'
+digraph cross_package_dependencies {
+  rankdir=LR
+  node [fontname="Helvetica" fontsize=11 style=filled]
+  edge [fontname="Helvetica" fontsize=9 color="#cc5500" penwidth=2.5]
+
+  subgraph cluster_engine {
+    label="eon_engine"
+    style=filled
+    fillcolor="#e8f5e9"
+    color="#2e7d32"
+    fontcolor="#2e7d32"
+    fontsize=13
+    fontname="Helvetica-Bold"
+    node [fillcolor="#a5d6a7" color="#388e3c"]
+
+    eng_loop     [label="Loop"]
+    eng_progress [label="Progress"]
+    eng_pipeline [label="Pipeline"]
+    eng_system   [label="System"]
+    eng_query    [label="Query"]
+    eng_world    [label="World"]
+  }
+
+  subgraph cluster_ecs {
+    label="eon_ecs"
+    style=filled
+    fillcolor="#e3f2fd"
+    color="#1565c0"
+    fontcolor="#1565c0"
+    fontsize=13
+    fontname="Helvetica-Bold"
+    node [fillcolor="#90caf9" color="#1976d2"]
+
+    ecs_loop     [label="Loop"]
+    ecs_progress [label="Progress"]
+    ecs_pipeline [label="Pipeline"]
+    ecs_system   [label="System"]
+    ecs_query    [label="Query"]
+    ecs_world    [label="World"]
+  }
 
   eng_loop     -> ecs_loop
   eng_progress -> ecs_progress
@@ -197,7 +268,7 @@ digraph module_dependencies {
   eng_world    -> ecs_world
 }
 EOF
-dot -Tpng -o "$IMAGES/module_dependency_graph.png" "$TMP/deps.dot"
+dot -Tpng -o "$IMAGES/dep_cross_package.png" "$TMP/dep_cross.dot"
 
 # ─── 2. Functor instantiation graph ──────────────────────────────────────────
 
@@ -334,11 +405,12 @@ ENG_MODULES_RESOURCE="resource:resource_service service:resource_service namespa
 ENG_MODULES_AUDIO="audio_command:audio audio_command_buffer:audio"
 ENG_MODULES_INPUT="raw_input_frame:input"
 ENG_MODULES_RENDER="render_commands:render_modules render_stream:render_stream render_stream_resource:render_modules render_stream_collector:render_modules render_system:render_modules rendering_backend:render_modules rendering_result:render_modules"
+ENG_MODULES_TRANSFORM="hierarchy:hierarchy transform_system:transform_system lifecycle_system:lifecycle_system"
 
 # Emit coverage nodes for eon_engine; checks test/test_<testfile>.ml
 eng_coverage_nodes() {
   local pkg="eng"
-  for entry in $ENG_MODULES_CORE $ENG_MODULES_RESOURCE $ENG_MODULES_AUDIO $ENG_MODULES_INPUT $ENG_MODULES_RENDER; do
+  for entry in $ENG_MODULES_CORE $ENG_MODULES_RESOURCE $ENG_MODULES_AUDIO $ENG_MODULES_INPUT $ENG_MODULES_RENDER $ENG_MODULES_TRANSFORM; do
     mod="${entry%%:*}"
     testbase="${entry##*:}"
     test_file="$ROOT/eon_engine/test/test_${testbase}.ml"
