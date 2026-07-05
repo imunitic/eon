@@ -20,12 +20,19 @@ module Make
        Platform.Audio_backend.submit (Audio_command_buffer.to_list buf);
        Audio_command_buffer.clear buf
      | None -> ());
+    (match World.get_data world `Render_stream with
+     | None -> ()
+     | Some stream ->
+       let result = Platform.Rendering_backend.render stream ~dt in
+       if Rendering_result.has_errors result then
+         List.iter (fun e -> Printf.eprintf "[renderer] %s\n" e) result.errors);
     let continue = should_continue world in
     (world, now, continue)
 
   let run ~progress ~world ~should_continue () =
     Platform.Input_backend.init ();
     Platform.Audio_backend.init ();
+    Platform.Rendering_backend.init ();
     let rec loop world last_time =
       let now = Clock.now () in
       let world, _, continue =
@@ -34,6 +41,7 @@ module Make
       if continue then loop world now else world
     in
     let result = loop world (Clock.now ()) in
+    Platform.Rendering_backend.shutdown ();
     Platform.Audio_backend.shutdown ();
     Platform.Input_backend.shutdown ();
     result

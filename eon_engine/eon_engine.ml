@@ -57,6 +57,15 @@ module Mouse_button    = Mouse_button
 module Gamepad_button  = Gamepad_button
 module Raw_input_frame = Raw_input_frame
 module Input_backend   = Input_backend
+
+module Color                   = Color
+module Render_commands         = Render_commands
+module Render_stream           = Render_stream
+module Rendering_result        = Rendering_result
+module Rendering_backend       = Rendering_backend
+module Render_stream_collector = Render_stream_collector
+module Render_system           = Render_system
+
 module Platform        = Platform
 module Progress       = Progress
 module Loop           = Loop

@@ -275,9 +275,34 @@ module Raw_input_frame : module type of Raw_input_frame
 (** Input backend seam with [Null] and [Scripted] implementations. *)
 module Input_backend : module type of Input_backend
 
+(** {2 Rendering} *)
+
+(** Floating-point RGBA color. Components are in [[0, 1]]. *)
+module Color : module type of Color
+
+(** Backend-agnostic 2D render command set.
+    Backends extend via polymorphic variant inclusion. *)
+module Render_commands : module type of Render_commands
+
+(** Ordered render command buffer — world-space and screen-space lists. *)
+module Render_stream : module type of Render_stream
+
+(** Non-fatal errors from a render call. *)
+module Rendering_result : module type of Rendering_result
+
+(** Rendering backend seam with [Null] implementation. *)
+module Rendering_backend : module type of Rendering_backend
+
+(** Phase-ordered collector runner for [Render_stream]. *)
+module Render_stream_collector : module type of Render_stream_collector
+
+(** ECS system that populates and stores a [Render_stream] each frame.
+    [Make(B)] produces a system typed for [B.command]. *)
+module Render_system : module type of Render_system
+
 (** {2 Platform} *)
 
-(** Platform seam — bundles [Input_backend] and [Rendering_backend] for [Loop.Make]. *)
+(** Platform seam — bundles input, audio, and rendering backends for [Loop.Make]. *)
 module Platform : module type of Platform
 
 (** {2 Loop} *)

@@ -6,10 +6,11 @@
 
 module type S = sig
   type t
-  module Input_backend : Input_backend.S
-  module Audio_backend : Audio_backend.S
+  module Input_backend     : Input_backend.S
+  module Audio_backend     : Audio_backend.S
+  module Rendering_backend : Rendering_backend.S
 end
 
-(** Headless platform — null input and audio backends.
+(** Headless platform — null input, audio, and rendering backends.
     Suitable for servers, CI, and scripted integration tests. *)
 module Headless : S with type t = [ `Headless ]

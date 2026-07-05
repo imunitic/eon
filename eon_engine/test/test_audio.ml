@@ -60,6 +60,7 @@ module Test_platform = struct
     let submit cmds    = submitted := cmds
     let shutdown ()    = submitted := []
   end
+  module Rendering_backend = Rendering_backend.Null
 end
 
 module My_progress = Progress.Make (Pipeline.Default)

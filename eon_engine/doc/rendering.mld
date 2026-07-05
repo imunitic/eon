@@ -1,0 +1,476 @@
+{0 Rendering}
+
+The rendering layer decouples the ECS tick from the GPU. During a tick, game
+systems write backend-agnostic commands into a {!Eon_engine.Render_stream}. After
+the tick, the engine loop hands that stream to a
+{!Eon_engine.Rendering_backend.S} implementation which produces pixels. The two
+sides never touch each other directly.
+
+Frame order:
+
+{v
+collect  →  tick (Render_system clears + fills stream)
+         →  drain
+         →  Platform.Rendering_backend.render stream ~dt
+v}
+
+{1 Color}
+
+{!Eon_engine.Color} is the engine's color type. Components are floats in [0, 1].
+Backends convert to their own internal representation at render time.
+
+{[
+  open Eon_engine
+
+  let red   = Color.create 1.0 0.0 0.0 1.0
+  let semi  = Color.create 0.0 0.5 1.0 0.5   (* 50% transparent blue *)
+  let clear = Color.transparent               (* fully transparent black *)
+
+  (* Named constants *)
+  let _white = Color.white
+  let _black = Color.black
+]}
+
+{1 Render commands}
+
+{!Eon_engine.Render_commands} defines seven backend-agnostic commands that cover
+a complete 2D game. Backends consume these; game code produces them.
+
+{[
+  open Eon_engine
+
+  (* Clear the framebuffer before drawing *)
+  let _clear : Render_commands.command =
+    `Clear_background Color.black
+
+  (* Establish a camera — all world-space commands that follow are
+     rendered relative to this camera until the next Set_camera *)
+  let _camera : Render_commands.command =
+    `Set_camera Render_commands.{
+      position = (0.0, 0.0);
+      zoom     = Some 1.0;
+      rotation = None;
+      target   = None;
+      viewport = None;
+    }
+
+  (* Draw a texture or sprite-sheet frame *)
+  let _sprite : Render_commands.command =
+    `Draw_texture Render_commands.{
+      texture_id = "sprites/player.png";
+      source     = Some (Math.Rect.create 0.0 0.0 16.0 16.0);  (* frame 0 *)
+      dest       = Math.Rect.create 100.0 200.0 32.0 32.0;
+      rotation   = None;
+      origin     = None;
+      tint       = None;
+      layer      = 0;
+    }
+
+  (* Draw a health bar — filled rect behind, outline rect in front *)
+  let _bar_bg : Render_commands.command =
+    `Draw_rect Render_commands.{
+      rect   = Math.Rect.create 10.0 10.0 100.0 8.0;
+      color  = Color.black;
+      filled = true;
+      layer  = 10;
+    }
+
+  let _bar_fill : Render_commands.command =
+    `Draw_rect Render_commands.{
+      rect   = Math.Rect.create 10.0 10.0 75.0 8.0;
+      color  = Color.create 0.0 1.0 0.0 1.0;
+      filled = true;
+      layer  = 11;
+    }
+]}
+
+{2 Extending the command set}
+
+Backends that need custom commands extend via polymorphic variant inclusion.
+The engine never sees the extended type.
+
+{[
+  type shader = { id : string }
+  type particle_system = { emitter : string; count : int }
+
+  type command = [
+    | Render_commands.command   (* includes all seven base commands *)
+    | `Apply_shader   of shader
+    | `Draw_particles of particle_system
+  ]
+]}
+
+{1 Render stream}
+
+{!Eon_engine.Render_stream} holds two independent command lists:
+
+- {b World space} — camera-relative; [Set_camera] followed by draw commands,
+  repeated for each camera
+- {b Screen space} — fixed to the screen regardless of camera; HUD, damage
+  numbers, overlays
+
+{[
+  open Eon_engine
+
+  let stream = Render_stream.create ()
+
+  (* World-space: camera context then sprites *)
+  Render_stream.add_world stream (`Clear_background Color.black);
+  Render_stream.add_world stream
+    (`Set_camera Render_commands.{
+       position = (0.0, 0.0); zoom = None;
+       rotation = None; target = None; viewport = None });
+  Render_stream.add_world stream
+    (`Draw_texture Render_commands.{
+       texture_id = "sprites/player.png"; source = None;
+       dest = Math.Rect.create 100.0 200.0 32.0 32.0;
+       rotation = None; origin = None; tint = None; layer = 0 });
+
+  (* Screen-space: HUD drawn on top, camera-independent *)
+  Render_stream.add_screen stream
+    (`Draw_text Render_commands.{
+       text = "HP: 100"; position = (8.0, 8.0);
+       font_id = "fonts/ui.ttf"; size = 14.0;
+       color = Color.white; layer = 0 });
+
+  (* Iterate in emission order — never allocates once warmed *)
+  Render_stream.iter_world  stream (fun _cmd -> ());
+  Render_stream.iter_screen stream (fun _cmd -> ());
+
+  (* Reset both lists; backing array capacity is retained — next frame
+     fills up to the previous high-water mark with zero allocation *)
+  Render_stream.clear stream
+]}
+
+{1 Render stream collector}
+
+{!Eon_engine.Render_stream_collector} organises collectors into named phases.
+Phases are ordered with [~after] — the same model as [Pipeline.before]/[after].
+A collector has type [World.ro World.t -> 'command Render_stream.t -> unit];
+read-only world access is enforced by the type system.
+
+Collectors within a phase run sequentially in addition order. This is
+intentional: concurrent collectors would write to the same stream with
+non-deterministic interleaving. For parallel collection, collect into per-collector
+private streams and merge them in a sequential pass.
+
+{2 Single-camera setup}
+
+{[
+  open Eon_engine
+
+  (* Two collectors: one emits the camera command, one emits sprites *)
+  let collect_camera (_world : World.ro World.t) stream =
+    Render_stream.add_world stream
+      (`Set_camera Render_commands.{
+         position = (0.0, 0.0); zoom = None;
+         rotation = None; target = None; viewport = None })
+
+  let collect_sprites (world : World.ro World.t) stream =
+    Query.from world
+    |> Query.having Components.Position.name
+    |> Query.having Components.Sprite.name
+    |> Query.iter (fun view ->
+         let pos    = View.get view (module Components.Position) in
+         let sprite = View.get view (module Components.Sprite) in
+         Render_stream.add_world stream
+           (`Draw_texture Render_commands.{
+              texture_id = sprite.texture_id;
+              source     = sprite.source_rect;
+              dest       = Math.Rect.create pos.x pos.y sprite.w sprite.h;
+              rotation   = None; origin = None; tint = None;
+              layer      = sprite.layer }))
+
+  let render_collector =
+    Render_stream_collector.create ()
+    |> Render_stream_collector.add_phase `Camera
+    |> Render_stream_collector.add_phase `World  ~after:`Camera
+    |> Render_stream_collector.add_phase `Screen ~after:`World
+    |> Render_stream_collector.add_collector `Camera collect_camera
+    |> Render_stream_collector.add_collector `World  collect_sprites
+]}
+
+The stream produced by [collect] will be:
+
+{v
+  `Set_camera(...)   ← Camera phase
+  `Draw_texture(...) ← World phase, first sprite
+  `Draw_texture(...) ← World phase, second sprite
+  ...
+v}
+
+{2 Multi-camera setup}
+
+Each camera gets its own pair of phases. The [~after] chain ensures the main
+camera's draw phase completes before the minimap camera starts. Adding a third
+camera is two more [add_phase] lines — no central list to edit.
+
+{[
+  open Eon_engine
+
+  let render_collector =
+    Render_stream_collector.create ()
+    |> Render_stream_collector.add_phase `Main_camera
+    |> Render_stream_collector.add_phase `Main_world    ~after:`Main_camera
+    |> Render_stream_collector.add_phase `Minimap_camera ~after:`Main_world
+    |> Render_stream_collector.add_phase `Minimap_world  ~after:`Minimap_camera
+    |> Render_stream_collector.add_phase `Screen         ~after:`Minimap_world
+    |> Render_stream_collector.add_collector `Main_camera    collect_main_camera
+    |> Render_stream_collector.add_collector `Main_world     collect_sprites
+    |> Render_stream_collector.add_collector `Minimap_camera collect_minimap_camera
+    |> Render_stream_collector.add_collector `Minimap_world  collect_minimap_icons
+    |> Render_stream_collector.add_collector `Screen         collect_hud
+]}
+
+The stream produced will be:
+
+{v
+  `Set_camera(main)        ← Main_camera phase
+  `Draw_texture(...)       ← Main_world phase, sprites
+  `Draw_texture(...)
+  `Set_camera(minimap)     ← Minimap_camera phase
+  `Draw_texture(...)       ← Minimap_world phase, icons
+  `Draw_text("HP: 100")    ← Screen phase (screen-space list, not world-space)
+v}
+
+The backend iterates the world-space list and tracks camera state as it goes,
+calling [begin_mode_2d] / [end_mode_2d] around the commands between each
+[Set_camera].
+
+{1 Render system}
+
+{!Eon_engine.Render_system.Make} produces a standard ECS system that:
+
++ Clears the [Render_stream] at the start of each tick
++ Calls [Render_stream_collector.collect] to repopulate it
++ Stores the stream reference in the world data plane under [`Render_stream]
+
+It never calls the backend. Add it to whichever pipeline phase runs last.
+
+{[
+  open Eon_engine
+
+  (* Wire Render_system for the Null backend (headless / tests) *)
+  module My_render_system = Render_system.Make(Rendering_backend.Null)
+
+  let render_system =
+    My_render_system.make ~render_stream_collector:render_collector
+
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Gameplay
+    |> Pipeline.Default.add_phase `Render   ~after:`Gameplay
+    |> Pipeline.Default.add_system `Gameplay movement_system
+    |> Pipeline.Default.add_system `Render   render_system
+]}
+
+{2 Custom system module}
+
+When using a pipeline built with a custom [System.Make] / [Pipeline.Make],
+use [Render_system.Make_with_system] to match the system type:
+
+{[
+  open Eon_engine
+
+  module My_system = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
+
+  module My_render = Render_system.Make_with_system
+    (Rendering_backend.Null)
+    (My_system)
+
+  let render_system = My_render.make ~render_stream_collector:render_collector
+]}
+
+{2 Bypassing Render_system}
+
+[Render_system] is optional. The loop only looks for a [Render_stream] value
+under [`Render_stream] in the world data plane — it does not care how it got
+there. Write any [Exclusive] system and call [World.set_data] directly:
+
+{[
+  open Eon_engine
+
+  let my_custom_render_system =
+    System.Default.make (System.Exclusive (fun world _dt ->
+      let stream = World.get_data world `My_private_stream
+        |> Option.value ~default:(Render_stream.create ()) in
+      (* ... custom population logic ... *)
+      World.set_data world `Render_stream stream
+    ))
+]}
+
+{1 Rendering backend}
+
+{!Eon_engine.Rendering_backend.S} is the seam a platform library implements.
+It receives the populated stream and has full autonomy over batching, layer
+sorting, and GPU dispatch.
+
+{[
+  (* Skeleton of a Raylib backend *)
+  module Raylib_renderer : Rendering_backend.S
+    with type command = Render_commands.command = struct
+
+    type command = Render_commands.command
+
+    let init () = Raylib.init_window 1280 720 "My Game"
+
+    let render stream ~dt:_ =
+      Raylib.begin_drawing ();
+      let camera_active = ref false in
+      Render_stream.iter_world stream (function
+        | `Clear_background c ->
+            Raylib.clear_background (to_rl_color c)
+        | `Set_camera cam ->
+            if !camera_active then Raylib.end_mode_2d ();
+            Raylib.begin_mode_2d (to_rl_camera cam);
+            camera_active := true
+        | `Draw_texture t ->
+            Raylib.draw_texture_pro
+              (lookup_texture t.texture_id)
+              (to_rl_rect (Option.value t.source
+                ~default:(full_texture_rect t.texture_id)))
+              (to_rl_rect t.dest)
+              (Raylib.Vector2.create 0.0 0.0)
+              (Option.value t.rotation ~default:0.0)
+              (Option.value t.tint ~default:Raylib.Color.white
+                |> to_rl_color)
+        | _ -> ());
+      if !camera_active then Raylib.end_mode_2d ();
+      Render_stream.iter_screen stream (fun cmd -> dispatch_screen cmd);
+      Raylib.end_drawing ();
+      Rendering_result.empty
+
+    let diagnostics () = [
+      "fps", string_of_int (Raylib.get_fps ())
+    ]
+
+    let shutdown () = Raylib.close_window ()
+  end
+]}
+
+The backend iterates world-space commands linearly, maintaining camera state.
+All batching, sorting by layer, and shader grouping are backend responsibilities.
+
+{2 Asset loading}
+
+There is no central asset manager. Each backend owns its GPU handles from
+[init] to [shutdown]. Game code uses stable string identifiers ([texture_id],
+[font_id]); the backend resolves them to internal handles at render time.
+
+The directory structure is the manifest:
+
+{v
+  assets/
+    sprites/player.png   →  texture_id: "sprites/player.png"
+    fonts/ui.ttf         →  font_id:    "fonts/ui.ttf"
+v}
+
+{2 Non-fatal errors}
+
+[render] returns {!Eon_engine.Rendering_result.t}. Add non-fatal errors for
+missing assets, unknown font IDs, or other recoverable issues. The loop logs
+them automatically via [Printf.eprintf]. Fatal errors (GPU lost, out of memory)
+should raise exceptions.
+
+{[
+  let render stream ~dt:_ =
+    let errors = ref [] in
+    Render_stream.iter_world stream (function
+      | `Draw_texture t ->
+          (match Hashtbl.find_opt texture_cache t.texture_id with
+           | None   -> errors := ("missing texture: " ^ t.texture_id) :: !errors
+           | Some _ -> ())
+      | _ -> ());
+    Rendering_result.{ errors = !errors }
+]}
+
+{2 Null backend}
+
+{!Eon_engine.Rendering_backend.Null} discards all commands and returns
+{!Eon_engine.Rendering_result.empty}. It is wired into
+{!Eon_engine.Platform.Headless} for tests and CI.
+
+{1 Platform and loop wiring}
+
+Supply a {!Eon_engine.Platform.S} to [Loop.Make]. [Platform.S] now requires
+[Rendering_backend] alongside [Input_backend] and [Audio_backend].
+
+{[
+  open Eon_engine
+
+  (* Headless — discards all commands; for tests and servers *)
+  module Engine_loop =
+    Loop.Make
+      (Eon_ecs.Clock.Mtime)
+      (Engine_progress)
+      (Platform.Headless)
+      (Loop_buses)
+
+  (* Game binary — supply a concrete platform *)
+  module Raylib_platform = struct
+    type t = [ `Raylib ]
+    module Input_backend     = My_raylib_input
+    module Audio_backend     = My_raylib_audio
+    module Rendering_backend = Raylib_renderer
+  end
+
+  module Game_loop =
+    Loop.Make
+      (Eon_ecs.Clock.Mtime)
+      (Engine_progress)
+      (Raylib_platform)
+      (Loop_buses)
+]}
+
+[Loop.run] calls [init] on all three backends before entering the loop and
+their [shutdown] counterparts after it returns.
+
+The loop reads [`Render_stream] from the world data plane after [drain]. If no
+value is present — for example in a headless simulation with no [Render_system]
+registered — the render step is silently skipped. A simulation-only game
+requires no changes to loop setup.
+
+{1 Complete wiring example}
+
+{[
+  open Eon_engine
+
+  (* 1. Build the collector *)
+  let render_collector =
+    Render_stream_collector.create ()
+    |> Render_stream_collector.add_phase `Camera
+    |> Render_stream_collector.add_phase `World  ~after:`Camera
+    |> Render_stream_collector.add_phase `Screen ~after:`World
+    |> Render_stream_collector.add_collector `Camera collect_camera
+    |> Render_stream_collector.add_collector `World  collect_sprites
+    |> Render_stream_collector.add_collector `Screen collect_hud
+
+  (* 2. Build the render system *)
+  module My_render_system = Render_system.Make(Rendering_backend.Null)
+
+  let render_system =
+    My_render_system.make ~render_stream_collector:render_collector
+
+  (* 3. Build the pipeline *)
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Gameplay
+    |> Pipeline.Default.add_phase `Render   ~after:`Gameplay
+    |> Pipeline.Default.add_system `Gameplay movement_system
+    |> Pipeline.Default.add_system `Render   render_system
+
+  (* 4. Build and run the loop *)
+  module Engine_progress = Progress.Make(Pipeline.Default)
+  module Engine_loop =
+    Loop.Make
+      (Eon_ecs.Clock.Mtime)
+      (Engine_progress)
+      (Platform.Headless)
+      (Loop_buses)
+
+  let () =
+    let world    = World.create () in
+    let ()       = Components.Engine_components.register_all world in
+    let progress = Engine_progress.create ~mode:Engine_progress.Variable pipeline in
+    ignore (Engine_loop.run ~progress ~world ~should_continue:(fun _ -> true) ())
+]}

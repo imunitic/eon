@@ -18,4 +18,7 @@ let () =
     ("Audio", Test_audio.tests);
     ("Math", Test_math.tests);
     ("Math properties", Test_prop_math.tests);
+    ("Render stream", Test_render_stream.tests);
+    ("Render stream properties", Test_prop_render_stream.tests);
+    ("Render modules", Test_render_modules.tests);
   ]

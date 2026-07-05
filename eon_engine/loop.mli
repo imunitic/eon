@@ -4,14 +4,15 @@
     1. [Platform.Input_backend.collect ()] — poll backend; result written as
        [Raw_input_frame] world resource before any system runs
     2. [Buses.collect]
-    3. [Progress.tick] — run the pipeline
+    3. [Progress.tick] — run the pipeline (including [Render_system] if registered)
     4. [Buses.drain]
     5. [Platform.Audio_backend.submit] — submit accumulated audio commands;
        [Audio_command_buffer] is cleared immediately after
+    6. [Platform.Rendering_backend.render] — consume the [Render_stream] stored
+       in the world data plane by [Render_system]; no-op if no stream was stored
 
-    [Loop.run] calls [Platform.Input_backend.init] and
-    [Platform.Audio_backend.init] before the loop starts, and their [shutdown]
-    counterparts after it returns. Asset lookup is baked into each backend at
+    [Loop.run] calls [init] on all three backends before the loop starts and
+    their [shutdown] counterparts after it returns. Asset lookup is baked into each backend at
     construction time — [Loop.run] has no knowledge of assets.
 
     Typical usage:

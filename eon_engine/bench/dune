@@ -7,3 +7,11 @@
  (libraries bechamel unix eon-engine benchmark_helpers)
  (flags (:standard -warn-error -a))
  (package eon-engine))
+
+(executable
+ (name bench_render_stream)
+ (public_name eon-engine-bench-render-stream)
+ (modules bench_render_stream)
+ (libraries bechamel unix eon-engine benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-engine))

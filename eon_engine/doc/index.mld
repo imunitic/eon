@@ -395,13 +395,12 @@ built-in implementations ship with the engine:
 {2 Platform}
 
 {!Eon_engine.Platform.S} is the compile-time seam passed to [Loop.Make].
-Currently it carries [Input_backend]; [Rendering_backend] will be added
-when the rendering layer is implemented. Game binaries supply
-a concrete platform (e.g. a raylib platform); servers and tests use
-{!Eon_engine.Platform.Headless}:
+It bundles [Input_backend], [Audio_backend], and [Rendering_backend].
+Game binaries supply a concrete platform (e.g. a raylib platform);
+servers and tests use {!Eon_engine.Platform.Headless}:
 
 {[
-  (* Headless: null input *)
+  (* Headless: null input, audio, and rendering — for tests and servers *)
   module Engine_loop =
     Loop.Make
       (Eon_ecs.Clock.Mtime)
@@ -425,11 +424,15 @@ a concrete platform (e.g. a raylib platform); servers and tests use
 + [Platform.Input_backend.collect ()] — poll backend; result stored as
   [Raw_input_frame] world resource before any system runs
 + [Buses.collect] — Signals, then Events, then Commands
-+ [Progress.tick] — runs the pipeline (parallel phases via the executor)
++ [Progress.tick] — runs the pipeline; [Render_system] (if registered) clears
+  and populates the [Render_stream] during this step
 + [Buses.drain] — Signals, then Commands, then Events
++ [Platform.Audio_backend.submit] — submit accumulated audio commands
++ [Platform.Rendering_backend.render] — consume the [Render_stream] from the
+  world data plane; skipped silently if no stream is present
 
-[Loop.run] also calls [Platform.Input_backend.init] before the loop and
-[Platform.Input_backend.shutdown] after it returns.
+[Loop.run] calls [init] on all three backends before entering the loop and
+their [shutdown] counterparts after it returns.
 
 {[
   let final_world =
@@ -443,6 +446,7 @@ a concrete platform (e.g. a raylib platform); servers and tests use
 {1 Guides}
 
 - {{!page-math}Math types} — [Vec2], [Vec2i], [Rect], [Circle], [Transform2D]: construction, common patterns, tile coordinate conversion, spatial queries, and hierarchy transforms.
+- {{!page-rendering}Rendering} — [Color], [Render_commands], [Render_stream], [Render_stream_collector], [Render_system], [Rendering_backend]: command vocabulary, phase-ordered collection, multi-camera setup, backend wiring, and complete loop integration.
 
 {1 API reference}
 

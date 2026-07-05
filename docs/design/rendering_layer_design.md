@@ -1,6 +1,6 @@
 # Eon Engine Rendering Layer Design Document
 
-**Status**: Architectural design. Examples are illustrative; API details will be refined during implementation.
+**Status**: IMPLEMENTED (ecs-031).
 
 ## 1. Overview
 
@@ -9,7 +9,7 @@ The rendering layer is backend-agnostic: the engine defines a data vocabulary an
 Four components collaborate to produce a frame:
 
 1. **Render_stream** — an ordered world-space command list and a screen-space command list; no entity references. The stream is the data contract between the ECS tick and the render call.
-2. **Render_stream_collector** — runs game-supplied collectors sequentially to populate the stream each frame.
+2. **Render_stream_collector** — runs game-supplied collectors in phase order to populate the stream each frame.
 3. **Render_system** — a standard ECS system that clears the stream, runs the collector, and stores the result in the world data plane. It never calls the backend.
 4. **Rendering_backend** — receives the populated stream and produces pixels. Called by the engine loop after drain, via `Platform.S`.
 
@@ -26,49 +26,70 @@ Four components collaborate to produce a frame:
 
 The world data plane is the handoff point between tick and render. `eon_ecs` Loop stays `collect → tick → drain` only — the render slot is exclusively an `eon_engine` concern.
 
-## 2. Base Command Set
+## 2. Color
 
-Seven backend-agnostic commands cover a complete 2D game. The command stream is ordered — collectors run sequentially in registration order, and the backend processes commands in the order they appear. This gives the backend a fully deterministic, ordered buffer to work with; batching, grouping by camera, and sorting by layer are all backend responsibilities.
+`Color` is a standalone `eon_engine` module — it is a rendering concern and does not live in `Math`. Each backend converts `Color.t` to its own internal representation at render time.
 
 ```ocaml
-(* render_commands.mli *)
+(* eon_engine/render/color.mli *)
+type t = { r : float; g : float; b : float; a : float }
 
-type rect  = { x : float; y : float; w : float; h : float }
-type color = { r : float; g : float; b : float; a : float }
+val create      : float -> float -> float -> float -> t
+val white       : t
+val black       : t
+val transparent : t
+```
+
+## 3. Base Command Set
+
+Seven backend-agnostic commands cover a complete 2D game. The command stream is ordered — collectors run in phase order, and the backend processes commands in the order they appear. This gives the backend a fully deterministic, ordered buffer to work with; batching, grouping by camera, and sorting by layer are all backend responsibilities.
+
+`Render_commands` uses `Math.Rect.t` and `Color.t` directly — no duplicate type definitions.
+
+OCaml polymorphic variants do not support inline records, so each complex payload is a named record type:
+
+```ocaml
+(* eon_engine/render/render_commands.mli *)
+
+type camera = {
+  position : float * float;
+  zoom     : float option;
+  rotation : float option;          (* radians; None = 0.0 *)
+  target   : (float * float) option;
+  viewport : Math.Rect.t option;    (* None = full screen *)
+}
+
+type texture = {
+  texture_id : string;
+  source     : Math.Rect.t option;  (* None = full texture; Some r = sprite sheet region *)
+  dest       : Math.Rect.t;
+  rotation   : float option;
+  origin     : (float * float) option;  (* rotation pivot, dest-local coords *)
+  tint       : Color.t option;
+  layer      : int;
+}
+
+type text = {
+  text     : string;
+  position : float * float;
+  font_id  : string;
+  size     : float;
+  color    : Color.t;
+  layer    : int;
+}
+
+type rect_cmd = { rect : Math.Rect.t; color : Color.t; filled : bool; layer : int }
+type circle   = { center : float * float; radius : float; color : Color.t; filled : bool; layer : int }
+type line     = { start : float * float; stop : float * float; thickness : float; color : Color.t; layer : int }
 
 type command = [
-  | `Clear_background of color
-
-  | `Set_camera of {
-      position : float * float;
-      zoom     : float option;
-      rotation : float option;       (* radians; None = 0.0 *)
-      target   : (float * float) option;
-      viewport : rect option;        (* None = full screen *)
-    }
-
-  | `Draw_texture of {
-      texture_id : string;
-      source     : rect option;  (* None = full texture; Some r = sprite sheet region *)
-      dest       : rect;
-      rotation   : float option;
-      origin     : (float * float) option;  (* rotation pivot, dest-local coords *)
-      tint       : color option;
-      layer      : int;
-    }
-
-  | `Draw_text of {
-      text     : string;
-      position : float * float;
-      font_id  : string;
-      size     : float;
-      color    : color;
-      layer    : int;
-    }
-
-  | `Draw_rect   of { rect   : rect;   color : color; filled : bool; layer : int }
-  | `Draw_circle of { center : float * float; radius : float; color : color; filled : bool; layer : int }
-  | `Draw_line   of { start  : float * float; stop : float * float; thickness : float; color : color; layer : int }
+  | `Clear_background of Color.t
+  | `Set_camera       of camera
+  | `Draw_texture     of texture
+  | `Draw_text        of text
+  | `Draw_rect        of rect_cmd
+  | `Draw_circle      of circle
+  | `Draw_line        of line
 ]
 ```
 
@@ -84,14 +105,14 @@ type command = [
 ]
 ```
 
-## 3. Render_stream
+## 4. Render_stream
 
 The stream holds two coordinate spaces. **World space** is an ordered list of commands — `Set_camera` followed by draw commands, repeated for each camera. **Screen space** is a flat list fixed to the screen regardless of camera; HUD, UI, damage numbers.
 
-The ordering of world-space commands is meaningful: `Set_camera` establishes the camera context for the draw commands that follow it, until the next `Set_camera`. The collector produces a deterministic command stream; a backend may consume it directly or perform arbitrary preprocessing — grouping, sorting, batching, culling, command-buffer generation — before issuing draw calls.
+`Render_stream` is backed by `Dynarray` (OCaml 5.2 stdlib). `clear` sets the length to zero but retains the backing array, so steady-state frames after the first produce zero minor allocations. Confirmed by `bench_render_stream` (Q1).
 
 ```ocaml
-(* render_stream.mli *)
+(* eon_engine/render/render_stream.mli *)
 
 type 'command t  (* abstract *)
 
@@ -103,16 +124,133 @@ val iter_world  : 'command t -> ('command -> unit) -> unit
 val iter_screen : 'command t -> ('command -> unit) -> unit
 ```
 
+## 5. Render_stream_collector
+
+The `Render_stream_collector` organises collectors into named phases backed by `Phase_graph` from `eon_ecs`. Phase ordering is declared explicitly via `~after` — the same model as `Pipeline.before`/`Pipeline.after` — so there is no global declaration-order dependency. This makes multi-camera layouts safe: each camera phase declares itself relative to what it knows about, not relative to a centrally maintained list.
+
+Collectors within a phase execute in addition order. Both phases and collectors within a phase are sequential — no coordination overhead, fully deterministic command stream. A developer needing parallel collection can collect into per-collector private streams and merge them sequentially into the main stream at the end of a phase; the engine does not provide this infrastructure.
+
+A collector is `World.ro World.t -> 'command Render_stream.t -> unit`. `World.ro` is enforced by type — collectors never mutate world state. The engine ships no collectors; it cannot know which components a game uses or how rendering data is structured.
+
+```ocaml
+(* eon_engine/render/render_stream_collector.mli *)
+
+type ('phase, 'command) t
+type 'command collector = World.ro World.t -> 'command Render_stream.t -> unit
+
+val create        : unit -> ('phase, 'command) t
+val add_phase     : ?after:'phase -> 'phase -> ('phase, 'command) t -> ('phase, 'command) t
+(** Add a phase. [~after] declares that [after] runs before the new phase.
+    Raises [Invalid_argument] if [~after] names an unknown phase.
+    Idempotent if the phase already exists with the same ordering. *)
+val add_collector : 'phase -> 'command collector -> ('phase, 'command) t -> ('phase, 'command) t
+val collect       : ('phase, 'command) t -> World.ro World.t -> 'command Render_stream.t -> unit
+```
+
+```ocaml
+(* Camera collector — one collector per camera role, not one for all cameras.
+   Each collector queries positively for its role marker — adding a new camera
+   type never breaks existing collectors. *)
+let collect_main_camera (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Camera.name
+  |> Query.having Components.Main_camera.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let camera = View.get view (module Components.Camera) in
+       Render_stream.add_world graph (`Set_camera {
+         position = (pos.x, pos.y);
+         zoom     = Some camera.zoom;
+         rotation = camera.rotation;
+         target   = None;
+         viewport = camera.viewport;
+       }))
+
+(* Sprite collector *)
+let collect_sprites (world : World.ro World.t) graph =
+  Query.from world
+  |> Query.having Components.Position.name
+  |> Query.having Components.Sprite.name
+  |> Query.iter (fun view ->
+       let pos    = View.get view (module Components.Position) in
+       let sprite = View.get view (module Components.Sprite) in
+       Render_stream.add_world graph (`Draw_texture {
+         texture_id = sprite.texture_id;
+         source     = sprite.source_rect;
+         dest       = Math.Rect.create pos.x pos.y sprite.w sprite.h;
+         rotation   = None; origin = None; tint = None;
+         layer      = sprite.layer;
+       }))
+```
+
+### Multi-camera
+
+Each camera gets its own pair of phases. The `~after` ordering keeps each camera's setup phase immediately before its draw phase:
+
+```ocaml
+let collector =
+  Render_stream_collector.create ()
+  |> add_phase `Main_camera
+  |> add_phase `Main_world       ~after:`Main_camera
+  |> add_phase `Minimap_camera   ~after:`Main_world
+  |> add_phase `Minimap_world    ~after:`Minimap_camera
+  |> add_phase `Screen           ~after:`Minimap_world
+  |> add_collector `Main_camera   collect_main_camera
+  |> add_collector `Main_world    collect_sprites
+  |> add_collector `Minimap_camera collect_minimap_camera
+  |> add_collector `Minimap_world  collect_minimap_icons
+```
+
+Adding a third camera later is two more `add_phase` lines — no central list to edit.
+
+### Multi-camera and Marker Components
+
+The minimap is not a special case — it is a second lens over the same entities. For minimap visibility, a `Minimap_icon` component serves as both the opt-in signal and the data source:
+
+```ocaml
+(* minimap_icon.mli *)
+type t = {
+  texture_id : string;
+  color      : Color.t;
+  size       : float;
+}
+```
+
+This covers two cases with one component:
+
+- **World entity shown on minimap**: has `Sprite` (world rendering) + `Minimap_icon` (minimap rendering)
+- **Minimap-only entity** (waypoint, zone boundary, quest marker): has `Minimap_icon` but no `Sprite`
+
+## 6. Rendering_backend
+
+The backend receives an already-populated `Render_stream` and has complete autonomy over rendering decisions. Non-fatal errors are returned in `Rendering_result.t`; truly fatal errors (GPU lost, out of memory) raise exceptions.
+
+```ocaml
+(* eon_engine/render/rendering_result.mli *)
+type t = { errors : string list }
+
+val empty      : t
+val has_errors : t -> bool
+```
+
+```ocaml
+(* eon_engine/render/rendering_backend.mli *)
+
+module type S = sig
+  type command
+
+  val init        : unit -> unit
+  val render      : command Render_stream.t -> dt:float -> Rendering_result.t
+  val diagnostics : unit -> (string * string) list
+  val shutdown    : unit -> unit
+end
+```
+
 The backend iterates the world stream and tracks camera state as it goes:
 
 ```ocaml
-(* Raylib backend — naive single-pass implementation for illustration.
-   A real backend would do a pre-pass to group commands by camera, then
-   render each group cleanly with no stateful camera_active bookkeeping.
-   A sophisticated backend can go further and construct a full internal
-   render graph — dependency DAG, reordered passes, batching, state deduplication —
-   before issuing a single draw call. The stream is the contract; what happens
-   behind it is entirely the backend's business. *)
+(* Raylib backend — naive single-pass implementation for illustration. *)
 let render graph ~dt:_ =
   Raylib.begin_drawing ();
   let camera_active = ref false in
@@ -128,162 +266,9 @@ let render graph ~dt:_ =
   Raylib.end_drawing ()
 ```
 
-A backend extends the base set using polymorphic variant inclusion and is wired once through `Platform.S`:
-
-```ocaml
-module OpenGL_platform : Platform.S = struct
-  type t = [ `OpenGL ]
-  module Rendering_backend = OpenGL_rendering_backend
-  module Input_backend     = Glfw_input_backend
-end
-```
-
-## 4. Render_stream_collector
-
-The `Render_stream_collector` organises collectors into named phases, mirroring how `Pipeline` organises systems. Phases execute in declaration order; collectors within a phase execute in addition order. Both are sequential — no coordination overhead, deterministic command stream.
-
-Phases are an organisational tool, not a performance boundary. They make the rendering structure immediately readable: `Camera` → `World` → `Effects` tells you the frame's rendering intent at a glance, without having to trace through a flat list of `add_collector` calls. They also structurally guarantee that `Set_camera` precedes draw commands — a `Camera` phase always runs before a `World` phase, no documentation required.
-
-Collection is not the performance bottleneck; the backend is. The ordered command buffer the collector produces is what the backend batches, sorts, and optimises.
-
-A collector is `World.ro World.t -> 'command Render_stream.t -> unit`. `World.ro` is enforced by type — collectors never mutate world state. The engine ships no collectors; it cannot know which components a game uses or how rendering data is structured.
-
-```ocaml
-(* render_stream_collector.mli *)
-
-type ('phase, 'command) t
-type 'command collector = World.ro World.t -> 'command Render_stream.t -> unit
-
-val create        : unit -> ('phase, 'command) t
-val add_phase     : 'phase -> ('phase, 'command) t -> ('phase, 'command) t
-(* Idempotent — if the phase already exists, t is returned unchanged.
-   Allows feature modules to declare the phases they need without coordination. *)
-val add_collector : 'phase -> 'command collector -> ('phase, 'command) t -> ('phase, 'command) t
-val collect       : ('phase, 'command) t -> World.ro World.t -> 'command Render_stream.t -> unit
-```
-
-```ocaml
-(* Camera collector — one collector per camera role, not one for all cameras.
-   A generic "collect all cameras" would emit Set_camera for every camera entity
-   in a single phase, breaking multi-camera layouts. Each collector queries
-   positively for its role marker — adding a new camera type never breaks existing collectors. *)
-let collect_main_camera (world : World.ro World.t) graph =
-  Query.from world
-  |> Query.having Components.Position.name
-  |> Query.having Components.Camera.name
-  |> Query.having Components.Main_camera.name
-  |> Query.iter (fun view ->
-       let pos    = View.get view (module Components.Position) in
-       let camera = View.get view (module Components.Camera) in
-       let target =
-         match View.get_opt view (module Components.Camera_target) with
-         | None    -> None
-         | Some ct ->
-           match World.get_component world ct.target_entity Components.Position.component with
-           | None   -> None
-           | Some p -> Some (p.x, p.y)
-       in
-       Render_stream.add_world graph (`Set_camera {
-         position = (pos.x, pos.y);
-         zoom     = Some camera.zoom;
-         rotation = camera.rotation;
-         target;
-         viewport = camera.viewport;
-       }))
-
-(* Sprite collector — uniform with every other collector *)
-let collect_sprites (world : World.ro World.t) graph =
-  Query.from world
-  |> Query.having Components.Position.name
-  |> Query.having Components.Sprite.name
-  |> Query.iter (fun view ->
-       let pos    = View.get view (module Components.Position) in
-       let sprite = View.get view (module Components.Sprite) in
-       Render_stream.add_world graph (`Draw_texture {
-         texture_id = sprite.texture_id;
-         source     = sprite.source_rect;
-         dest       = { x = pos.x; y = pos.y; w = sprite.w; h = sprite.h };
-         rotation   = None; origin = None; tint = None;
-         layer      = sprite.layer;
-       }))
-```
-
-### Multi-camera and Marker Components
-
-The minimap is not a special case — it is a second lens over the same entities. The same player entity with `Sprite` + `Position` appears in both the main world and the minimap; the collectors simply emit different commands for different camera phases. Queries overlapping across collectors is intentional, not a bug.
-
-The main world collector queries `having Sprite` + `having Position` — the presence of `Sprite` already implies world visibility. No `World_visible` marker is needed.
-
-For minimap visibility, a pure marker (`Minimap_visible`) only makes sense if the minimap reuses the entity's existing `Sprite` as-is. The moment the minimap needs its own visual representation — a specific icon, a different colour, a dot of a specific size — the marker becomes a data component:
-
-```ocaml
-(* minimap_icon.mli *)
-type t = {
-  texture_id : string;
-  color      : color;
-  size       : float;
-}
-```
-
-The presence of `Minimap_icon` on an entity is both the opt-in signal and the data source — no separate marker needed, same as `Sprite` implying world visibility. This covers two cases with one component:
-
-- **World entity shown on minimap**: has `Sprite` (world rendering) + `Minimap_icon` (minimap rendering)
-- **Minimap-only entity** (waypoint, zone boundary, quest marker): has `Minimap_icon` but no `Sprite`
-
-The minimap collector queries for `Minimap_icon` and handles both cases uniformly:
-
-```ocaml
-let collect_minimap world graph =
-  Query.from world
-  |> Query.having Components.Position.name
-  |> Query.having Components.Minimap_icon.name
-  |> Query.iter (fun view ->
-       let pos  = View.get view (module Components.Position) in
-       let icon = View.get view (module Components.Minimap_icon) in
-       Render_stream.add_world graph (`Draw_texture {
-         texture_id = icon.texture_id;
-         dest       = { x = pos.x; y = pos.y; w = icon.size; h = icon.size };
-         tint       = Some icon.color;
-         source     = None; rotation = None; origin = None;
-         layer      = 0;
-       }))
-```
-
-The main world collector never sees `Minimap_icon` entities without a `Sprite` because it never queries for them. Entities with both components appear in both views, each rendered appropriately for its context.
-
-## 5. Rendering_backend
-
-The backend receives an already-populated `Render_stream` and has complete autonomy over rendering decisions. Non-fatal errors are returned in `Rendering_result.t`; truly fatal errors (GPU lost, out of memory) raise exceptions.
-
-```ocaml
-(* rendering_result.mli *)
-type t = { errors : string list }
-
-val empty      : t
-val has_errors : t -> bool
-```
-
-```ocaml
-(* rendering_backend.mli *)
-
-module type S = sig
-  type command
-
-  val init        : unit -> unit
-  val render      : command Render_stream.t -> dt:float -> Rendering_result.t
-  val diagnostics : unit -> (string * string) list
-  (* Returns diagnostic information for the most recently completed render call.
-     If per-draw-call diagnostics are ever added, consider iter_diagnostics to avoid
-     list allocation on the hot path. *)
-  val shutdown    : unit -> unit
-end
-```
-
 ### Asset Loading
 
 There is no central asset manager. Each backend owns its GPU handles and font atlases from `init` to `shutdown`. Game code uses only stable string identifiers (`texture_id`, `font_id`); the backend resolves those to internal handles at render time.
-
-Asset loading is entirely the backend's concern — the loop calls `init ()` and has no knowledge of assets. A backend that wants to scan the asset directory accepts `Asset_lookup.S` as a functor parameter at construction time:
 
 ```ocaml
 module Raylib_renderer (Assets : Asset_lookup.S) : Rendering_backend.S = struct
@@ -294,9 +279,7 @@ module Raylib_renderer (Assets : Asset_lookup.S) : Rendering_backend.S = struct
 end
 ```
 
-`Asset_lookup` (in `eon_engine/asset_lookup.ml`) provides `Dir`, `Null`, and `Scripted` implementations as shared utilities — backends that don't need them can ignore them entirely.
-
-The directory structure is the manifest — drop a file in the right folder and it is immediately available:
+The directory structure is the manifest:
 
 ```
 assets/
@@ -304,39 +287,48 @@ assets/
   fonts/ui.ttf        →  font_id:    "fonts/ui.ttf"
 ```
 
-Hot reloading, streaming, and GC-style eviction can all be layered on top without changing this interface.
-
-## 6. Render_system
+## 7. Render_system
 
 ```ocaml
-(* render_system.mli *)
+(* eon_engine/render/render_system.mli *)
 
+(** General form — use when wiring into a custom pipeline built via
+    [System.Make] / [Pipeline.Make]. *)
+module Make_with_system
+    (B   : Rendering_backend.S)
+    (Sys : System.DISPATCH) : sig
+  val make
+    :  render_stream_collector:('phase, B.command) Render_stream_collector.t
+    -> (unit, unit, unit) Sys.t
+end
+
+(** Convenience alias: [Make_with_system(B)(System.Default)]. *)
 module Make (B : Rendering_backend.S) : sig
   val make
-    :  render_stream_collector:B.command Render_stream_collector.t
-    -> Eon_engine.System.Default.t
+    :  render_stream_collector:('phase, B.command) Render_stream_collector.t
+    -> (unit, unit, unit) System.Default.t
 end
 ```
 
-The system owns a `Render_stream` created once in `make`. Each frame it clears the stream, runs the collector to repopulate it, then stores a reference in the world data plane for the engine loop to read. No allocation per frame, no double-buffering needed. The system never calls the backend.
+The system owns a `Render_stream` created once in `make`. Each frame it clears the stream, runs the collector to repopulate it, then stores a reference in the world data plane via `World.set_data` for the engine loop to read. No allocation per frame. The system never calls the backend.
 
-`Render_system.Make(My_platform.Rendering_backend)` is the only backend functor application in game code; mismatched collector command types are a compile error. The system should be added to the pipeline after all other systems so that world state is fully updated before collection.
+The world data plane (`World.get_data` / `World.set_data`) is a temporary keyed store used for engine-internal handoff. It will be replaced by `Resource.S` when that is designed.
 
-## 7. Platform.S and Loop Integration
+## 8. Platform.S and Loop Integration
 
 ```ocaml
-(* platform.mli *)
+(* eon_engine/platform.mli — Rendering_backend added to existing S *)
 
 module type S = sig
   type t
-  module Rendering_backend : Rendering_backend.S
   module Input_backend     : Input_backend.S
+  module Audio_backend     : Audio_backend.S
+  module Rendering_backend : Rendering_backend.S
 end
 
-module Headless : S  (* null rendering and input; for servers, CI, and tests *)
+(* Headless extended with Rendering_backend.Null *)
+module Headless : S with type t = [ `Headless ]
 ```
-
-The game names its backend exactly once in its `Platform.S` implementation. `Loop.Make` reads the stream from the world data plane and calls `Platform.Rendering_backend.render` directly — no adapter:
 
 ```ocaml
 let step ~progress ~world ~last_time ~now ~should_continue =
@@ -346,25 +338,24 @@ let step ~progress ~world ~last_time ~now ~should_continue =
   let dt    = now -. last_time in
   let world = Progress.tick progress ~world ~dt in
   Buses.drain ();
-  let graph = World.get_data world `Render_stream in
+  let graph  = World.get_data world `Render_stream in
   let result = Platform.Rendering_backend.render graph ~dt in
   if Rendering_result.has_errors result then
-    List.iter (fun e -> Printf.eprintf "[renderer] %s\n" e)
-      result.errors;
+    List.iter (fun e -> Printf.eprintf "[renderer] %s\n" e) result.errors;
   (world, now, should_continue world)
 ```
 
-## 8. UI Rendering
+## 9. UI Rendering
 
 Specified in `docs/design/microui_ui_system_design.md`. Deferred until the core rendering layer is implemented.
 
-## 9. Wiring Example
+## 10. Wiring Example
 
 ```ocaml
 let render_stream_collector =
   Render_stream_collector.create ()
   |> Render_stream_collector.add_phase `Camera
-  |> Render_stream_collector.add_phase `World
+  |> Render_stream_collector.add_phase `World ~after:`Camera
 
   |> Render_stream_collector.add_collector `Camera Game.collect_main_camera
   |> Render_stream_collector.add_collector `World  Game.collect_sprites
@@ -385,3 +376,14 @@ let () =
   let progress = Engine_progress.create ~mode:Progress.Variable pipeline in
   Loop.run ~progress ~world ~should_continue:(fun _ -> true) ()
 ```
+
+## 11. Key Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| `Phase_graph` in `eon_ecs` | Extracted from `Pipeline` internals | Avoids duplicating topo-sort logic in `eon_engine`; `Pipeline` refactored to use it with no public API change |
+| `Color` in `eon_engine` | Standalone module | Rendering concern, not a math primitive; backends convert to their own internal type |
+| `Render_commands` types | Uses `Math.Rect.t` and `Color.t` | No duplicate type definitions |
+| Phase ordering | `~after` on `add_phase` | Same model as `Pipeline`; safe for multi-camera without a central declaration list |
+| Data plane handoff | `World.get_data` / `World.set_data` | Temporary; replaced by `Resource.S` in a later task |
+| No built-in collectors | Engine ships none | Cannot know which components a game uses |
