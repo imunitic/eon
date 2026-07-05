@@ -1,5 +1,9 @@
 # Eon Engine Design Document
 
+## Status
+
+**Philosophy document.** Not a feature spec. Records the design principles, constraints, and architectural values that guide all `eon_engine` decisions. No implementation tasks derive from this document directly — it is the "why" behind every other design doc.
+
 ## 1. EON: The Idea and Principles
 
 ### 1.1 Core Philosophy

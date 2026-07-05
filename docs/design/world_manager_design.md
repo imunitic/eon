@@ -2,9 +2,7 @@
 
 ## Status
 
-**Stub — open questions only. Not a near-term task.**
-
-This document captures the problem statement and open design questions for a future `Worlds` module. The right time to design this in full is after the namespacing implementation is stable and at least one multi-world game pattern is working in practice. Real requirements will surface from usage, not from speculation.
+**SUPERSEDED.** No dedicated `Worlds` module will be built. The developer holds world values directly and composes them with `Namespace.S` for cross-world references. Multi-world topology is the developer's responsibility — consistent with the no-central-managers philosophy. This document is retained as historical context for why that decision was made.
 
 ## 1. The Problem
 

@@ -1,17 +1,12 @@
 # Eon Engine — Query Layer Design
 
-> **PARTIALLY SUPERSEDED.** The `Query_backend.S` signature (§1), the
-> `Sparse_set_backend` (§2), and the `Query.Make` builder (§3) have been
-> implemented but with a different API than described here:
+> **SUPERSEDED.** This document describes an earlier query API that was never
+> shipped as designed. The implemented API is in [query_view_design.md](query_view_design.md) (ecs-020):
 >
-> - `Query_backend.S` has only `iter_entities` + `count` (not `iter1..iter4`).
->   See the actual `eon_engine/query_backend.mli`.
-> - `iter1..iter4` terminators and `with_component` are replaced by a single
->   `iter` + `View.get`. See [query_view_design.md](query_view_design.md).
-> - `Archetype_backend` and the `Fallback` functor were **dropped** as premature.
->   See [world_module_design.md](world_module_design.md).
-> - `eon_ecs` core received `iter_entities` (ecs-020) and will receive
->   `Dependency_graph` (ecs-021) — the "frozen at 1.0" framing in §9 is stale.
+> - `Query.from / having / not_having / iter` with a single `View`-based terminator
+> - `View.get`, `View.get_opt`, `View.entity` — no `iter1..iter4`
+> - `Archetype_backend` and the `Fallback` functor were dropped as premature
+> - `with_component` / `with_components` were dropped in favour of `having` / `having_all`
 >
 > This document is retained as historical context for the design evolution.
 
