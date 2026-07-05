@@ -10,6 +10,7 @@ let () =
   Alcotest.run "Eon Engine Test Suite" [
     ("Components", Test_components.tests);
     ("Query", Test_query.tests);
+    ("View", Test_view.tests);
     ("API Structure", Test_api_structure.tests);
     ("World", Test_world.tests);
     ("Pipeline", Test_pipeline.tests);
