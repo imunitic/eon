@@ -18,6 +18,16 @@ just clean
 just tasks          # list all available tasks
 ```
 
+**Output filtering:** Pipe build and test commands through `tee` and filter to warnings/errors/summary only — full output gets truncated in the UI:
+
+```sh
+just build 2>&1 | tee /tmp/eon_build.log | grep -E "Warning|Error|warning|error" || true
+just run-tests 2>&1 | tee /tmp/eon_tests.log | grep -E "FAIL|Error|tests run|failures|Successful" || true
+just check 2>&1 | tee /tmp/eon_check.log | grep -E "Warning|Error|warning|error|FAIL|tests run|failures|Successful" || true
+```
+
+If a command produces no filtered output, the full log is at `/tmp/eon_*.log`.
+
 ## Repository Layout
 
 ```

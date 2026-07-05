@@ -440,6 +440,10 @@ a concrete platform (e.g. a raylib platform); servers and tests use
       ()
 ]}
 
+{1 Guides}
+
+- {{!page-math}Math types} — [Vec2], [Vec2i], [Rect], [Circle], [Transform2D]: construction, common patterns, tile coordinate conversion, spatial queries, and hierarchy transforms.
+
 {1 API reference}
 
 {!modules: Eon_engine}

@@ -4,6 +4,7 @@
     It provides a higher-level, typed component registration API on top of Eon ECS.
 *)
 
+module Math = Math
 module World = World
 module Components = Components
 module Query_backend = Query_backend

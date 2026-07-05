@@ -2,8 +2,7 @@
 
 ## Status
 
-**DRAFT** — API surface agreed, implementation task to be created after design
-is finalised.
+**IMPLEMENTED** (ecs-030).
 
 ---
 
@@ -61,11 +60,15 @@ module Vec2 : sig
   val normalize   : t -> t
   val distance    : t -> t -> float
   val distance_sq : t -> t -> float
+  val clamp       : t -> min:t -> max:t -> t  (* component-wise clamp *)
+  val reflect     : t -> t -> t               (* reflect across surface normal *)
+  val project     : t -> onto:t -> t          (* project onto vector *)
 
   (* rotation *)
-  val rotate     : t -> float -> t  (* rotate vector by angle in radians *)
-  val angle      : t -> float       (* angle of vector in radians *)
-  val from_angle : float -> t       (* unit vector from angle *)
+  val perpendicular : t -> t        (* 90° CCW: {x = -v.y; y = v.x} *)
+  val rotate        : t -> float -> t
+  val angle         : t -> float
+  val from_angle    : float -> t
 
   (* utils *)
   val lerp : t -> t -> float -> t
@@ -106,6 +109,7 @@ module Rect : sig
   (* transform *)
   val translate : t -> Vec2.t -> t
   val expand    : t -> float -> t   (* uniform padding *)
+  val scale     : t -> float -> t   (* scale position and dimensions around origin *)
   val merge     : t -> t -> t       (* union — for bounding box accumulation *)
 end
 ```
@@ -142,8 +146,8 @@ module Transform2D : sig
   (* composition — core hierarchy operation *)
   val compose : t -> t -> t
   (** [compose parent child] produces the world-space transform of [child]
-      given its [parent]'s world transform. Result:
-        position = parent.position + rotate(child.position, parent.rotation)
+      given its [parent]'s world transform (full TRS). Result:
+        position = parent.position + rotate(child.position * parent.scale, parent.rotation)
         rotation = parent.rotation + child.rotation
         scale    = Vec2.mul_v parent.scale child.scale *)
 
@@ -161,36 +165,94 @@ module Transform2D : sig
   val scale    : t -> Vec2.t
 
   (* utils *)
+  val lerp_angle : float -> float -> float -> float
+  (** Shortest-path interpolation between two angles — always takes the shorter
+      arc, correctly handles the ±π boundary. *)
+
   val lerp : t -> t -> float -> t
-  (** Linear interpolation — useful for camera smoothing and animation. *)
+  (** Linear interpolation using shortest-path rotation via [lerp_angle].
+      Safe across the ±π boundary. Replaces the naive float lerp on rotation. *)
 end
 ```
 
 `compose` is the critical operation — it is called by `Transform_system` on
 every entity in the hierarchy every frame. `apply_point` and `inverse` are
 used for world↔local coordinate conversion (picking, camera, physics sync).
-`lerp` is used by camera follow systems and animation blending.
+`lerp` uses `lerp_angle` for the rotation field so it always takes the shortest
+arc; there is no naive float-lerp variant.
+
+Full TRS `compose` formula (corrected from initial design):
+```
+position = parent.position + rotate(child.position * parent.scale, parent.rotation)
+rotation = parent.rotation + child.rotation
+scale    = Vec2.mul_v parent.scale child.scale
+```
+Non-uniform scale breaks the `apply_point (compose p c) pt = apply_point p (apply_point c pt)`
+law — a known limitation shared by Unity, Godot, and Bevy.
 
 ---
 
-## 5. What is Not Here
+## 5. Vec2i
 
-Deliberately excluded for now — add only when a system actually requires it:
+Integer 2D vector for tile coordinates, grid indices, and EDN-loaded level data.
+
+```ocaml
+module Vec2i : sig
+  type t = { x : int; y : int }
+
+  val zero   : t
+  val one    : t
+  val create : int -> int -> t
+
+  val add   : t -> t -> t
+  val sub   : t -> t -> t
+  val mul   : t -> int -> t
+  val neg   : t -> t
+  val mul_v : t -> t -> t
+
+  val to_vec2       : t -> Vec2.t   (* exact, no precision loss *)
+  val of_vec2_floor : Vec2.t -> t   (* world pos → tile the entity occupies *)
+  val of_vec2_round : Vec2.t -> t   (* snap to nearest tile center *)
+  val of_vec2_ceil  : Vec2.t -> t   (* extent / covering calculations *)
+end
+```
+
+---
+
+## 6. Circle
+
+Circle shape for collision detection and radial spatial queries.
+
+```ocaml
+module Circle : sig
+  type t = { center : Vec2.t; radius : float }
+
+  val create         : Vec2.t -> float -> t
+  val contains_point : t -> Vec2.t -> bool
+  val intersects     : t -> t -> bool
+  val intersects_rect : t -> Rect.t -> bool
+end
+```
+
+Cheaper than `Rect` for radial checks (distance-squared vs AABB overlap).
+Natural for explosion radii, aggro ranges, and pick-up areas.
+
+---
+
+## 7. What is Not Here
+
+Deliberately excluded — add only when a system actually requires it:
 
 | Type / function | Reason excluded |
 |---|---|
-| `Vec2.clamp`, `reflect`, `project` | No current consumer; add per system need |
-| `Rect.scale` | Not needed until UI scaling is designed |
 | `Mat3` / `Mat4` | Renderer-internal concern; game code never touches matrices |
 | `Vec3`, `Vec4`, `Quaternion` | 3D — out of scope |
-| `Vec2i` | `int * int` tuples suffice until a tile system is designed |
-| `Circle` | Add when spatial queries need it |
 
 `Color` is a rendering concern and lives in the rendering layer, not here.
 
 ---
 
-## 6. Key Decisions
+## 8. Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -200,3 +262,5 @@ Deliberately excluded for now — add only when a system actually requires it:
 | Exposed record types | `type t = { x; y }` | Direct field access without accessor noise |
 | `length_sq` / `distance_sq` | Included alongside `length` / `distance` | Skip sqrt for comparisons and culling — common hot path |
 | Shear | Not supported | Non-uniform scale through hierarchy is documented; shear requires matrix representation |
+| `Transform2D.lerp` | Uses `lerp_angle` for rotation | Naive float lerp on rotation goes the long way around ±π — the correct version is always safe and has negligible extra cost |
+| `Transform2D.compose` | Full TRS | `position = parent.pos + rotate(child.pos * parent.scale, parent.rot)` — matches Unity/Godot/Bevy; simplified version (without scale on child offset) was a training-data artefact |

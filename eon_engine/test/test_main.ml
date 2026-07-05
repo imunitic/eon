@@ -16,4 +16,6 @@ let () =
     ("Executor", Test_executor.tests);
     ("Input", Test_input.tests);
     ("Audio", Test_audio.tests);
+    ("Math", Test_math.tests);
+    ("Math properties", Test_prop_math.tests);
   ]

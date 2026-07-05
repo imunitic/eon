@@ -1,0 +1,338 @@
+{0 Math types}
+
+{!Eon_engine.Math} provides five concrete 2D math primitives. All types are
+plain records — read and write fields directly, no getters required.
+
+{1 Vec2 — float vectors}
+
+The workhorse type. Use it for positions, velocities, directions, and scale.
+
+{[
+  open Eon_engine.Math
+
+  let pos    = Vec2.create 100.0 200.0
+  let vel    = Vec2.create 1.5 (-0.5)
+  let target = Vec2.create 300.0 400.0
+  let radius = 50.0
+  let dt     = 0.016   (* seconds — one frame at 60 fps *)
+
+  (* Construction *)
+  let zero   = Vec2.zero
+  let unit_x = Vec2.from_angle 0.0   (* {x=1; y=0} *)
+
+  (* Arithmetic *)
+  let next_pos = Vec2.add pos (Vec2.mul vel dt)
+
+  (* Geometric *)
+  let dist  = Vec2.distance pos target
+  let dir   = Vec2.normalize (Vec2.sub target pos)
+  let speed = Vec2.length vel
+
+  (* Prefer length_sq / distance_sq for comparisons — avoids sqrt *)
+  let in_range = Vec2.distance_sq pos target <= radius *. radius
+
+  let _ = (zero, unit_x, next_pos, dist, dir, speed, in_range)
+]}
+
+{2 Rotation and angles}
+
+{[
+  open Eon_engine.Math
+
+  let vel            = Vec2.create 1.5 (-0.5)
+  let dir            = Vec2.normalize (Vec2.create 1.0 1.0)
+  let player_rotation = Float.pi /. 4.0   (* 45 degrees *)
+
+  (* Rotate a velocity vector by an angle *)
+  let rotated = Vec2.rotate vel (Float.pi /. 4.0)
+
+  (* Get the facing angle of a direction vector *)
+  let facing = Vec2.angle dir   (* radians in (-π, π] *)
+
+  (* Unit vector from an angle — useful for projectile direction *)
+  let aim_dir = Vec2.from_angle player_rotation
+
+  (* 90° CCW — surface normals, strafe direction, steering *)
+  let strafe_dir = Vec2.perpendicular dir
+
+  let _ = (rotated, facing, aim_dir, strafe_dir)
+]}
+
+{2 Reflect, project, clamp}
+
+{[
+  open Eon_engine.Math
+
+  let vel            = Vec2.create 1.0 (-1.0)
+  let pos            = Vec2.create 320.0 240.0
+  let surface_normal = Vec2.create 0.0 1.0   (* unit normal pointing up *)
+  let slope_dir      = Vec2.normalize (Vec2.create 1.0 0.5)
+  let world_w        = 640.0
+  let world_h        = 480.0
+
+  (* Bounce a ball off a surface (n must be a unit normal) *)
+  let bounced_vel = Vec2.reflect vel surface_normal
+
+  (* Project velocity onto a slope for surface movement *)
+  let along_slope = Vec2.project vel ~onto:slope_dir
+
+  (* Keep an entity inside a bounds box *)
+  let clamped_pos = Vec2.clamp pos
+    ~min:(Vec2.create 0.0 0.0)
+    ~max:(Vec2.create world_w world_h)
+
+  let _ = (bounced_vel, along_slope, clamped_pos)
+]}
+
+{1 Vec2i — integer vectors}
+
+Use [Vec2i] for anything discrete: tile coordinates, grid indices,
+EDN-loaded level data. The key operations are the conversions from [Vec2].
+
+{[
+  open Eon_engine.Math
+
+  let world_pos = Vec2.create 2.9 3.7
+
+  (* Convert a world position to a tile coordinate *)
+  let tile_pos = Vec2i.of_vec2_floor world_pos
+  (* tile_pos = {x=2; y=3} *)
+
+  (* Convert a tile back to world space (top-left corner of the tile) *)
+  let world_corner = Vec2i.to_vec2 tile_pos
+
+  (* Neighbour tiles *)
+  let right = Vec2i.add tile_pos (Vec2i.create 1 0)
+  let below = Vec2i.add tile_pos (Vec2i.create 0 1)
+
+  let _ = (world_corner, right, below)
+]}
+
+{b Conversion summary:}
+
+{table
+  {tr {th Function} {th Behaviour} {th Use case}}
+  {tr {td [of_vec2_floor]} {td Floors each component} {td World position → tile the entity is standing in}}
+  {tr {td [of_vec2_round]} {td Rounds each component} {td Snapping to the nearest tile center}}
+  {tr {td [of_vec2_ceil]}  {td Ceilings each component} {td Extent calculations, covering tiles}}
+  {tr {td [to_vec2]}       {td Exact int → float}       {td Tile → world space, no precision loss}}
+}
+
+{1 Rect — axis-aligned bounding boxes}
+
+{[
+  open Eon_engine.Math
+
+  let player_bounds = Rect.create 10.0 10.0 32.0 64.0
+  let enemy_bounds  = Rect.create 30.0 20.0 32.0 64.0
+  let ui_panel      = Rect.create 0.0 0.0 200.0 50.0
+  let button_rect   = Rect.create 10.0 10.0 80.0 30.0
+  let mouse_pos     = Vec2.create 50.0 25.0
+  let view_rect     = Rect.create 0.0 0.0 640.0 480.0
+  let zoom_factor   = 1.5
+  let positions     = [ Vec2.create 10.0 20.0; Vec2.create 50.0 80.0; Vec2.create 30.0 10.0 ]
+
+  (* Queries *)
+  let hit     = Rect.intersects player_bounds enemy_bounds
+  let clicked = Rect.contains_point ui_panel mouse_pos
+
+  (* Overlap area *)
+  let overlap = Rect.intersection player_bounds enemy_bounds   (* : Rect.t option *)
+
+  (* Build a bounding box from a set of positions *)
+  let aabb = List.fold_left
+    (fun acc pos -> Rect.merge acc (Rect.create pos.Vec2.x pos.Vec2.y 0.0 0.0))
+    (Rect.create Float.max_float Float.max_float 0.0 0.0)
+    positions
+
+  (* Camera zoom — scale the view rect around the origin *)
+  let zoomed = Rect.scale view_rect zoom_factor
+
+  (* Hit-test padding for easier click targets *)
+  let padded = Rect.expand button_rect 4.0
+
+  let _ = (hit, clicked, overlap, aabb, zoomed, padded)
+]}
+
+{1 Circle}
+
+{[
+  open Eon_engine.Math
+
+  let entity_pos    = Vec2.create 100.0 100.0
+  let player_pos    = Vec2.create 105.0 105.0
+  let player_hitbox = Circle.create (Vec2.create 100.0 100.0) 16.0
+  let enemy_hitbox  = Circle.create (Vec2.create 120.0 100.0) 16.0
+  let pickup_radius = Circle.create entity_pos 24.0
+  let explosion     = Circle.create (Vec2.create 200.0 200.0) 80.0
+  let trigger_zone  = Rect.create 180.0 180.0 100.0 100.0
+
+  let hitbox = Circle.create entity_pos 32.0
+
+  (* Collision checks *)
+  let hit_enemy  = Circle.intersects player_hitbox enemy_hitbox
+  let in_trigger = Circle.intersects_rect explosion trigger_zone
+  let picked_up  = Circle.contains_point pickup_radius player_pos
+
+  let _ = (hitbox, hit_enemy, in_trigger, picked_up)
+]}
+
+Circles are cheaper than rects for radial checks (distance squared vs AABB
+overlap), and more natural for explosion radii, aggro ranges, and pick-up areas.
+
+{1 Transform2D — spatial hierarchy}
+
+[Transform2D] is the math behind the transform hierarchy (see the transform
+hierarchy design doc). The key operation is [compose]:
+
+{[
+  open Eon_engine.Math
+
+  let parent = Transform2D.create
+    ~position:(Vec2.create 100.0 200.0)
+    ~rotation:0.5
+    ~scale:Vec2.one
+
+  let child_local = Transform2D.create
+    ~position:(Vec2.create 20.0 0.0)
+    ~rotation:0.0
+    ~scale:Vec2.one
+
+  (* child's world-space transform, given parent's world transform *)
+  let child_world = Transform2D.compose parent child_local
+
+  (* Convert a local point to world space *)
+  let local_point = Vec2.create 5.0 0.0
+  let world_pt    = Transform2D.apply_point parent local_point
+
+  (* Convert a world point back to local space — round-trips to local_point *)
+  let back_to_local = Transform2D.apply_point (Transform2D.inverse parent) world_pt
+
+  let _ = (child_world, back_to_local)
+]}
+
+{2 Interpolation}
+
+{[
+  open Eon_engine.Math
+
+  let current_cam       = Transform2D.create ~position:(Vec2.create 0.0 0.0)   ~rotation:0.0  ~scale:Vec2.one
+  let target_cam        = Transform2D.create ~position:(Vec2.create 200.0 50.0) ~rotation:0.1  ~scale:Vec2.one
+  let current_transform = Transform2D.create ~position:(Vec2.create 10.0 10.0) ~rotation:3.1  ~scale:Vec2.one
+  let target_transform  = Transform2D.create ~position:(Vec2.create 50.0 50.0) ~rotation:(-3.1) ~scale:Vec2.one
+  let stiffness  = 5.0
+  let speed      = 2.0
+  let turn_speed = 3.0
+  let dt         = 0.016
+  let current_angle = 3.1
+  let target_angle  = -3.1
+
+  (* Smooth a camera or any transform — lerp always takes the shortest rotation arc *)
+  let smoothed = Transform2D.lerp current_cam target_cam (1.0 -. Float.exp (-. stiffness *. dt))
+
+  (* Rotate an entity toward a target — safely crosses the ±π boundary *)
+  let rotated = Transform2D.lerp current_transform target_transform (speed *. dt)
+
+  (* Interpolate a rotation angle directly, without a full transform *)
+  let facing = Transform2D.lerp_angle current_angle target_angle (turn_speed *. dt)
+
+  let _ = (smoothed, rotated, facing)
+]}
+
+{b Compose semantics (full TRS):}
+
+{[
+  (* position = parent.position + rotate(child.position * parent.scale, parent.rotation) *)
+  (* rotation = parent.rotation + child.rotation                                         *)
+  (* scale    = Vec2.mul_v parent.scale child.scale                                      *)
+]}
+
+The parent defines a complete coordinate space. Scaling the parent stretches
+both the child's own size {i and} its offset distance from the parent — the
+same behaviour as Unity, Godot, and Bevy. A sword attached to a hand scales
+correctly when the character scales.
+
+Non-uniform scale propagates as component-wise multiplication. Shear is not
+supported — if both scale axes are equal, the result is always a proper
+similarity transform.
+
+{1 Simple collision detection without a physics engine}
+
+The engine ships a [Collider] component that carries shape data (circle, box,
+capsule) plus layer/mask bits. For games that don't need rigid-body physics you
+can roll your own detection in a few lines by combining [Collider] with
+[Position] and the math primitives above.
+
+{2 Building a Math shape from a Collider}
+
+[Collider.shape] stores dimensions; [Position] stores the world centre. Convert
+them to [Math] shapes before testing:
+
+{[
+  open Eon_engine
+
+  let circle_of (pos : Position.t) (radius : float) =
+    Math.Circle.create (Math.Vec2.create pos.x pos.y) radius
+
+  let rect_of (pos : Position.t) (w : float) (h : float) =
+    Math.Rect.create (pos.x -. w *. 0.5) (pos.y -. h *. 0.5) w h
+
+  let intersects_shapes
+      (pa : Position.t) (a : Collider.shape)
+      (pb : Position.t) (b : Collider.shape) =
+    match a, b with
+    | Collider.Circle ra,    Collider.Circle rb    ->
+        Math.Circle.intersects (circle_of pa ra) (circle_of pb rb)
+    | Collider.Box (wa, ha), Collider.Box (wb, hb) ->
+        Math.Rect.intersects (rect_of pa wa ha) (rect_of pb wb hb)
+    | Collider.Circle r,     Collider.Box (w, h)   ->
+        Math.Circle.intersects_rect (circle_of pa r) (rect_of pb w h)
+    | Collider.Box (w, h),   Collider.Circle r     ->
+        Math.Circle.intersects_rect (circle_of pb r) (rect_of pa w h)
+    | _ -> false   (* Capsule: delegate to a physics library *)
+]}
+
+{2 A collision detection system}
+
+Query every entity that has both [Position] and [Collider], collect them into a
+list, then test all pairs. Emit a [(entity_a, entity_b)] event for each hit so
+other systems can react:
+
+{[
+  open Eon_engine
+
+  module Q = Query.Make(Sparse_set_backend.Default)
+
+  (* world  : rw World.t   — the ECS world
+     events : (Entity_id.t * Entity_id.t) Events.t — bus for collision events *)
+  let detect_collisions world events =
+    let entities = ref [] in
+    Q.from world
+    |> Q.having_all [ Position.name; Collider.name ]
+    |> Q.iter (fun view ->
+         let entity   = View.entity view in
+         let pos      = View.get view Position.component in
+         let collider = View.get view Collider.component in
+         entities := (entity, pos, collider) :: !entities);
+    (* Naive O(n²) broad phase — fine for small entity counts *)
+    let arr = Array.of_list !entities in
+    let n   = Array.length arr in
+    for i = 0 to n - 2 do
+      let (ea, pa, ca) = arr.(i) in
+      for j = i + 1 to n - 1 do
+        let (eb, pb, cb) = arr.(j) in
+        let layers_interact =
+          ca.Collider.mask land cb.Collider.layer <> 0 ||
+          cb.Collider.mask land ca.Collider.layer <> 0
+        in
+        if layers_interact &&
+           intersects_shapes pa ca.Collider.shape pb cb.Collider.shape
+        then
+          Events.emit events (ea, eb)
+      done
+    done
+]}
+
+For larger scenes replace the O(n²) loop with a spatial hash or a broadphase
+grid — the [Math] primitives and [Collider] data stay the same; only the
+iteration strategy changes.

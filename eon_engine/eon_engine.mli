@@ -1,5 +1,11 @@
 (** Eon Engine public API. *)
 
+(** {2 Math} *)
+
+(** Concrete 2D math primitives: [Vec2], [Rect], and [Transform2D].
+    No signatures or functors — these are value types embedded in components. *)
+module Math : module type of Math
+
 module Query_backend = Query_backend
 
 module Sparse_set_backend = Sparse_set_backend

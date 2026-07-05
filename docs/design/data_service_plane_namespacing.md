@@ -1,5 +1,11 @@
 # Data-Plane and Service-Plane Namespacing
 
+## Status
+
+**DRAFT** — design captured for review. Implementation task to be created after design is finalised.
+
+---
+
 ## 1. Eon ECS Core: Flat Namespace by Design
 
 `Eon_ecs.World` provides two resource stores: the data-plane and the service-plane. Both are flat — there is no concept of a namespace at the ECS core level, and there never will be. Namespacing is not an ECS problem. The ECS core is responsible for entity lifecycle, component storage, and query iteration. Resource stores are a convenience layer for attaching world-scoped data and services to the simulation. Keeping them flat at the core level preserves simplicity and avoids layering concerns that belong higher up.
