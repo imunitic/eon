@@ -47,6 +47,12 @@ module Pipeline = struct
   module Default = Pipeline.Make(System.Default)(Executor.Sequential)(Buses.Default)
 end
 
+module Resource  = Resource
+module Service   = Service
+module Namespace = Namespace
+
+let default_global_ns = "global"
+
 module Asset_lookup         = Asset_lookup
 module Audio_command        = Audio_command
 module Audio_command_buffer = Audio_command_buffer
@@ -64,6 +70,7 @@ module Render_stream           = Render_stream
 module Rendering_result        = Rendering_result
 module Rendering_backend       = Rendering_backend
 module Render_stream_collector = Render_stream_collector
+module Render_stream_resource  = Render_stream_resource
 module Render_system           = Render_system
 
 module Platform        = Platform

@@ -70,7 +70,7 @@ module My_loop =
 let make_world_with_buf () =
   let world = World.create () in
   let buf   = Audio_command_buffer.create () in
-  Audio_command_buffer.set world buf;
+  Audio_command_buffer.store world buf;
   world
 
 let test_loop_submits_commands () =
@@ -79,7 +79,7 @@ let test_loop_submits_commands () =
   let pipeline = Pipeline.Default.create () in
   let progress = My_progress.create ~mode:My_progress.Variable pipeline in
   (* Add a command to the buffer before step *)
-  (match Audio_command_buffer.get world with
+  (match Audio_command_buffer.fetch_opt world with
    | Some buf -> Audio_command_buffer.add buf Audio_command.Stop_all
    | None -> ());
   let _world, _, _ =
@@ -95,7 +95,7 @@ let test_loop_clears_buffer_after_submit () =
   let world    = make_world_with_buf () in
   let pipeline = Pipeline.Default.create () in
   let progress = My_progress.create ~mode:My_progress.Variable pipeline in
-  (match Audio_command_buffer.get world with
+  (match Audio_command_buffer.fetch_opt world with
    | Some buf -> Audio_command_buffer.add buf Audio_command.Pause_all
    | None -> ());
   let world, _, _ =
@@ -103,7 +103,7 @@ let test_loop_clears_buffer_after_submit () =
       ~should_continue:(fun _ -> false)
   in
   let remaining =
-    Option.map Audio_command_buffer.to_list (Audio_command_buffer.get world)
+    Option.map Audio_command_buffer.to_list (Audio_command_buffer.fetch_opt world)
   in
   Alcotest.(check (option (list (Alcotest.testable (fun _ _ -> ()) (=)))))
     "buffer cleared after step" (Some []) remaining

@@ -58,9 +58,12 @@ type t = {
 val empty : t
 
 (** Read the current frame from the world data plane.
-    Returns [None] before the first tick. *)
-val get : 'perm World.t -> t option
+    Raises [Not_found] before the first tick — absent frame is a programming error. *)
+val fetch : [> World.ro] World.t -> t
+
+(** Read the current frame, returning [None] before the first tick. *)
+val fetch_opt : [> World.ro] World.t -> t option
 
 (** Write a frame into the world data plane.
     Called by the engine loop; game code should not call this directly. *)
-val set : World.rw World.t -> t -> unit
+val store : World.rw World.t -> t -> unit

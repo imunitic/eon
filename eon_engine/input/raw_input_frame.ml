@@ -56,5 +56,11 @@ let empty = {
 
 let resource_key = `Raw_input_frame
 
-let get world  = World.get_data world resource_key
-let set world frame = World.set_data world resource_key frame
+let fetch world =
+  match World.get_data world resource_key with
+  | Some f -> f
+  | None   -> raise Not_found
+
+let fetch_opt world = World.get_data world resource_key
+
+let store world frame = World.set_data world resource_key frame

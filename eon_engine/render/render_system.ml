@@ -6,7 +6,7 @@ module Make_with_system
     Sys.make (System.Exclusive (fun world _dt ->
       Render_stream.clear stream;
       Render_stream_collector.collect render_stream_collector (World.as_ro world) stream;
-      World.set_data world `Render_stream stream
+      Render_stream_resource.store world stream
     ))
 end
 

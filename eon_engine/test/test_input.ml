@@ -84,7 +84,7 @@ let test_loop_writes_input_to_world () =
     My_loop.step ~progress ~world ~last_time:0.0 ~now:0.016
       ~should_continue:(fun _ -> false)
   in
-  let result = Raw_input_frame.get world in
+  let result = Raw_input_frame.fetch_opt world in
   Alcotest.(check bool) "frame present" true (Option.is_some result);
   let f = Option.get result in
   Alcotest.(check bool) "Enter key pressed" true
@@ -102,13 +102,13 @@ let test_loop_updates_each_tick () =
     My_loop.step ~progress ~world ~last_time:0.0 ~now:0.016
       ~should_continue:(fun _ -> false)
   in
-  let after_tick1 = Raw_input_frame.get world in
+  let after_tick1 = Raw_input_frame.fetch_opt world in
   (* Second tick *)
   let world, _, _ =
     My_loop.step ~progress ~world ~last_time:t1 ~now:0.032
       ~should_continue:(fun _ -> false)
   in
-  let after_tick2 = Raw_input_frame.get world in
+  let after_tick2 = Raw_input_frame.fetch_opt world in
   Alcotest.(check bool) "tick 1: Left"  true
     (Key.Set.mem Key.Left  (Option.get after_tick1).keys_pressed);
   Alcotest.(check bool) "tick 2: Right" true

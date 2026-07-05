@@ -10,17 +10,17 @@ module Make
 = struct
   let step ~progress ~world ~last_time ~now ~should_continue =
     let raw = Platform.Input_backend.collect () in
-    Raw_input_frame.set world raw;
+    Raw_input_frame.store world raw;
     Buses.collect ();
     let dt = now -. last_time in
     let world = Progress.tick progress ~world ~dt in
     Buses.drain ();
-    (match Audio_command_buffer.get world with
+    (match Audio_command_buffer.fetch_opt world with
      | Some buf ->
        Platform.Audio_backend.submit (Audio_command_buffer.to_list buf);
        Audio_command_buffer.clear buf
      | None -> ());
-    (match World.get_data world `Render_stream with
+    (match Render_stream_resource.fetch_opt world with
      | None -> ()
      | Some stream ->
        let result = Platform.Rendering_backend.render stream ~dt in

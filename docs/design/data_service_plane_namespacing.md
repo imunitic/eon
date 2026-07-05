@@ -2,7 +2,7 @@
 
 ## Status
 
-**DRAFT** — design captured for review. Implementation task to be created after design is finalised.
+**IMPLEMENTED**. See ecs-032.
 
 ---
 
@@ -73,7 +73,7 @@ module type Namespace.S = sig
 end
 ```
 
-`named` returns `rw World.t` — worlds are attached at startup with full access. `Resource.fetch` and `Service.fetch` accept `[> ro] World.t`, so the result composes correctly in both parallel (read-only) and exclusive (read-write) system contexts.
+`named` returns `rw World.t` — worlds are attached at startup with full access. Resource and service module `fetch` functions accept `[> ro] World.t`, so the result composes correctly in both parallel (read-only) and exclusive (read-write) system contexts.
 
 Typical startup:
 
@@ -92,19 +92,19 @@ One `Namespace.t` instance. All worlds in one place. No per-world maps, no graph
 
 ## 5. Cross-World Access
 
-`Resource.fetch` and `Service.fetch` (defined in `resource_service_design.md`) take any `World.t`. `Namespace.named` returns a `World.t`. The composition is the cross-world API:
+Resource and service modules take any `World.t`. `Namespace.named` returns a `World.rw World.t`. The composition is the cross-world API:
 
 ```ocaml
 (* local access *)
-Resource.fetch world              (module Raw_input_frame)
-Service.fetch  world              (module Steam_api)
+Raw_input_frame.fetch world
+Steam_api.fetch        world
 
-(* cross-world access *)
-Resource.fetch (Namespace.named "global" ns) (module Raw_input_frame)
-Service.fetch  (Namespace.named "global" ns) (module Steam_api)
+(* cross-world access — Namespace resolves the world; the module accesses it *)
+Raw_input_frame.fetch (Namespace.named "global" ns)
+Steam_api.fetch       (Namespace.named "global" ns)
 ```
 
-No special cross-world API is needed. `Namespace.named` is a world lookup; `Resource.fetch` / `Service.fetch` are typed accessors. Neither needs to know about the other.
+No special cross-world API is needed. `Namespace.named` is a world lookup; each module's `fetch` is a typed accessor. Neither needs to know about the other.
 
 For modules with richer APIs than `fetch`/`store` — like `Audio_command_buffer` — resolve the world first:
 
@@ -132,12 +132,12 @@ let ns = Game_init.namespace
 (* option c: captured at pipeline construction *)
 let make_system ns =
   System.make (fun world _dt ->
-    Resource.fetch (Namespace.named "global" ns) (module Physics_state))
+    Physics_state.fetch (Namespace.named "global" ns))
 ```
 
 ## 7. The Aggregator Pattern
 
-For games that want named shorthand accessors — no first-class modules at call sites — the game developer can build their own aggregator module on top of `Namespace`, `Resource`, and `Service`:
+For games that want named shorthand accessors the game developer can build their own aggregator module on top of `Namespace`:
 
 ```ocaml
 (* game/world_ns.ml — optional, written by the game developer *)
@@ -146,17 +146,17 @@ module World_ns = struct
 
   let init steam_instance =
     Namespace.attach ns "global" (World.create ());
-    Service.register  (Namespace.named "global" ns) (module Steam_api)   steam_instance;
-    Resource.set      (Namespace.named "global" ns) (module Physics_state) (Physics_state.create ())
+    Steam_api.register   (Namespace.named "global" ns) steam_instance;
+    Physics_state.store  (Namespace.named "global" ns) (Physics_state.create ())
 
   (* named shorthand accessors *)
-  let input   world = Resource.fetch world              (module Raw_input_frame)
-  let audio   world = Resource.fetch world              (module Audio_command_buffer)
-  let steam   ()    = Service.fetch  (Namespace.named "global" ns) (module Steam_api)
-  let physics ()    = Resource.fetch (Namespace.named "global" ns) (module Physics_state)
+  let input   world = Raw_input_frame.fetch world
+  let audio   world = Audio_command_buffer.fetch world
+  let steam   ()    = Steam_api.fetch    (Namespace.named "global" ns)
+  let physics ()    = Physics_state.fetch (Namespace.named "global" ns)
 end
 
-(* in a system — module path access, no first-class modules *)
+(* in a system — direct module access, no boilerplate *)
 let update world _dt =
   let input = World_ns.input world in
   let steam = World_ns.steam () in
@@ -190,12 +190,12 @@ Namespace.attach ns "global" (World.create ());
 Namespace.attach ns "level1" (World.create ());
 Namespace.attach ns "level2" (World.create ());
 
-Service.register (Namespace.named "global" ns) (module Steam_api) (Steam.connect ());
+Steam_api.register (Namespace.named "global" ns) (Steam.connect ());
 
 (* in a system running on level1's world *)
 let update world _dt =
-  let input = Resource.fetch world (module Raw_input_frame) in   (* level1 local *)
-  let steam = Service.fetch  (Namespace.named "global" ns) (module Steam_api) in
+  let input = Raw_input_frame.fetch world in                          (* level1 local *)
+  let steam = Steam_api.fetch (Namespace.named "global" ns) in
   ...
 ```
 
@@ -208,9 +208,9 @@ Namespace.attach ns "global" global;
 Namespace.attach ns "ui"     ui_world;
 Namespace.attach ns "game"   game_world;
 
-let ui_state  = Resource.fetch (Namespace.named "ui"     ns) (module Ui_state) in
-let game_data = Resource.fetch (Namespace.named "game"   ns) (module Game_data) in
-let steam     = Service.fetch  (Namespace.named "global" ns) (module Steam_api) in
+let ui_state  = Ui_state.fetch   (Namespace.named "ui"     ns) in
+let game_data = Game_data.fetch  (Namespace.named "game"   ns) in
+let steam     = Steam_api.fetch  (Namespace.named "global" ns) in
 ```
 
 ## 9. Everything Is Optional
@@ -221,7 +221,7 @@ The `eon_engine` layers are independently opt-in:
 |---|---|---|
 | `Eon_engine.World` | `'perm` phantom types on the ECS world | `Eon_ecs.World` is sufficient |
 | `Resource.S` / `Service.S` | Typed, phantom-constrained local access | Raw `World.get_data` / `get_service` is acceptable |
-| `Resource.fetch` / `Service.fetch` | First-class module convenience helpers | Direct `R.fetch world` is preferred |
+| `Resource.Make` / `Service.Make` | Boilerplate eliminator for simple resources/services | Module needs richer API (e.g. `Audio_command_buffer`) — write manually |
 | `Namespace.t` | Named cross-world directory | Single world, no cross-world access needed |
 
 A card game developer uses one world and raw `World.get_data` / `get_service`. They ignore all of this. An action RPG with a shared global world and per-level simulation worlds uses all of it. Neither is wrong.

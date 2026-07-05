@@ -60,6 +60,26 @@ end
 
 val component : string -> 'a Components.t
 
+(** {2 Resource and Service} *)
+
+(** Typed, phantom-constrained resource accessors for world-scoped per-frame data. *)
+module Resource : module type of Resource
+
+(** Typed, phantom-constrained service accessors for long-lived singletons. *)
+module Service : module type of Service
+
+(** Flat world directory for cross-world access.
+
+    Composes with [Resource.fetch] / [Service.fetch]:
+    {[
+      Resource.fetch (Namespace.named "global" ns) (module Raw_input_frame)
+    ]} *)
+module Namespace : module type of Namespace
+
+(** Conventional name for the global world in a [Namespace.t].
+    A string constant only — the engine creates no pre-made global world. *)
+val default_global_ns : string
+
 (** {2 Buses} *)
 
 (** Engine bus signature — same as [Eon_ecs.Bus.S] but owned by the engine
@@ -295,6 +315,9 @@ module Rendering_backend : module type of Rendering_backend
 
 (** Phase-ordered collector runner for [Render_stream]. *)
 module Render_stream_collector : module type of Render_stream_collector
+
+(** [Resource.S] facade for the per-frame render stream. *)
+module Render_stream_resource : module type of Render_stream_resource
 
 (** ECS system that populates and stores a [Render_stream] each frame.
     [Make(B)] produces a system typed for [B.command]. *)

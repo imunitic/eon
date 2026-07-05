@@ -11,5 +11,9 @@ val clear   : t -> unit
 val add     : t -> Audio_command.t -> unit
 val to_list : t -> Audio_command.t list
 
-val get : 'perm World.t -> t option
-val set : World.rw World.t -> t -> unit
+val fetch     : [> World.ro] World.t -> t
+(** Raises [Not_found] if the buffer has not been stored. *)
+
+val fetch_opt : [> World.ro] World.t -> t option
+
+val store : World.rw World.t -> t -> unit

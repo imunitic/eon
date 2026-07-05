@@ -2,8 +2,7 @@
 
 ## Status
 
-**DRAFT**. Design decisions captured for review. Implementation task to be
-created after design is finalised.
+**IMPLEMENTED**. See ecs-032.
 
 ---
 
@@ -88,7 +87,7 @@ let key = `Raw_input_frame
 let fetch world =
   match World.get_data world key with
   | Some f -> f
-  | None   -> empty
+  | None   -> raise Not_found
 
 let store world frame = World.set_data world key frame
 ```
@@ -97,36 +96,6 @@ let store world frame = World.set_data world key frame
 `Resource.S` is a module-level contract, not a new storage layer. Keys are
 private — nothing outside the module can construct a correctly typed access
 to this resource's storage slot.
-
----
-
-## 3. Resource Module Helpers
-
-The `Resource` module (which contains `module type S` and `module Make`)
-also provides two convenience helpers that take a first-class `Resource.S`
-module:
-
-```ocaml
-val fetch : [> World.ro] World.t -> (module S with type t = 'a) -> 'a
-val store : World.rw World.t     -> (module S with type t = 'a) -> 'a -> unit
-```
-
-These are thin wrappers — `Resource.fetch world (module R)` is `R.fetch world`.
-Their value is at call sites where the resource module is a variable rather
-than a known name, and for cross-world access where `Namespace.named` resolves
-the world first:
-
-```ocaml
-(* direct — preferred when the module is known *)
-Raw_input_frame.fetch world
-
-(* via helper — same verb, useful when composing with Namespace *)
-Resource.fetch world (module Raw_input_frame)
-Resource.fetch (Namespace.named "global" ns) (module Raw_input_frame)
-```
-
-The phantom type constraints are preserved: `fetch` accepts `[> ro]`, `store`
-requires `rw`. A parallel system cannot call `store` — type error.
 
 ---
 
@@ -171,80 +140,56 @@ let key = `Steam_api
 let fetch world =
   match World.get_service world key with
   | Some s -> s
-  | None   -> failwith "Steam_api not registered"
+  | None   -> raise Not_found
 
 let register world api = World.add_service world key api
 ```
 
 ---
 
-## 5. Service Module Helpers
-
-The `Service` module provides matching helpers:
-
-```ocaml
-val fetch    : [> World.ro] World.t -> (module S with type t = 'a) -> 'a
-val register : World.rw World.t     -> (module S with type t = 'a) -> 'a -> unit
-```
-
-Same pattern as `Resource` — `Service.fetch world (module S)` is `S.fetch world`.
-Composes with `Namespace.named` for cross-world access:
-
-```ocaml
-(* direct *)
-Steam_api.fetch world
-
-(* via helper — same verb, useful with Namespace *)
-Service.fetch    world              (module Steam_api)
-Service.fetch    (Namespace.named "global" ns) (module Steam_api)
-Service.register (Namespace.named "global" ns) (module Steam_api) steam_instance
-```
-
----
-
-## 6. Make_resource and Make_service Functors
+## 5. Make Functors
 
 When a game defines many resources or services the per-module boilerplate
-becomes repetitive. `Make_resource` and `Make_service` capture the common case:
+becomes repetitive. `Resource.Make` and `Service.Make` capture the common case.
+
+### OCaml key-type constraint
+
+OCaml functor signatures treat unbound type variables as universally
+quantified — `val key : 'a` means the value must work for every `'a`, which
+a concrete polymorphic variant does not satisfy. The solution: the functor
+argument declares `val key : Obj.t`, and callers wrap their variant with
+`Resource.key` (or `Service.key`), which is `Obj.repr` under the hood.
+`Obj.magic` inside `Make` casts the opaque key back to `[> ]` for the world
+API — same safety level as `World.get_data`, which already uses `Obj.repr`.
 
 ```ocaml
 (* eon_engine/resource.ml *)
+val key : [> ] -> Obj.t
+
 module Make (T : sig
   type t
-  val key : [> ]
-end) : S with type t = T.t = struct
-  type t = T.t
-  let fetch world =
-    match World.get_data world T.key with
-    | Some v -> v
-    | None   -> failwith "resource not registered"
-  let store world v = World.set_data world T.key v
-end
+  val key : Obj.t
+end) : S with type t = T.t
 
 (* eon_engine/service.ml *)
+val key : [> ] -> Obj.t
+
 module Make (T : sig
   type t
-  val key : [> ]
-end) : S with type t = T.t = struct
-  type t = T.t
-  let fetch world =
-    match World.get_service world T.key with
-    | Some v -> v
-    | None   -> failwith "service not registered"
-  let register world v = World.add_service world T.key v
-end
+  val key : Obj.t
+end) : S with type t = T.t
 ```
 
 Each definition reduces to the two things that actually differ — the type
 and the key:
 
 ```ocaml
-module Delta_time    = Resource.Make(struct type t = float        let key = `Delta_time    end)
-module Level_config  = Resource.Make(struct type t = Config.t     let key = `Level_config  end)
-module Physics_state = Resource.Make(struct type t = Physics.t    let key = `Physics_state end)
+module Delta_time    = Resource.Make(struct type t = float       let key = Resource.key `Delta_time    end)
+module Level_config  = Resource.Make(struct type t = Config.t    let key = Resource.key `Level_config  end)
+module Physics_state = Resource.Make(struct type t = Physics.t   let key = Resource.key `Physics_state end)
 
-module Steam_api     = Service.Make(struct  type t = Steam.t      let key = `Steam_api     end)
-module Analytics     = Service.Make(struct  type t = Analytics.t  let key = `Analytics     end)
+module Steam_api     = Service.Make(struct  type t = Steam.t     let key = Service.key `Steam_api     end)
+module Analytics     = Service.Make(struct  type t = Analytics.t let key = Service.key `Analytics     end)
 ```
 
 Modules with non-trivial logic — like `Audio_command_buffer` which has `add`,
@@ -283,8 +228,8 @@ Raw_input_frame.fetch world
 Steam_api.fetch world
 ```
 
-`Resource.fetch` / `Service.fetch` are helpers for composing with `Namespace`,
-not a replacement for the direct form.
+The direct form is always preferred. There are no `Resource.fetch` /
+`Service.fetch` helper wrappers — the module itself is the accessor.
 
 ---
 
@@ -297,19 +242,19 @@ accessor for one piece of data; where that data lives in the world topology
 is not its concern.
 
 Cross-world access is the composition of `Namespace.named` (world lookup)
-with `Resource.fetch` / `Service.fetch` (typed access):
+with a resource or service module's `fetch` (typed access):
 
 ```ocaml
 (* local *)
-Resource.fetch world (module Raw_input_frame)
+Raw_input_frame.fetch world
 
-(* cross-world — Namespace resolves the world, Resource.fetch accesses it *)
-Resource.fetch (Namespace.named "global" ns) (module Raw_input_frame)
-Service.fetch  (Namespace.named "global" ns) (module Steam_api)
+(* cross-world — Namespace resolves the world; the module accesses it *)
+Raw_input_frame.fetch (Namespace.named "global" ns)
+Steam_api.fetch       (Namespace.named "global" ns)
 ```
 
 `Namespace` and `Resource`/`Service` have no dependency on each other.
-`Namespace.named` returns a `World.t`; `Resource.fetch` takes a `World.t`.
+`Namespace.named` returns a `World.rw World.t`; `fetch` accepts `[> ro]`.
 The composition is the API.
 
 ### Example aggregator
@@ -324,11 +269,11 @@ module World_ns = struct
 
   let init steam_instance global_world =
     Namespace.attach ns "global" global_world;
-    Service.register (Namespace.named "global" ns) (module Steam_api) steam_instance
+    Steam_api.register (Namespace.named "global" ns) steam_instance
 
-  let input world = Resource.fetch world (module Raw_input_frame)
-  let audio world = Resource.fetch world (module Audio_command_buffer)
-  let steam ()    = Service.fetch  (Namespace.named "global" ns) (module Steam_api)
+  let input world = Raw_input_frame.fetch world
+  let audio world = Audio_command_buffer.fetch world
+  let steam ()    = Steam_api.fetch (Namespace.named "global" ns)
 end
 
 (* in a system — no first-class modules at call sites *)
@@ -371,7 +316,7 @@ let update world _dt =
 | No new storage layer | Polymorphic variant keys + `get_data`/`set_data` | Typed facade only; no migration cost to storage |
 | Keys are private | Not exposed in `S` signatures | Encapsulation — only the module accesses its slot |
 | `fetch` raises on absent | Fail loudly | Absent resource is a programming error; add `fetch_opt` per-module if genuinely optional |
+| `Make` functor key type | `val key : Obj.t` + `Resource.key` converter | OCaml universal quantification prevents `val key : [> ]` in module type signatures; `Obj.t` is concrete and accepts any variant via `Obj.repr` |
 | `Make` functors | Convenience, not required | Eliminates boilerplate for simple cases; richer modules (e.g. `Audio_command_buffer`) write manually |
-| `Resource.fetch` / `Service.fetch` helpers | On `Resource` / `Service` modules, not on `Namespace` | Namespace resolves worlds; Resource/Service access data — orthogonal concerns that compose |
-| No `?ns` anywhere | Namespace routing is explicit composition | `Resource.fetch (Namespace.named "global" ns) (module R)` — each step visible and independently useful |
-| Cross-world access pattern | `Resource.fetch (Namespace.named "global" ns) (module R)` | Composable; no coupling between Namespace and Resource/Service |
+| No `Resource.fetch`/`Service.fetch` helpers | Dropped — direct module form preferred | `Raw_input_frame.fetch world` is clearer and shorter than `Resource.fetch world (module Raw_input_frame)`; composes naturally with `Namespace.named` |
+| Cross-world access pattern | `R.fetch (Namespace.named "global" ns)` | Composable; no coupling between Namespace and Resource/Service; each step independently useful |

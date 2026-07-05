@@ -14,5 +14,11 @@ let add buf cmd =
 
 let resource_key = `Audio_command_buffer
 
-let get world     = World.get_data world resource_key
-let set world buf = World.set_data world resource_key buf
+let fetch world =
+  match World.get_data world resource_key with
+  | Some b -> b
+  | None   -> raise Not_found
+
+let fetch_opt world = World.get_data world resource_key
+
+let store world buf = World.set_data world resource_key buf
