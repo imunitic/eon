@@ -48,10 +48,43 @@ digraph module_dependencies {
     eng_asset_lookup  [label="Asset_lookup"]
     eng_sparse_set_be [label="Sparse_set_backend"]
     eng_query_backend [label="Query_backend"]
+    eng_math          [label="Math"]
+
+    // Resource / Service / Namespace
+    eng_resource      [label="Resource"]
+    eng_service       [label="Service"]
+    eng_namespace     [label="Namespace"]
+
+    // Audio seam
+    eng_audio_cmd     [label="Audio_command"]
+    eng_audio_buf     [label="Audio_command_buffer"]
+    eng_audio_be      [label="Audio_backend"]
+
+    // Input seam
+    eng_key           [label="Key"]
+    eng_mouse_btn     [label="Mouse_button"]
+    eng_gamepad_btn   [label="Gamepad_button"]
+    eng_raw_input     [label="Raw_input_frame"]
+    eng_input_be      [label="Input_backend"]
+
+    // Render cluster
+    eng_render_cmds   [label="Render_commands"]
+    eng_render_stream [label="Render_stream"]
+    eng_render_res    [label="Render_stream_resource"]
+    eng_render_coll   [label="Render_stream_collector"]
+    eng_render_sys    [label="Render_system"]
+    eng_rendering_be  [label="Rendering_backend"]
+    eng_rendering_res [label="Rendering_result"]
 
     eng_loop       -> eng_progress
     eng_loop       -> eng_loop_buses
     eng_loop       -> eng_platform
+    eng_loop       -> eng_raw_input
+    eng_loop       -> eng_audio_buf
+    eng_loop       -> eng_render_res
+    eng_platform   -> eng_input_be
+    eng_platform   -> eng_rendering_be
+    eng_platform   -> eng_audio_be
     eng_progress   -> eng_pipeline
     eng_pipeline   -> eng_system
     eng_pipeline   -> eng_executor
@@ -69,6 +102,30 @@ digraph module_dependencies {
     eng_loop_buses -> eng_double_bus
     eng_world      -> eng_comp_desc
     eng_world      -> eng_sparse_set_be
+
+    eng_resource   -> eng_world
+    eng_service    -> eng_world
+    eng_namespace  -> eng_world
+
+    eng_audio_buf  -> eng_world
+    eng_audio_buf  -> eng_audio_cmd
+    eng_audio_be   -> eng_audio_cmd
+
+    eng_raw_input  -> eng_world
+    eng_raw_input  -> eng_key
+    eng_raw_input  -> eng_mouse_btn
+    eng_raw_input  -> eng_gamepad_btn
+    eng_input_be   -> eng_raw_input
+
+    eng_render_stream -> eng_render_cmds
+    eng_render_res    -> eng_world
+    eng_render_res    -> eng_render_stream
+    eng_render_coll   -> eng_render_stream
+    eng_render_coll   -> eng_world
+    eng_render_sys    -> eng_render_res
+    eng_render_sys    -> eng_render_coll
+    eng_rendering_be  -> eng_render_stream
+    eng_rendering_be  -> eng_rendering_res
   }
 
   // ── eon_ecs ──────────────────────────────────────────────────────────────
@@ -212,18 +269,27 @@ digraph functor_instantiation {
     eng_ecs_sys   [label="Eon_ecs.System\n(Signals+Events+Commands)"]
     eng_exec      [label="Executor.Sequential"]
     eng_bdefs     [label="Buses.Default"]
+    eng_res_t     [label="(type t, key : Obj.t)"]
+    eng_svc_t     [label="(type t, key : Obj.t)"]
+    eng_render_b  [label="Rendering_backend B"]
 
     // functors
     node [shape=box fillcolor="#b9f6ca" color="#2e7d32"]
     eng_sys_make      [label="System.Make"]
     eng_sys_mf_make   [label="System.Make_factory"]
     eng_pip_make      [label="Pipeline.Make"]
+    eng_res_make      [label="Resource.Make"]
+    eng_svc_make      [label="Service.Make"]
+    eng_render_make   [label="Render_system.Make_with_system"]
 
     // results
     node [shape=box fillcolor="#2e7d32" fontcolor=white color="#1b5e20" penwidth=2]
     eng_sys_def   [label="System.Default"]
     eng_def_fac   [label="Default_factory"]
     eng_pip_def   [label="Pipeline.Default"]
+    eng_res_mod   [label="(Resource.S module)"]
+    eng_svc_mod   [label="(Service.S module)"]
+    eng_render_sys [label="(Render system)"]
 
     eng_ecs_sys  -> eng_sys_make
     eng_sys_make -> eng_sys_def
@@ -235,12 +301,21 @@ digraph functor_instantiation {
     eng_exec    -> eng_pip_make
     eng_bdefs   -> eng_pip_make
     eng_pip_make -> eng_pip_def
+
+    eng_res_t    -> eng_res_make
+    eng_res_make -> eng_res_mod
+
+    eng_svc_t    -> eng_svc_make
+    eng_svc_make -> eng_svc_mod
+
+    eng_render_b  -> eng_render_make
+    eng_render_make -> eng_render_sys
   }
 
   // cross-package: eon_ecs defaults feed into eon_engine
-  edge [color="#cc5500" penwidth=2.0 constraint=false style=dashed]
-  ecs_sys_def  -> eng_ecs_sys
-  ecs_pip_def  -> eng_pip_def [constraint=false]
+  edge [color="#cc5500" penwidth=2.0 style=dashed]
+  ecs_sys_def -> eng_ecs_sys
+  ecs_pip_def -> eng_pip_def
 }
 EOF
 dot -Tpng -o "$IMAGES/functor_instantiation_graph.png" "$TMP/functors.dot"
@@ -249,13 +324,37 @@ dot -Tpng -o "$IMAGES/functor_instantiation_graph.png" "$TMP/functors.dot"
 
 echo "→ test_coverage_map.png"
 
-# Source modules to check (basename without extension)
 ECS_MODULES="entity_id entity_manager component component_registry sparse_set resource_store world query single_bus double_bus buses system pipeline progress loop clock dependency_graph loop_default_buses"
-ENG_MODULES="world query component_descriptor component components view single_bus double_bus buses system pipeline progress loop loop_buses executor platform asset_lookup sparse_set_backend query_backend"
+
+# eon_engine modules — grouped by area for the coverage check
+# Format: "module:test_file_basename"  (test_file_basename without the test_ prefix)
+# When multiple modules share one test file, each lists the composite file.
+ENG_MODULES_CORE="world:world query:query view:view component:api_structure component_descriptor:api_structure components:components single_bus:api_structure double_bus:api_structure buses:api_structure system:api_structure pipeline:pipeline progress:api_structure loop:api_structure loop_buses:api_structure executor:executor sparse_set_backend:api_structure query_backend:query asset_lookup:api_structure math:math"
+ENG_MODULES_RESOURCE="resource:resource_service service:resource_service namespace:resource_service"
+ENG_MODULES_AUDIO="audio_command:audio audio_command_buffer:audio"
+ENG_MODULES_INPUT="raw_input_frame:input"
+ENG_MODULES_RENDER="render_commands:render_modules render_stream:render_stream render_stream_resource:render_modules render_stream_collector:render_modules render_system:render_modules rendering_backend:render_modules rendering_result:render_modules"
+
+# Emit coverage nodes for eon_engine; checks test/test_<testfile>.ml
+eng_coverage_nodes() {
+  local pkg="eng"
+  for entry in $ENG_MODULES_CORE $ENG_MODULES_RESOURCE $ENG_MODULES_AUDIO $ENG_MODULES_INPUT $ENG_MODULES_RENDER; do
+    mod="${entry%%:*}"
+    testbase="${entry##*:}"
+    test_file="$ROOT/eon_engine/test/test_${testbase}.ml"
+    prop_file="$ROOT/eon_engine/test/test_prop_${testbase}.ml"
+    if [ -f "$test_file" ] || [ -f "$prop_file" ]; then
+      color="#a5d6a7"; border="#388e3c"
+    else
+      color="#ef9a9a"; border="#c62828"
+    fi
+    echo "    ${pkg}_${mod} [label=\"${mod}\" fillcolor=\"${color}\" color=\"${border}\"]"
+  done
+}
 
 {
   echo 'digraph test_coverage {'
-  echo '  rankdir=LR'
+  echo '  rankdir=TB'
   echo '  node [fontname="Helvetica" fontsize=11 style=filled shape=box margin="0.15,0.08"]'
   echo '  edge [style=invis]'
   echo ''
@@ -273,13 +372,10 @@ ENG_MODULES="world query component_descriptor component components view single_b
     test_file="$ROOT/eon_ecs/test/test_${mod}.ml"
     prop_file="$ROOT/eon_ecs/test/test_prop_${mod}.ml"
     if [ -f "$test_file" ] || [ -f "$prop_file" ]; then
-      color="#a5d6a7"
-      border="#388e3c"
+      color="#a5d6a7"; border="#388e3c"
     else
-      color="#ef9a9a"
-      border="#c62828"
+      color="#ef9a9a"; border="#c62828"
     fi
-    label=$(echo "$mod" | sed 's/_/\\n/g; s/\(.\)/\u\1/')
     echo "    ecs_${mod} [label=\"${mod}\" fillcolor=\"${color}\" color=\"${border}\"]"
   done
 
@@ -289,17 +385,7 @@ ENG_MODULES="world query component_descriptor component components view single_b
   echo '    label="eon_engine" style=filled fillcolor="#e8f5e9" color="#2e7d32"'
   echo '    fontcolor="#2e7d32" fontsize=13 fontname="Helvetica-Bold"'
 
-  for mod in $ENG_MODULES; do
-    test_file="$ROOT/eon_engine/test/test_${mod}.ml"
-    if [ -f "$test_file" ]; then
-      color="#a5d6a7"
-      border="#388e3c"
-    else
-      color="#ef9a9a"
-      border="#c62828"
-    fi
-    echo "    eng_${mod} [label=\"${mod}\" fillcolor=\"${color}\" color=\"${border}\"]"
-  done
+  eng_coverage_nodes
 
   echo '  }'
   echo '  // anchor edge to force side-by-side cluster layout'
@@ -309,27 +395,29 @@ ENG_MODULES="world query component_descriptor component components view single_b
 
 dot -Tpng -o "$IMAGES/test_coverage_map.png" "$TMP/coverage.dot"
 
-# ─── 4. LOC per module (gnuplot horizontal bar chart) ────────────────────────
+# ─── 4. LOC per module (pie charts) ──────────────────────────────────────────
 
 echo "→ loc_per_module.png"
 
-# Collect LOC for source .ml files only (no test, bench, examples, composition root)
+# Collect LOC for source .ml files — scan all subdirs, skip test/, bench/, composition roots, tiny type files
 {
-  for f in "$ROOT"/eon_ecs/*.ml; do
+  find "$ROOT/eon_ecs" -name "*.ml" \
+    ! -path "*/test/*" ! -path "*/bench/*" \
+    ! -name "eon_ecs.ml" | while read -r f; do
     base=$(basename "$f" .ml)
-    case "$base" in eon_ecs|*_test*) continue ;; esac
     lines=$(wc -l < "$f")
     echo "ecs $base $lines"
   done
-  for f in "$ROOT"/eon_engine/*.ml; do
+
+  find "$ROOT/eon_engine" -name "*.ml" \
+    ! -path "*/test/*" ! -path "*/bench/*" \
+    ! -name "eon_engine.ml" | while read -r f; do
     base=$(basename "$f" .ml)
-    case "$base" in eon_engine|*_test*) continue ;; esac
     lines=$(wc -l < "$f")
     echo "eng $base $lines"
   done
 } | sort -k1,1 -k3,3rn > "$TMP/loc_raw.txt"
 
-# Build gnuplot data: two sections separated by blank line
 awk '$1=="ecs"{print $2, $3}' "$TMP/loc_raw.txt" | sort -k2,2rn > "$TMP/loc_ecs.dat"
 awk '$1=="eng"{print $2, $3}' "$TMP/loc_raw.txt" | sort -k2,2rn > "$TMP/loc_eng.dat"
 
@@ -372,7 +460,6 @@ def pie(ax, data, colors, title):
     for t in autotexts:
         t.set_fontsize(8)
     ax.set_title(title, fontsize=12, fontweight="bold", pad=14)
-    # legend on the side
     ax.legend(wedges, [f"{n}  ({v})" for n,v in zip(labels,values)],
               loc="center left", bbox_to_anchor=(1.02, 0.5),
               fontsize=8, frameon=False)
@@ -385,15 +472,17 @@ plt.savefig("$IMAGES/loc_per_module.png", dpi=130, bbox_inches="tight")
 plt.close()
 PYEOF
 
-# ─── 5. Interface / implementation ratio (gnuplot) ───────────────────────────
+# ─── 5. Interface / implementation ratio ─────────────────────────────────────
 
 echo "→ interface_ratio.png"
 
 {
-  for ml in "$ROOT"/eon_ecs/*.ml; do
+  find "$ROOT/eon_ecs" -name "*.ml" \
+    ! -path "*/test/*" ! -path "*/bench/*" \
+    ! -name "eon_ecs.ml" | while read -r ml; do
     base=$(basename "$ml" .ml)
-    mli="$ROOT/eon_ecs/${base}.mli"
-    case "$base" in eon_ecs|*_test*) continue ;; esac
+    dir=$(dirname "$ml")
+    mli="$dir/${base}.mli"
     [ -f "$mli" ] || continue
     impl=$(wc -l < "$ml")
     iface=$(wc -l < "$mli")
@@ -401,10 +490,13 @@ echo "→ interface_ratio.png"
     ratio=$(awk "BEGIN {printf \"%.2f\", $iface / $impl}")
     echo "ecs $base $ratio $iface $impl"
   done
-  for ml in "$ROOT"/eon_engine/*.ml; do
+
+  find "$ROOT/eon_engine" -name "*.ml" \
+    ! -path "*/test/*" ! -path "*/bench/*" \
+    ! -name "eon_engine.ml" | while read -r ml; do
     base=$(basename "$ml" .ml)
-    mli="$ROOT/eon_engine/${base}.mli"
-    case "$base" in eon_engine|*_test*) continue ;; esac
+    dir=$(dirname "$ml")
+    mli="$dir/${base}.mli"
     [ -f "$mli" ] || continue
     impl=$(wc -l < "$ml")
     iface=$(wc -l < "$mli")
@@ -469,5 +561,124 @@ plt.close()
 PYEOF
 
 echo ""
+
+# ─── 6. Code statistics ───────────────────────────────────────────────────────
+
+echo "→ code statistics (codebase_map.md)"
+
+MAP_FILE="$ROOT/docs/design/codebase_map.md"
+TODAY=$(date '+%Y-%m-%d')
+
+# Line counts — implementation only (no test, bench, composition roots)
+ecs_src=$(find "$ROOT/eon_ecs"    -name "*.ml" ! -path "*/test/*" ! -path "*/bench/*" ! -name "eon_ecs.ml"    | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+eng_src=$(find "$ROOT/eon_engine" -name "*.ml" ! -path "*/test/*" ! -path "*/bench/*" ! -name "eon_engine.ml" | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+
+ecs_mli=$(find "$ROOT/eon_ecs"    -name "*.mli" ! -path "*/test/*" ! -path "*/bench/*" | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+eng_mli=$(find "$ROOT/eon_engine" -name "*.mli" ! -path "*/test/*" ! -path "*/bench/*" | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+
+ecs_test=$(find "$ROOT/eon_ecs/test"    -name "*.ml" 2>/dev/null | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+eng_test=$(find "$ROOT/eon_engine/test" -name "*.ml" 2>/dev/null | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+
+ecs_bench=$(find "$ROOT/eon_ecs/bench"    -name "*.ml" 2>/dev/null | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+eng_bench=$(find "$ROOT/eon_engine/bench" -name "*.ml" 2>/dev/null | xargs cat 2>/dev/null | wc -l | tr -d ' ')
+
+# Module counts
+ecs_mods=$(find "$ROOT/eon_ecs"    -name "*.mli" ! -path "*/test/*" ! -path "*/bench/*" | wc -l | tr -d ' ')
+eng_mods=$(find "$ROOT/eon_engine" -name "*.mli" ! -path "*/test/*" ! -path "*/bench/*" | wc -l | tr -d ' ')
+
+ecs_test_files=$(find "$ROOT/eon_ecs/test"    -name "test_*.ml" 2>/dev/null | grep -v test_main | wc -l | tr -d ' ')
+eng_test_files=$(find "$ROOT/eon_engine/test" -name "test_*.ml" 2>/dev/null | grep -v test_main | wc -l | tr -d ' ')
+
+ecs_cases=$(grep -r '`Quick\|`Slow' "$ROOT/eon_ecs/test/"    2>/dev/null | wc -l | tr -d ' ')
+eng_cases=$(grep -r '`Quick\|`Slow' "$ROOT/eon_engine/test/" 2>/dev/null | wc -l | tr -d ' ')
+
+# Totals
+total_src=$((ecs_src + eng_src))
+total_mli=$((ecs_mli + eng_mli))
+total_test=$((ecs_test + eng_test))
+total_bench=$((ecs_bench + eng_bench))
+total_mods=$((ecs_mods + eng_mods))
+total_test_files=$((ecs_test_files + eng_test_files))
+total_cases=$((ecs_cases + eng_cases))
+
+# Git / GitHub stats
+total_commits=$(git -C "$ROOT" rev-list --count HEAD)
+last_commit=$(git -C "$ROOT" log -1 --format="%ci" | cut -d' ' -f1)
+open_issues=$(gh api repos/imunitic/eon --jq '.open_issues_count' 2>/dev/null || echo "n/a")
+repo_created=$(gh api repos/imunitic/eon --jq '.created_at[:10]' 2>/dev/null || echo "n/a")
+
+# Inject stats block between sentinels
+TODAY="$TODAY" \
+ECS_SRC="$ecs_src" ENG_SRC="$eng_src" TOTAL_SRC="$total_src" \
+ECS_MLI="$ecs_mli" ENG_MLI="$eng_mli" TOTAL_MLI="$total_mli" \
+ECS_TEST="$ecs_test" ENG_TEST="$eng_test" TOTAL_TEST="$total_test" \
+ECS_BENCH="$ecs_bench" ENG_BENCH="$eng_bench" TOTAL_BENCH="$total_bench" \
+ECS_MODS="$ecs_mods" ENG_MODS="$eng_mods" TOTAL_MODS="$total_mods" \
+ECS_TEST_FILES="$ecs_test_files" ENG_TEST_FILES="$eng_test_files" TOTAL_TEST_FILES="$total_test_files" \
+ECS_CASES="$ecs_cases" ENG_CASES="$eng_cases" TOTAL_CASES="$total_cases" \
+TOTAL_COMMITS="$total_commits" LAST_COMMIT="$last_commit" \
+OPEN_ISSUES="$open_issues" REPO_CREATED="$repo_created" \
+MAP_FILE="$MAP_FILE" \
+python3 << 'PYEOF'
+import os
+
+e = os.environ
+today         = e['TODAY']
+ecs_src       = e['ECS_SRC'];       eng_src       = e['ENG_SRC'];       total_src       = e['TOTAL_SRC']
+ecs_mli       = e['ECS_MLI'];       eng_mli       = e['ENG_MLI'];       total_mli       = e['TOTAL_MLI']
+ecs_test      = e['ECS_TEST'];      eng_test      = e['ENG_TEST'];       total_test      = e['TOTAL_TEST']
+ecs_bench     = e['ECS_BENCH'];     eng_bench     = e['ENG_BENCH'];      total_bench     = e['TOTAL_BENCH']
+ecs_mods      = e['ECS_MODS'];      eng_mods      = e['ENG_MODS'];       total_mods      = e['TOTAL_MODS']
+ecs_tf        = e['ECS_TEST_FILES']; eng_tf       = e['ENG_TEST_FILES']; total_tf        = e['TOTAL_TEST_FILES']
+ecs_cases     = e['ECS_CASES'];     eng_cases     = e['ENG_CASES'];      total_cases     = e['TOTAL_CASES']
+commits       = e['TOTAL_COMMITS']
+last_commit   = e['LAST_COMMIT']
+open_issues   = e['OPEN_ISSUES']
+created       = e['REPO_CREATED']
+map_file      = e['MAP_FILE']
+
+block = f"""<!-- STATS_START -->
+
+## Code statistics
+
+_Generated by `just visualizations` on {today}._
+
+### Line counts
+
+| Category | eon\\_ecs | eon\\_engine | Total |
+|---|---:|---:|---:|
+| Source implementation (`.ml`) | {ecs_src} | {eng_src} | {total_src} |
+| Public interfaces (`.mli`) | {ecs_mli} | {eng_mli} | {total_mli} |
+| Tests | {ecs_test} | {eng_test} | {total_test} |
+| Benchmarks | {ecs_bench} | {eng_bench} | {total_bench} |
+
+### Module counts
+
+| | eon\\_ecs | eon\\_engine | Total |
+|---|---:|---:|---:|
+| Public modules (with `.mli`) | {ecs_mods} | {eng_mods} | {total_mods} |
+| Test suites | {ecs_tf} | {eng_tf} | {total_tf} |
+| Test cases | {ecs_cases} | {eng_cases} | {total_cases} |
+
+### Repository
+
+| | |
+|---|---|
+| Total commits | {commits} |
+| Open issues | {open_issues} |
+| Created | {created} |
+| Last commit | {last_commit} |
+
+<!-- STATS_END -->"""
+
+content = open(map_file).read()
+start = content.find("<!-- STATS_START -->")
+end   = content.find("<!-- STATS_END -->") + len("<!-- STATS_END -->")
+if start == -1 or end == -1:
+    raise SystemExit("sentinel not found in codebase_map.md")
+open(map_file, "w").write(content[:start] + block + content[end:])
+print("  updated codebase_map.md")
+PYEOF
+
 echo "Done. Generated:"
 ls -lh "$IMAGES/"*.png | awk '{print "  " $5, $9}'
