@@ -8,7 +8,7 @@ let create () : 'msg t =
   { queue = Queue.create (); subscribers = ref []; }
 
 let on (bus : 'msg t) (cb : 'msg -> unit) : unit =
-  bus.subscribers := cb :: !(bus.subscribers)
+  bus.subscribers := !(bus.subscribers) @ [cb]
 
 let clear (bus : 'msg t) : unit =
   bus.subscribers := []

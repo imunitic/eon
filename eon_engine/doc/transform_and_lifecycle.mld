@@ -66,10 +66,10 @@ Both systems follow the [Make(Sys : System.DISPATCH)] / [Default] pattern.
   let lifecycle  = Lifecycle_system.Default.make ()
   let transforms = Transform_system.Default.make ()
 
-  (* IMPORTANT: register Lifecycle_system BEFORE Transform_system.
-     Single_bus dispatches in LIFO order (last-registered fires first),
-     so Lifecycle_system's handler runs last — after Transform_system
-     has detached children. *)
+  (* IMPORTANT: register Transform_system BEFORE Lifecycle_system.
+     Single_bus dispatches in pipeline registration order (FIFO),
+     so Transform_system's handler runs first — detaching children
+     before Lifecycle_system removes the entity. *)
   let pipeline =
     Pipeline.Default.create ()
     |> Pipeline.Default.add_phase `Lifecycle
@@ -128,6 +128,34 @@ After [Transform_system.update] runs:
 - [weapon.World_transform.position] = [(120, 200)] — character world position
   + weapon local offset
 
+{2 Attach at setup time}
+
+[Hierarchy.attach] is a synchronous helper for world configuration before
+the simulation loop starts. It writes [Parent] and [Children] directly —
+no command bus required:
+
+{[
+  open Eon_engine
+
+  let world = World.create ()
+  let ()    = Components.Engine_components.register_all world
+
+  let root   = World.create_entity world
+  let torso  = World.create_entity world
+  let weapon = World.create_entity world
+
+  (* Build the hierarchy before the loop *)
+  let () = Hierarchy.attach world ~parent:root   ~child:torso
+  let () = Hierarchy.attach world ~parent:torso  ~child:weapon
+
+  (* root → torso → weapon — Transform_system will propagate on the first frame *)
+]}
+
+{b Only for setup time.} Once the simulation loop is running, use [`Reparent]
+commands instead — [Transform_system] needs to see the mutation during drain to
+keep [Parent] and [Children] consistent. Calling [Hierarchy.attach] mid-simulation
+bypasses that and will leave the hierarchy in an inconsistent state.
+
 {2 Detach a child}
 
 Pass [new_parent = None] to detach and make an entity a root again:
@@ -185,14 +213,36 @@ After [drain]:
 - Emitting [`Destroy_entity] twice for the same entity is safe — [Lifecycle_system]
   guards with [World.is_alive]
 
-{2 Cascade destruction}
+{2 Cascade destruction with despawn_recursive}
 
-[Transform_system] does {i not} automatically destroy children — detachment
-and destruction are separate concerns. To cascade-destroy a subtree, emit
-[`Destroy_entity] for each child before the parent:
+[Hierarchy.despawn_recursive] walks the subtree depth-first and emits
+[`Destroy_entity] for every node — deepest descendants first, the root
+entity last. Call it from a system's [update] (tick phase); the commands
+are queued and processed during drain as usual:
 
 {[
-  (* Cascade-destroy: children first, then parent *)
+  open Eon_engine
+
+  (* In a Parallel system's update — reads world (ro), emits commands *)
+  let update (world : World.ro World.t) _dt =
+    let emit = Single_bus.emit (Buses.Default.commands ()) in
+    (* despawn the full subtree rooted at `root_entity` *)
+    Hierarchy.despawn_recursive world root_entity ~emit
+]}
+
+[Transform_system] detaches children and [Lifecycle_system] calls
+[World.destroy_entity] — both fire during drain in pipeline registration
+order. No manual traversal required.
+
+For a flat entity with no children the call is equivalent to emitting a
+single [`Destroy_entity].
+
+{2 Cascade destruction (manual)}
+
+If you prefer an explicit one-level cascade without [Hierarchy.despawn_recursive]:
+
+{[
+  (* Shallow cascade: immediate children only *)
   let destroy_with_children world entity =
     (match World.get_component world entity Components.Children.component with
      | None -> ()
@@ -250,6 +300,51 @@ happens, but that's fine if entities have no hierarchy components:
     |> Pipeline.Default.add_phase `Lifecycle
     |> Pipeline.Default.add_system `Lifecycle (Lifecycle_system.Default.make ())
 ]}
+
+{1 Extending Lifecycle_system}
+
+[Lifecycle_system.Default.make] accepts an optional [~on_command] callback
+that fires {b before} the built-in [`Destroy_entity] handler — the entity is
+still alive when it runs, so all components are accessible:
+
+{[
+  open Eon_engine
+
+  let lifecycle = Lifecycle_system.Default.make
+    ~on_command:(fun world cmd ->
+      match cmd with
+      | `Destroy_entity entity ->
+        (* entity still alive here — read components before destruction *)
+        (match World.get_component world entity Components.Local_transform.component with
+         | Some lt -> Log.info "destroying entity at %.1f %.1f" lt.position.x lt.position.y
+         | None -> ());
+        Audio.stop_all world entity
+      | _ -> ()
+    )
+    ()
+]}
+
+The callback receives the {b full command type} — not just [`Destroy_entity].
+This makes [Lifecycle_system] an extensible lifecycle hub: spawn logic, audio
+teardown, logging, particle despawn — all in one place, with correct ordering
+relative to [Transform_system]:
+
+{[
+  open Eon_engine
+
+  let lifecycle = Lifecycle_system.Default.make
+    ~on_command:(fun world cmd ->
+      match cmd with
+      | `Spawn { position; prefab } -> Prefab.instantiate world ~position prefab
+      | `Destroy_entity entity      -> Fx.play_death_effect world entity
+      | _ -> ()
+    )
+    ()
+]}
+
+For complex cases — a dedicated audio system, a particle system with its own
+state — a separate handler-only system registered before [Lifecycle_system]
+remains the right approach. The two compose cleanly.
 
 {1 Custom DISPATCH pipeline}
 

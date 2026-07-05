@@ -332,12 +332,36 @@ module Hierarchy : sig
     new_parent : entity_id option;
     (** [None] detaches the entity, making it a root. *)
   }
+
+  val despawn_recursive :
+    'perm World.t ->
+    entity_id ->
+    emit:([ `Destroy_entity of entity_id ] -> unit) ->
+    unit
+  (** [despawn_recursive world entity ~emit] emits [`Destroy_entity] for every
+      node in the subtree rooted at [entity], deepest nodes first.
+
+      Call from a system [update]. [emit] is typically
+      [Single_bus.emit (Buses.Default.commands ())]. Safe from a Parallel
+      system: reads only, no [rw] required. *)
+
+  val attach :
+    World.rw World.t ->
+    parent:entity_id ->
+    child:entity_id ->
+    unit
+  (** [attach world ~parent ~child] synchronously sets [Parent] on [child] and
+      adds [child] to [parent]'s [Children] list.
+
+      For world setup before the simulation loop. Use [`Reparent] commands
+      during simulation. *)
 end
 
 (** ECS system that maintains the transform hierarchy (DFS world-transform propagation).
 
-    Register [Lifecycle_system] BEFORE this system: [Single_bus] is LIFO so
-    first-registered fires last, giving [Lifecycle_system] finalizer semantics.
+    Register this system BEFORE [Lifecycle_system]: [Single_bus] dispatches in
+    pipeline registration order (FIFO), so this system's handler fires first —
+    detaching children before [Lifecycle_system] removes the entity.
     Use [Make] for a custom [DISPATCH]. *)
 module Transform_system : sig
   module Make (Sys : System.DISPATCH) : sig
@@ -352,16 +376,23 @@ end
 (** ECS system that processes [`Destroy_entity] commands.
 
     Guards with [World.is_alive] — duplicate destroy commands for the same entity
-    are safe. Register BEFORE [Transform_system]: [Single_bus] is LIFO so
-    first-registered fires last, giving this system finalizer semantics.
+    are safe. Register AFTER [Transform_system]: [Single_bus] dispatches in
+    pipeline registration order (FIFO), so [Transform_system]'s handler fires
+    first — detaching children before this system removes the entity.
     Use [Make] for a custom [DISPATCH]. *)
 module Lifecycle_system : sig
   module Make (Sys : System.DISPATCH) : sig
-    val make : unit -> (unit, unit, [> `Destroy_entity of entity_id ]) Sys.t
+    val make :
+      ?on_command:(World.rw World.t -> ([> `Destroy_entity of entity_id ] as 'c) -> unit) ->
+      unit ->
+      (unit, unit, 'c) Sys.t
   end
 
   module Default : sig
-    val make : unit -> (unit, unit, [> `Destroy_entity of entity_id ]) System.Default.t
+    val make :
+      ?on_command:(World.rw World.t -> ([> `Destroy_entity of entity_id ] as 'c) -> unit) ->
+      unit ->
+      (unit, unit, 'c) System.Default.t
   end
 end
 

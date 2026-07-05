@@ -62,11 +62,32 @@ let test_double_bus_multiple_frames () =
   check (list string) "messages processed in order" ["A"; "B"] !acc
 
 
+let test_single_bus_handler_order () =
+  let bus = Single_bus.create () in
+  let fired = ref [] in
+  Single_bus.on bus (fun _ -> fired := !fired @ ["A"]);
+  Single_bus.on bus (fun _ -> fired := !fired @ ["B"]);
+  Single_bus.emit bus ();
+  Single_bus.collect bus;
+  check (list string) "handlers fire in registration order" ["A"; "B"] !fired
+
+let test_double_bus_handler_order () =
+  let bus = Double_bus.create () in
+  let fired = ref [] in
+  Double_bus.on bus (fun _ -> fired := !fired @ ["A"]);
+  Double_bus.on bus (fun _ -> fired := !fired @ ["B"]);
+  Double_bus.emit bus ();
+  Double_bus.drain bus;   (* swaps next → current *)
+  Double_bus.collect bus; (* handlers fire on the now-current message *)
+  check (list string) "handlers fire in registration order" ["A"; "B"] !fired
+
 let tests =
   [
-    test_case "Single_bus basic delivery"    `Quick test_single_bus_basic;
-    test_case "Single_bus empty collect"     `Quick test_single_bus_empty_collect;
-    test_case "Single_bus message order"     `Quick test_single_bus_order;
-    test_case "Double_bus next-frame"        `Quick test_double_bus_basic;
-    test_case "Double_bus multi-frame order" `Quick test_double_bus_multiple_frames;
+    test_case "Single_bus basic delivery"        `Quick test_single_bus_basic;
+    test_case "Single_bus empty collect"         `Quick test_single_bus_empty_collect;
+    test_case "Single_bus message order"         `Quick test_single_bus_order;
+    test_case "Single_bus handler order"         `Quick test_single_bus_handler_order;
+    test_case "Double_bus next-frame"            `Quick test_double_bus_basic;
+    test_case "Double_bus multi-frame order"     `Quick test_double_bus_multiple_frames;
+    test_case "Double_bus handler order"         `Quick test_double_bus_handler_order;
   ]

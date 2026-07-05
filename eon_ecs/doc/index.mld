@@ -129,6 +129,10 @@ Use {b Signals} for fan-out notifications where any number of systems may react.
 Use {b Events} when reactions must be deferred to the next frame.
 Use {b Commands} when a system knows exactly what mutation to apply.
 
+Multiple handlers subscribed to the same bus fire in {b pipeline registration
+order} — the same order systems run in [update]. A system's position in the
+phase graph governs both its [update] execution and its handler dispatch.
+
 {2 Systems}
 
 A system is built with {!Eon_ecs.System.Default.make}. All callbacks are

@@ -249,37 +249,66 @@ Game code emits `` `Destroy_entity entity `` instead of calling
 
 ```ocaml
 Single_bus.emit (Buses.Default.commands ()) (`Destroy_entity entity)
-``` During drain, `Single_bus` dispatches in
-**LIFO order** (last-registered handler fires first). Therefore:
-`Transform_system` must be registered **after** `Lifecycle_system` in the
-pipeline so that its handler fires first — detaching children before the entity
-is removed.
+```
+
+During drain, `Single_bus` dispatches in **FIFO order** — handlers fire in
+the same order as their systems appear in the pipeline. `Transform_system`
+must be registered **before** `Lifecycle_system` so its handler fires first,
+detaching children before the entity is removed.
 
 ### 6.2 Registration convention
 
-**`Lifecycle_system` must always be registered first (before `Transform_system`).**
-Because `Single_bus` uses LIFO dispatch (last registered = first to fire),
-registering `Lifecycle_system` first ensures its `Destroy_entity` handler fires
-_last_ — after all other systems have had a chance to react. This is the finalizer
-position. This is a documented registration contract, not enforced by the type
-system.
+**`Transform_system` must always be registered before `Lifecycle_system`.**
+`Single_bus` dispatches handlers in pipeline registration order (FIFO):
+first-registered fires first. Registering `Transform_system` first ensures
+its `Destroy_entity` handler detaches children before `Lifecycle_system`
+removes the entity. The same ordering that governs `update` execution also
+governs command handler execution — one declaration, two effects.
 
 ### 6.3 Destroyed parent behaviour
 
 When a parent is destroyed via `Destroy_entity`:
 
 1. `Transform_system.on_command (Destroy_entity { entity })` fires first
-   (registered last, LIFO): reads `Children`, removes `Parent` from each child
+   (registered first, FIFO): reads `Children`, removes `Parent` from each child
    (children become roots), removes `Children` from the entity itself.
 2. `Lifecycle_system.on_command (Destroy_entity { entity })` fires second
-   (registered first, LIFO): calls `World.destroy_entity`. The entity is gone;
+   (registered second, FIFO): calls `World.destroy_entity`. The entity is gone;
    no stale references remain.
 
 No cascade destruction. Children survive with their last world position. Whether
 to cascade-destroy children is game code's decision — emit `Destroy_entity`
 for each child before the parent if desired.
 
-### 6.4 Without Lifecycle_system
+### 6.4 Extension point
+
+`Lifecycle_system.Default.make` accepts an optional `~on_command` callback
+that fires **before** the built-in `Destroy_entity` handler — the entity is
+still alive, all components still accessible:
+
+```ocaml
+let lifecycle = Lifecycle_system.Default.make
+  ~on_command:(fun world cmd ->
+    match cmd with
+    | `Destroy_entity entity ->
+      Audio.stop_all world entity;
+      Log.info "entity destroyed"
+    | `Spawn { position; kind } -> handle_spawn world position kind
+    | _ -> ()
+  )
+  ()
+```
+
+The extension receives the full command type `'c` (whatever arrives on the
+bus), not just `Destroy_entity`. This makes `Lifecycle_system` an extensible
+lifecycle hub: game code can handle additional commands — spawn, audio, logging
+— without registering a separate system.
+
+For complex cases (dedicated audio system, particle despawn) the full
+handler-only system approach remains available and composes cleanly with the
+extension point.
+
+### 6.5 Without Lifecycle_system
 
 If `Lifecycle_system` is not registered, game code calls `World.destroy_entity`
 directly. The safe cleanup pattern for a hierarchy parent is:
@@ -406,7 +435,8 @@ Game code never calls the DFS traversal, never directly writes
 | Composition formula | Scale child offset, then rotate, then translate | Correct 2D composition; non-uniform scale distorts child offsets (document, don't prevent) |
 | Math types | `Eon_engine.Math.Vec2` | Available since ecs-030; no new dependency |
 | Entity destruction | `Destroy_entity` command + `Lifecycle_system` | Makes destruction async; other systems react before entity disappears; fully optional |
-| Lifecycle_system registration | Always first (LIFO finalizer convention) | `Single_bus` is LIFO; first-registered fires last, giving finalizer semantics |
+| Lifecycle_system registration | Always after Transform_system (FIFO) | `Single_bus` dispatches in pipeline registration order; Transform_system fires first to detach children |
+| Lifecycle_system extension | `~on_command` optional callback | Fires before built-in handler (entity still alive); receives full command type — extensible lifecycle hub without a new system |
 | Cascade destruction | Game code's responsibility | Transform parent ≠ ownership; cascade is domain logic, not engine default |
 | Command vocabulary | Open poly variants, no central type | No `Engine_command` module; each system handles its tags; bus is extensible without coupling |
 | Reparent payload type | `Hierarchy.reparent` record | Semantic home in `Hierarchy`; no dependency on the system that processes it |

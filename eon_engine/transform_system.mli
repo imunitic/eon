@@ -6,8 +6,9 @@
     - [on_command (`Destroy_entity)]: detaches children before the entity is removed
       (does NOT call [World.destroy_entity] — that is [Lifecycle_system]'s job).
 
-    Register [Lifecycle_system] BEFORE this system: [Single_bus] is LIFO so
-    first-registered fires last, giving [Lifecycle_system] finalizer semantics.
+    Register this system BEFORE [Lifecycle_system]: [Single_bus] dispatches in
+    pipeline registration order (FIFO), so this system's handler fires first —
+    detaching children before [Lifecycle_system] removes the entity.
 
     Use [Default.make] for the common case. Use [Make] when wiring a custom
     [DISPATCH] pipeline. *)

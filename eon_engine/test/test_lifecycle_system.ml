@@ -65,9 +65,9 @@ let test_transform_then_lifecycle_ordering () =
     ({ entity = parent } : Components.Parent.t);
   World.set_component world parent Components.Children.component
     ({ entities = [child] } : Components.Children.t);
-  (* Single_bus is LIFO: last-added handler fires first.
-     ls added first → fires last (finalizer). ts added second → fires first. *)
-  with_pipe world (make_pipe2 ls ts) (fun () ->
+  (* Single_bus is FIFO: first-registered fires first.
+     ts added first → fires first (detaches children). ls added second → fires last (finalizer). *)
+  with_pipe world (make_pipe2 ts ls) (fun () ->
     emit_cmd (`Destroy_entity parent);
     Alcotest.(check bool) "parent destroyed"
       false (World.is_alive world parent);
