@@ -2,4 +2,4 @@
 
 (documentation
  (package eon-engine)
- (mld_files index math rendering))
+ (mld_files index math rendering transform_and_lifecycle))

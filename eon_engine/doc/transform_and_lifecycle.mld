@@ -1,0 +1,285 @@
+{0 Transform hierarchy and entity lifecycle}
+
+The engine ships two optional, independent systems for spatial hierarchy and
+controlled entity destruction. Use one, both, or neither — they share a command
+bus but have no module dependency on each other.
+
+{table
+  {tr {th System} {th Responsibility}}
+  {tr {td {!Eon_engine.Transform_system}} {td DFS world-transform propagation; [`Reparent] command handling}}
+  {tr {td {!Eon_engine.Lifecycle_system}} {td [`Destroy_entity] command; guards with [World.is_alive]}}
+}
+
+{1 Components}
+
+Four components make up the hierarchy. All are registered by
+[Components.Engine_components.register_all].
+
+{table
+  {tr {th Component} {th Written by} {th Read by}}
+  {tr {td [Local_transform]} {td Game code, physics sync} {td [Transform_system] (read during DFS)}}
+  {tr {td [World_transform]} {td [Transform_system] only} {td Rendering, spatial audio, game queries}}
+  {tr {td [Parent]}          {td [Transform_system] via [`Reparent]} {td [Transform_system] (DFS traversal)}}
+  {tr {td [Children]}        {td [Transform_system] via [`Reparent]} {td [Transform_system] (DFS traversal)}}
+}
+
+[Local_transform] is the component game code writes. [World_transform] is the
+derived, read-only result. Never write [World_transform] or [Children] directly —
+[Transform_system] owns both.
+
+{[
+  open Eon_engine
+
+  (* Local_transform — position/rotation/scale relative to parent (or world origin) *)
+  type local : Components.Local_transform.t = {
+    position : Math.Vec2.t;
+    rotation : float;       (* radians *)
+    scale    : Math.Vec2.t;
+  }
+
+  (* World_transform — fully composed world-space transform; same fields, read-only *)
+]}
+
+{1 Setting up}
+
+{2 Register components}
+
+[Components.Engine_components.register_all] registers all engine components
+including the four hierarchy components:
+
+{[
+  open Eon_engine
+
+  let world = World.create ()
+  let ()    = Components.Engine_components.register_all world
+]}
+
+{2 Create systems and wire the pipeline}
+
+Both systems follow the [Make(Sys : System.DISPATCH)] / [Default] pattern.
+[Default] is pre-applied with [System.Default] — use it for the common case:
+
+{[
+  open Eon_engine
+
+  (* Create system instances *)
+  let lifecycle  = Lifecycle_system.Default.make ()
+  let transforms = Transform_system.Default.make ()
+
+  (* IMPORTANT: register Lifecycle_system BEFORE Transform_system.
+     Single_bus dispatches in LIFO order (last-registered fires first),
+     so Lifecycle_system's handler runs last — after Transform_system
+     has detached children. *)
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Lifecycle
+    |> Pipeline.Default.add_system `Lifecycle lifecycle
+    |> Pipeline.Default.add_phase `Transform
+    |> Pipeline.Default.add_system `Transform transforms
+    (* `Transform must come after phases that write Local_transform
+       and before phases that read World_transform *)
+]}
+
+{1 Building a transform hierarchy}
+
+{2 Spawn entities with local transforms}
+
+{[
+  open Eon_engine
+
+  let world = World.create ()
+  let ()    = Components.Engine_components.register_all world
+
+  (* Spawn a character at world position (100, 200) *)
+  let character = World.create_entity world
+  let () =
+    World.set_component world character Components.Local_transform.component
+      { position = Math.Vec2.create 100.0 200.0;
+        rotation = 0.0;
+        scale    = Math.Vec2.one }
+
+  (* Spawn a weapon at offset (20, 0) — relative to whatever parent it gets *)
+  let weapon = World.create_entity world
+  let () =
+    World.set_component world weapon Components.Local_transform.component
+      { position = Math.Vec2.create 20.0 0.0;
+        rotation = 0.0;
+        scale    = Math.Vec2.one }
+]}
+
+{2 Attach a child to a parent}
+
+Hierarchy mutations during simulation go through the [`Reparent] command.
+[Transform_system] processes it during [drain] — keeping [Parent] and
+[Children] consistent — then propagates world transforms during the next
+[update]:
+
+{[
+  open Eon_engine
+
+  (* Attach weapon to character *)
+  Single_bus.emit (Buses.Default.commands ())
+    (`Reparent Hierarchy.{ entity = weapon; new_parent = Some character })
+]}
+
+After [Transform_system.update] runs:
+
+- [character.World_transform] = [character.Local_transform] (it is a root)
+- [weapon.World_transform.position] = [(120, 200)] — character world position
+  + weapon local offset
+
+{2 Detach a child}
+
+Pass [new_parent = None] to detach and make an entity a root again:
+
+{[
+  Single_bus.emit (Buses.Default.commands ())
+    (`Reparent Hierarchy.{ entity = weapon; new_parent = None })
+]}
+
+[weapon.Parent] is removed. [character.Children] is updated (the entry is
+removed; the [Children] component is dropped entirely if no children remain).
+[weapon] retains its last [World_transform] until the next [update].
+
+{2 How world transforms compose}
+
+[Transform_system] uses a DFS walk from root entities (entities with
+[Local_transform] and no [Parent]):
+
+{[
+  (* Composition formula *)
+  (* world.position = parent_world.position
+       + rotate(parent_world.scale * child_local.position, parent_world.rotation)
+     world.rotation = parent_world.rotation + child_local.rotation
+     world.scale    = parent_world.scale * child_local.scale   (* component-wise *) *)
+]}
+
+One frame of latency: [Reparent] commands emitted during frame N's tick are
+processed during frame N's drain. Frame N+1's [update] sees the new tree.
+
+{b Non-uniform scale:} a parent with [scale = (2.0, 1.0)] stretches child
+position offsets along the X axis before rotation is applied. This is
+mathematically correct but can be unintuitive. Avoid non-uniform scale on
+hierarchy parents unless the distortion is intentional.
+
+{1 Destroying entities}
+
+{2 With Lifecycle_system}
+
+Emit [`Destroy_entity] instead of calling [World.destroy_entity] directly.
+[Transform_system] detaches children first; [Lifecycle_system] removes the
+entity last:
+
+{[
+  open Eon_engine
+
+  (* Safe: Transform_system detaches children, then Lifecycle_system destroys *)
+  Single_bus.emit (Buses.Default.commands ()) (`Destroy_entity character)
+]}
+
+After [drain]:
+
+- [character] is removed from the world
+- [weapon] is still alive; its [Parent] component has been removed — it is
+  now a root entity with its last known [World_transform]
+- Emitting [`Destroy_entity] twice for the same entity is safe — [Lifecycle_system]
+  guards with [World.is_alive]
+
+{2 Cascade destruction}
+
+[Transform_system] does {i not} automatically destroy children — detachment
+and destruction are separate concerns. To cascade-destroy a subtree, emit
+[`Destroy_entity] for each child before the parent:
+
+{[
+  (* Cascade-destroy: children first, then parent *)
+  let destroy_with_children world entity =
+    (match World.get_component world entity Components.Children.component with
+     | None -> ()
+     | Some { entities } ->
+       List.iter (fun child ->
+         Single_bus.emit (Buses.Default.commands ()) (`Destroy_entity child)
+       ) entities);
+    Single_bus.emit (Buses.Default.commands ()) (`Destroy_entity entity)
+]}
+
+{2 Without Lifecycle_system}
+
+If [Lifecycle_system] is not registered, call [World.destroy_entity] directly
+and clean up the hierarchy manually before doing so:
+
+{[
+  open Eon_engine
+
+  let destroy_manual world entity =
+    (* Detach children first so they don't hold stale Parent references *)
+    (match World.get_component world entity Components.Children.component with
+     | None -> ()
+     | Some { entities } ->
+       List.iter (fun child ->
+         World.remove_component world child Components.Parent.component
+       ) entities;
+       World.remove_component world entity Components.Children.component);
+    World.destroy_entity world entity
+]}
+
+[Transform_system] is unaware — it sees only live entities in its next DFS pass.
+
+{1 Using only Transform_system}
+
+[Lifecycle_system] is fully optional. If your game never needs [`Destroy_entity]
+commands — because it calls [World.destroy_entity] directly, or entities are
+never destroyed — simply omit [Lifecycle_system] from the pipeline:
+
+{[
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Transform
+    |> Pipeline.Default.add_system `Transform (Transform_system.Default.make ())
+]}
+
+{1 Using only Lifecycle_system}
+
+[Lifecycle_system] works without [Transform_system]. [`Destroy_entity] commands
+are processed and [World.destroy_entity] is called — no hierarchy cleanup
+happens, but that's fine if entities have no hierarchy components:
+
+{[
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Lifecycle
+    |> Pipeline.Default.add_system `Lifecycle (Lifecycle_system.Default.make ())
+]}
+
+{1 Custom DISPATCH pipeline}
+
+Both systems expose [Make(Sys : System.DISPATCH)] for use with a non-default
+pipeline. [Default] is simply [Make(System.Default)]:
+
+{[
+  open Eon_engine
+
+  (* Wire into a custom pipeline with a domain-pool executor *)
+  module My_pipeline = Pipeline.Make
+    (System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands)))
+    (Executor.Domain_pool.Make(struct let size = 4 end))
+    (Buses.Default)
+
+  module My_dispatch = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
+
+  let transforms = Transform_system.Make(My_dispatch).make ()
+  let lifecycle  = Lifecycle_system.Make(My_dispatch).make ()
+]}
+
+{1 What stays in game code}
+
+[Transform_system] and [Lifecycle_system] provide the machinery. Game code provides
+the domain logic:
+
+- {b Movement systems} — write [Local_transform] to move or rotate entities
+- {b Physics sync} — rigidbody position → [Local_transform] before [Transform_phase];
+  read [World_transform] for queries after
+- {b Rendering} — read [World_transform] for draw-call positions
+- {b Camera follow} — read [World_transform] of the target entity, adjust viewport
+- {b Spawning hierarchies} — create entities, set [Local_transform], emit [`Reparent]
+- {b Cascade destruction} — emit [`Destroy_entity] for each child, then the parent
