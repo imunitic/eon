@@ -27,11 +27,11 @@ let component = Component_descriptor.component
 (** Get the name of a component descriptor. *)
 let name = Component_descriptor.name
 
-(** 2D position component. *)
-module Position = Position
+module Local_transform = Local_transform
+module World_transform = World_transform
+module Parent = Parent
+module Children = Children
 module Velocity = Velocity
-module Rotation = Rotation
-module Scale = Scale
 module Sprite = Sprite
 module Animation = Animation
 module Camera = Camera
@@ -43,10 +43,11 @@ module Engine_components = struct
   (** Register all engine components with automatically generated IDs. *)
   let register_all world =
     let components : (module S) list = [
-      (module Position : S);
+      (module Local_transform : S);
+      (module World_transform : S);
+      (module Parent : S);
+      (module Children : S);
       (module Velocity : S);
-      (module Rotation : S);
-      (module Scale : S);
       (module Sprite : S);
       (module Animation : S);
       (module Camera : S);

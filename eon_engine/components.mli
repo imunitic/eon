@@ -27,17 +27,25 @@ val component : string -> 'a t
 (** Get the name of a component descriptor. *)
 val name : 'a t -> string
 
-(** 2D position component. *)
-module Position : S with type t = Position.t
+(** Local-space transform: position, rotation, and scale relative to parent.
+    Written by game systems. If no [Parent] component is present, relative to world origin. *)
+module Local_transform : S with type t = Local_transform.t
+
+(** World-space transform: fully composed position in world space.
+    Written only by [Transform_system]. Game code treats this as read-only. *)
+module World_transform : S with type t = World_transform.t
+
+(** Hierarchy parent reference. Absence means the entity is a root.
+    Set directly at setup time; emit [`Reparent] on the command bus mid-simulation. *)
+module Parent : S with type t = Parent.t
+
+(** Engine-maintained cache of direct child entity IDs.
+    Updated by [Transform_system] on [Reparent] and [Destroy_entity] commands.
+    Game code reads but never writes. *)
+module Children : S with type t = Children.t
 
 (** 2D velocity component. *)
 module Velocity : S with type t = Velocity.t
-
-(** Rotation component (angle in radians). *)
-module Rotation : S with type t = Rotation.t
-
-(** 2D scale component. *)
-module Scale : S with type t = Scale.t
 
 (** Sprite rendering component. *)
 module Sprite : S with type t = Sprite.t
@@ -80,8 +88,8 @@ module Tag : S with type t = Tag.t
 module Engine_components : sig
   (** Register all engine components with automatically generated IDs.
 
-      Registers Position, Velocity, Rotation, Scale, Sprite, Animation,
-      Camera, Collider, and Tag components.
+      Registers Local_transform, World_transform, Parent, Children, Velocity,
+      Sprite, Animation, Camera, Collider, and Tag components.
   *)
   val register_all : World.rw World.t -> unit
 end

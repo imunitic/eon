@@ -23,4 +23,6 @@ let () =
     ("Render stream", Test_render_stream.tests);
     ("Render stream properties", Test_prop_render_stream.tests);
     ("Render modules", Test_render_modules.tests);
+    ("Transform system", Test_transform_system.tests);
+    ("Lifecycle system", Test_lifecycle_system.tests);
   ]

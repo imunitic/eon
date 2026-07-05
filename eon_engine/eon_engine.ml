@@ -27,7 +27,7 @@ module System = struct
   module type S        = System.S
   module type DISPATCH = System.DISPATCH
   module Make          = System.Make
-  module Default       = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
+  module Default       = System.Default
   module type Parallel_def  = System.Parallel_def
   module type Exclusive_def = System.Exclusive_def
   module Make_factory       = System.Make_factory
@@ -72,6 +72,16 @@ module Rendering_backend       = Rendering_backend
 module Render_stream_collector = Render_stream_collector
 module Render_stream_resource  = Render_stream_resource
 module Render_system           = Render_system
+
+module Hierarchy = Hierarchy
+module Transform_system = struct
+  module Make    = Transform_system.Make
+  module Default = Transform_system.Default
+end
+module Lifecycle_system = struct
+  module Make    = Lifecycle_system.Make
+  module Default = Lifecycle_system.Default
+end
 
 module Platform        = Platform
 module Progress       = Progress

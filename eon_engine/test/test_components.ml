@@ -9,14 +9,13 @@ open Eon_engine
 (* ============================================================================ *)
 
 let test_component_creation () =
-  (* Use the built-in Position component *)
-  let comp = Components.Position.component in
-  Alcotest.(check string) "Component name should match" "Position" (Components.name comp)
+  let comp = Components.Local_transform.component in
+  Alcotest.(check string) "Component name should match" "Local_transform" (Components.name comp)
 
 
 let test_register_automatic_id () =
   let world = World.create () in
-  let comp1 = Components.Position.component in
+  let comp1 = Components.Local_transform.component in
   let comp2 = Components.Velocity.component in
   
   let result1 = World.register world comp1 in
@@ -68,15 +67,16 @@ let test_engine_components () =
   let world = World.create () in
   Components.Engine_components.register_all world;
   
-  (* Verify registration by checking that components with engine names exist *)
-  Alcotest.(check bool) "Position component should be registered" true
-    (World.is_registered world Components.Position.component);
+  Alcotest.(check bool) "Local_transform should be registered" true
+    (World.is_registered world Components.Local_transform.component);
+  Alcotest.(check bool) "World_transform should be registered" true
+    (World.is_registered world Components.World_transform.component);
+  Alcotest.(check bool) "Parent should be registered" true
+    (World.is_registered world Components.Parent.component);
+  Alcotest.(check bool) "Children should be registered" true
+    (World.is_registered world Components.Children.component);
   Alcotest.(check bool) "Velocity component should be registered" true
     (World.is_registered world Components.Velocity.component);
-  Alcotest.(check bool) "Rotation component should be registered" true
-    (World.is_registered world Components.Rotation.component);
-  Alcotest.(check bool) "Scale component should be registered" true
-    (World.is_registered world Components.Scale.component);
   Alcotest.(check bool) "Camera component should be registered" true
     (World.is_registered world Components.Camera.component);
   Alcotest.(check bool) "Collider component should be registered" true
@@ -145,15 +145,15 @@ let test_cross_world_isolation () =
 
 let test_name_round_trip () =
   (* Test that the name round-trips correctly through Components.name *)
-  Alcotest.(check string) 
-    "Position component name"
-    "Position" (Components.name Components.Position.component);
-  
-  Alcotest.(check string) 
+  Alcotest.(check string)
+    "Local_transform component name"
+    "Local_transform" (Components.name Components.Local_transform.component);
+
+  Alcotest.(check string)
     "Velocity component name"
     "Velocity" (Components.name Components.Velocity.component);
-  
-  Alcotest.(check string) 
+
+  Alcotest.(check string)
     "Collider component name"
     "Collider" (Components.name Components.Collider.component)
 
