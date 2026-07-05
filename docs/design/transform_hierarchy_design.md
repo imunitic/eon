@@ -2,8 +2,7 @@
 
 ## Status
 
-**DRAFT** — captured from architecture discussion. Needs refinement before
-implementation task is created. Open questions marked throughout.
+**DRAFT** — decisions captured, ready for task creation.
 
 ---
 
@@ -41,14 +40,17 @@ This document covers the transform hierarchy as an `eon_engine` feature:
 - Phase placement in the pipeline
 - What stays in game layer
 
-Math types (`Vec2`, `Transform2D`) are a prerequisite but are a separate
-design concern — see open questions §8.
+Math types (`Vec2`, `Transform2D`) are available in `Eon_engine.Math`
+(shipped in ecs-030).
 
 ---
 
 ## 3. Component Design
 
-Four components, all defined and registered by `eon_engine`:
+Four components, all defined and registered by `eon_engine`. `Local_transform`
+and `World_transform` replace the existing flat `Position`, `Rotation`, and
+`Scale` components — those are removed as part of this task. `Velocity` is
+kept as-is; it is not a spatial transform.
 
 ### 3.1 Local_transform
 
@@ -57,25 +59,30 @@ has no `Parent` component, this is relative to world origin.
 
 ```ocaml
 type t = {
-  position : Vec2.t;
-  rotation : float;    (* radians *)
-  scale    : Vec2.t;
+  position : Math.Vec2.t;
+  rotation : float;          (* radians *)
+  scale    : Math.Vec2.t;
 }
 ```
 
 Written by game systems (movement, animation, physics sync). The only
-component in the hierarchy that game code directly mutates.
+component in the hierarchy that game code directly mutates. Access pattern:
+
+```ocaml
+World.set_component world entity Local_transform.component
+  { position = Math.Vec2.zero; rotation = 0.; scale = Math.Vec2.one }
+```
 
 ### 3.2 World_transform
 
-The computed world-space transform. Derived each frame by the
-`Transform_system` — game code must treat this as read-only.
+The computed world-space transform. Derived each frame by `Transform_system` —
+game code must treat this as read-only.
 
 ```ocaml
 type t = {
-  position : Vec2.t;
+  position : Math.Vec2.t;
   rotation : float;
-  scale    : Vec2.t;
+  scale    : Math.Vec2.t;
 }
 ```
 
@@ -85,54 +92,48 @@ For child entities: `World_transform = parent.World_transform ∘ Local_transfor
 Rendering and spatial queries read this. Physics sync writes `Local_transform`
 and reads `World_transform`.
 
-> **Open question:** Should world transform be a separate component or a
-> computed field on `Local_transform`? Separate components make the
-> read-only contract explicit and let systems query just what they need.
-> Combined avoids double storage. Separate is the current preference.
+Kept as a separate component rather than a field on `Local_transform` — the
+read-only contract is explicit and systems can query only what they need.
 
 ### 3.3 Parent
 
-A reference to the parent entity. Set by game code when attaching an entity
-to a hierarchy. Absence means the entity is a root.
+A reference to the parent entity. Absence means the entity is a root.
 
 ```ocaml
 type t = { entity : Entity_id.t }
 ```
 
 Game code does not set this directly mid-simulation — hierarchy mutations
-go through the `Reparent` command (§5) to keep `Children` consistent.
+go through the `Reparent` command (§5) to keep `Children` consistent. May be
+set directly at world setup time before the loop starts.
 
 ### 3.4 Children
 
 An engine-maintained cache of direct child entity IDs. Updated by
-`Transform_system` when processing `Reparent` commands. Game code reads
-but does not write this component.
+`Transform_system` when processing `Reparent` commands. Game code reads but
+does not write this component.
 
 ```ocaml
 type t = { entities : Entity_id.t list }
 ```
 
-Without this cache, finding children requires scanning all `Parent`
-components — O(n) per entity, O(n²) total. With it, DFS traversal is O(n)
-across the whole hierarchy.
-
-> **Open question:** `Entity_id.t list` vs a more compact representation.
-> For typical game hierarchies (shallow, low fan-out) a list is fine.
-> Revisit if profiling shows pressure here.
+Without this cache, finding children requires scanning all `Parent` components
+— O(n) per entity, O(n²) total. With it, DFS traversal is O(n) across the
+whole hierarchy. `Entity_id.t list` is sufficient for typical game hierarchies
+(shallow, low fan-out); revisit if profiling shows pressure here.
 
 ---
 
 ## 4. Transform System
 
-A single exclusive system. Exclusive because it writes `World_transform`
-on every entity that has a `Local_transform`. Hierarchy mutations
-(`Parent`, `Children`) are handled in `on_command`, not in `update` — the
-two responsibilities belong to different lifecycle hooks.
+A single exclusive system. Exclusive because it writes `World_transform` on
+every entity that has a `Local_transform`. Hierarchy mutations (`Parent`,
+`Children`) are handled in `on_command`, not in `update`.
 
 ### 4.1 Why not Query.iter
 
-The standard `Query.iter` pattern has no guaranteed traversal order.
-Transform propagation requires parents to be processed before children.
+The standard `Query.iter` pattern has no guaranteed traversal order. Transform
+propagation requires parents to be processed before children.
 `Transform_system` owns its traversal — it uses the query API only to find
 entry points (root entities), then drives the rest via `Children`.
 
@@ -166,19 +167,30 @@ DFS naturally gives parent-before-child order without a sorting step.
 `World.get_component` on a known `Entity_id.t` handles per-entity access
 during traversal.
 
-### 4.3 Transform composition
+### 4.4 Transform composition
+
+Parent scale applies to the child's local position offset before rotation:
 
 ```ocaml
-let compose parent child = {
-  position = Vec2.add parent.position (Vec2.rotate child.position parent.rotation);
+let compose (parent : World_transform.t) (child : Local_transform.t) : World_transform.t = {
+  position = Math.Vec2.add parent.position
+               (Math.Vec2.rotate
+                 (Math.Vec2.mul parent.scale child.position)
+                 parent.rotation);
   rotation = parent.rotation +. child.rotation;
-  scale    = Vec2.mul parent.scale child.scale;
+  scale    = Math.Vec2.mul parent.scale child.scale;
 }
 ```
 
-> **Open question:** Matrix representation vs decomposed position/rotation/scale.
-> Decomposed is more readable and sufficient for 2D. Matrices become relevant
-> if shear or non-uniform scaling through hierarchy is needed. Start decomposed.
+Non-uniform parent scale (e.g. `scale = (2.0, 1.0)`) distorts child positions
+— child offsets are scaled along each axis independently before rotation is
+applied. This is correct mathematically but can produce unintuitive results
+with non-uniform scale in a hierarchy. Document this behaviour; avoid
+non-uniform scale on hierarchy parents unless the distortion is intentional.
+
+Decomposed position/rotation/scale is the chosen representation for 2D.
+Matrix representation is not needed unless shear or more complex projections
+are required.
 
 ---
 
@@ -196,22 +208,24 @@ type reparent = {
 ```
 
 `Transform_system` handles `Reparent` in its `on_command` handler — part of
-the drain phase, sequential, always `rw`. By the time `update` runs the
-next frame, the hierarchy is already consistent:
+the drain phase, sequential, always `rw`:
 
 - Remove `entity` from old parent's `Children` (if it had one)
 - Add `entity` to new parent's `Children` (if `new_parent` is `Some`)
 - Update or remove `Parent` component on `entity`
 
-> **Open question:** What happens to children when a parent entity is
-> destroyed? Options:
-> a. Cascade destroy — children destroyed with the parent
-> b. Detach — children become roots with their current world transform
->    promoted to local transform
-> c. Reparent to grandparent — maintain relative position in hierarchy
->
-> Option (b) is the safest default — no invisible mass destruction,
-> children survive. Needs an explicit hook in `World.destroy_entity`.
+### 5.1 Destroyed parent behaviour
+
+When a parent entity is destroyed, its children are **detached** — they
+become roots with their current `World_transform` promoted to `Local_transform`.
+No cascade destruction; children survive with their last known world position.
+
+This requires a hook at `World.destroy_entity` time. The mechanism: game code
+emits a `Reparent { entity = child; new_parent = None }` for each child before
+destroying the parent, or `Transform_system` subscribes to an entity-destroyed
+event if the engine provides one. For v1, the responsibility falls on game
+code — document clearly that destroying a parent without detaching children
+first leaves stale `Parent` references.
 
 ---
 
@@ -232,16 +246,29 @@ Transform_phase      — Transform_system: propagates world transforms
 Rendering_phase      — reads World_transform for draw calls
 ```
 
-> **Open question:** Should `eon_engine` define and register these phases,
-> or leave phase definition entirely to the game developer? The audio and
-> input systems don't define pipeline phases — they integrate via the loop
-> seam. Transform is different because it's a mid-pipeline system, not a
-> loop-level concern. Likely the game developer defines phases and places
-> `Transform_system` in the right one explicitly.
+Phase definition and placement is the **game developer's responsibility** —
+consistent with how audio and input integrate via the loop seam. `eon_engine`
+ships `Transform_system`; the developer registers it in the correct phase.
 
 ---
 
-## 7. What Stays in Game Layer
+## 7. Migration from flat components
+
+`Position`, `Rotation`, and `Scale` in `eon_engine/components/` are removed
+by this task. Impact is limited to tests:
+
+- `test_query.ml` — uses `Components.Position` and `Components.Velocity` as
+  example components to exercise the query API. Replace `Position` with
+  `Local_transform` (or a custom test component) and keep `Velocity` as-is.
+- `test_components.ml` — registers and exercises the component list. Update
+  to reflect the new set.
+
+No engine internals outside `components/` reference these types. No game code
+exists yet.
+
+---
+
+## 8. What Stays in Game Layer
 
 The engine provides the hierarchy machinery. Game code provides the
 domain-specific usage:
@@ -252,51 +279,36 @@ domain-specific usage:
 - **Rendering** — reads `World_transform` and `Sprite` to produce draw calls
 - **Camera follow** — reads `World_transform` of the target entity, adjusts
   viewport
-- **Spatial audio** — reads `World_transform` for 3D/stereo positioning of
-  audio sources
+- **Spatial audio** — reads `World_transform` for stereo positioning of audio
+  sources
 
 Game code never calls the DFS traversal, never directly writes
 `World_transform`, and never directly writes `Children`.
 
 ---
 
-## 8. Open Questions
+## 9. Deferred
 
-In rough priority order:
-
-1. **Math types prerequisite.** `Vec2` and `Transform2D` need to exist before
-   this can be implemented. Are these in `eon_engine` or a separate package?
-   What is the canonical Vec2 representation? Needs its own design task.
-
-2. **Destroyed parent behaviour.** Cascade vs detach vs reparent-to-grandparent
-   (§5 open question). Default recommendation is detach but needs decision.
-
-3. **Dirty tracking.** Current design recomputes all world transforms every
-   frame. For large hierarchies this is wasteful — most transforms don't
-   change most frames. A dirty flag on `Local_transform` + propagation through
-   `Children` would skip unchanged subtrees. Not needed for v1 but worth
-   flagging for profiling.
-
-4. **Non-uniform scale through hierarchy.** `Vec2` scale composes by
-   multiplication. Non-uniform parent scale (e.g. `scale = (2.0, 1.0)`)
-   distorts child positions in potentially unexpected ways. Document the
-   behaviour, potentially warn against non-uniform scale in hierarchies.
-
-5. **Phase placement ownership.** Whether `eon_engine` ships canonical phase
-   names for transform, rendering, and physics sync (§6 open question).
-
-6. **Matrix vs decomposed representation.** Current preference: decomposed
-   position/rotation/scale (§4.3 open question). Revisit if shear is needed.
+- **Dirty tracking** — current design recomputes all world transforms every
+  frame. A dirty flag on `Local_transform` + propagation through `Children`
+  would skip unchanged subtrees. Not needed for v1; flag for profiling.
+- **Entity-destroyed event** — a formal engine event for entity destruction
+  would make the destroyed-parent case cleaner. Deferred; v1 relies on game
+  code to detach before destroy.
 
 ---
 
-## 9. Key Decisions
+## 10. Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Separate Local/World components | Yes | Read-only contract on World_transform is explicit; systems query only what they need |
+| Replace flat components | Yes — remove `Position`, `Rotation`, `Scale` | No game code exists; `Local_transform` is a strict superset; avoids two spatial representations |
+| Separate Local/World components | Yes | Read-only contract on `World_transform` is explicit; systems query only what they need |
 | Children cache | Yes, engine-maintained | O(n) DFS vs O(n²) without it; game code reads only |
 | Traversal strategy | DFS from roots | Natural parent-before-child order; no sort step |
-| Hierarchy mutations | Via Reparent command, handled in `on_command` | Keeps Parent + Children consistent; processed during drain before next update |
-| Transform_system exclusivity | Exclusive | Writes World_transform — no concurrent access |
-| Phase placement | Game developer's responsibility | Consistent with how audio and input integrate; engine ships the system, not the phases |
+| Hierarchy mutations | Via `Reparent` command, handled in `on_command` | Keeps `Parent` + `Children` consistent; processed during drain before next update |
+| Transform_system exclusivity | Exclusive | Writes `World_transform` — no concurrent access |
+| Phase placement | Game developer's responsibility | Engine ships the system; developer places it in the correct phase |
+| Destroyed parent | Detach — children become roots | No invisible cascade destruction; children survive with last world position |
+| Composition formula | Scale child offset, then rotate, then translate | Correct 2D composition; non-uniform scale distorts child offsets (document, don't prevent) |
+| Math types | `Eon_engine.Math.Vec2` | Available since ecs-030; no new dependency |
