@@ -1,4 +1,4 @@
-# Transform Hierarchy Design — `eon_engine`
+# Transform & Lifecycle Systems Design — `eon_engine`
 
 ## Status
 
@@ -28,17 +28,23 @@ every entity's spatial state:
 The engine maintains consistency between the two. Game code never manually
 propagates parent transforms to children.
 
+Entity destruction introduces a related concern: when a parent entity is
+destroyed, its children hold stale `Parent` references. `Lifecycle_system`
+addresses this by making destruction a command rather than a direct call —
+allowing `Transform_system` to detach children before the entity disappears.
+
 ---
 
 ## 2. Scope
 
-This document covers the transform hierarchy as an `eon_engine` feature:
+This document covers two independent `eon_engine` systems:
 
-- The four components that express and cache the hierarchy
-- The `Transform_system` that maintains world transforms top-down
-- The `Reparent` command for safe hierarchy mutations
-- Phase placement in the pipeline
-- What stays in game layer
+- **`Transform_system`** — the four hierarchy components, DFS world-transform
+  propagation, and `Reparent` command handling
+- **`Lifecycle_system`** — `Destroy_entity` command processing
+
+Both are fully optional. Neither lives in `eon_ecs`. They share the command
+bus but have no module dependency on each other.
 
 Math types (`Vec2`, `Transform2D`) are available in `Eon_engine.Math`
 (shipped in ecs-030).
@@ -140,10 +146,14 @@ entry points (root entities), then drives the rest via `Children`.
 ### 4.2 Lifecycle split
 
 ```
-on_command (Reparent) — drain phase, sequential, rw
+on_command (Reparent)         — drain phase, sequential, rw
   → mutate Parent and Children components to reflect the new hierarchy
 
-update (exclusive) — tick phase, rw
+on_command (Destroy_entity)   — drain phase, sequential, rw
+  → detach children: remove their Parent component, remove Children from entity
+  → does NOT call World.destroy_entity — that is Lifecycle_system's job
+
+update (exclusive)            — tick phase, rw
   → DFS propagation: walk the now-consistent hierarchy, write World_transform
 ```
 
@@ -214,24 +224,88 @@ the drain phase, sequential, always `rw`:
 - Add `entity` to new parent's `Children` (if `new_parent` is `Some`)
 - Update or remove `Parent` component on `entity`
 
-### 5.1 Destroyed parent behaviour
+---
 
-When a parent entity is destroyed, its children are **detached** — they
-become roots with their current `World_transform` promoted to `Local_transform`.
-No cascade destruction; children survive with their last known world position.
+## 6. Lifecycle System
 
-This requires a hook at `World.destroy_entity` time. The mechanism: game code
-emits a `Reparent { entity = child; new_parent = None }` for each child before
-destroying the parent, or `Transform_system` subscribes to an entity-destroyed
-event if the engine provides one. For v1, the responsibility falls on game
-code — document clearly that destroying a parent without detaching children
-first leaves stale `Parent` references.
+`Lifecycle_system` makes entity destruction a first-class command, allowing
+other systems to react before the entity disappears.
+
+### 6.1 Destroy_entity command
+
+```ocaml
+type destroy_entity = { entity : Entity_id.t }
+```
+
+Game code emits `Destroy_entity { entity }` instead of calling
+`World.destroy_entity` directly. During drain, handlers fire in registration
+order — `Transform_system` detaches children first (if registered), then
+`Lifecycle_system` calls `World.destroy_entity`.
+
+### 6.2 Registration convention
+
+**`Lifecycle_system` must always be registered last.** It is the finalizer —
+other systems react to `Destroy_entity` before the entity is removed from the
+world. This is a documented registration contract, not enforced by the type
+system.
+
+### 6.3 Destroyed parent behaviour
+
+When a parent is destroyed via `Destroy_entity`:
+
+1. `Transform_system.on_command (Destroy_entity { entity })` fires first:
+   reads `Children`, removes `Parent` from each child (children become roots),
+   removes `Children` from the entity itself.
+2. `Lifecycle_system.on_command (Destroy_entity { entity })` fires second:
+   calls `World.destroy_entity`. The entity is gone; no stale references remain.
+
+No cascade destruction. Children survive with their last world position. Whether
+to cascade-destroy children is game code's decision — emit `Destroy_entity`
+for each child before the parent if desired.
+
+### 6.4 Without Lifecycle_system
+
+If `Lifecycle_system` is not registered, game code calls `World.destroy_entity`
+directly. The safe cleanup pattern for a hierarchy parent is:
+
+```ocaml
+(* synchronous, inline, before destroy *)
+let children = World.get_component world entity Children.component in
+Option.iter (fun c ->
+  List.iter (fun child ->
+    World.remove_component world child Parent.component
+  ) c.Children.entities
+) children;
+Option.iter (fun _ ->
+  World.remove_component world entity Children.component
+) children;
+World.destroy_entity world entity
+```
+
+`Transform_system` remains unaware — it sees only live entities in its next
+DFS pass.
 
 ---
 
-## 6. Pipeline Placement
+## 7. Optionality
 
-The `Transform_system` must run:
+Both systems are fully optional and independent:
+
+| Registered | Behaviour |
+|-----------|-----------|
+| Neither | Game code manages transforms and destruction manually |
+| `Transform_system` only | Hierarchy and world transforms automatic; destruction requires manual cleanup (§6.4) |
+| `Lifecycle_system` only | `Destroy_entity` command works; no transform awareness |
+| Both | One `Destroy_entity` command handles detachment and destruction automatically |
+
+No module dependency exists between the two systems. The only shared surface
+is the command type (`Engine_command.t`).
+
+---
+
+## 8. Pipeline Placement
+
+`Transform_system` must run:
 
 - **After** any system that writes `Local_transform` (physics sync, movement,
   animation)
@@ -246,13 +320,16 @@ Transform_phase      — Transform_system: propagates world transforms
 Rendering_phase      — reads World_transform for draw calls
 ```
 
+`Lifecycle_system` runs during drain (command handler only) — it has no
+`update` and no phase placement requirement.
+
 Phase definition and placement is the **game developer's responsibility** —
 consistent with how audio and input integrate via the loop seam. `eon_engine`
-ships `Transform_system`; the developer registers it in the correct phase.
+ships both systems; the developer registers them in the correct order.
 
 ---
 
-## 7. Migration from flat components
+## 9. Migration from flat components
 
 `Position`, `Rotation`, and `Scale` in `eon_engine/components/` are removed
 by this task. Impact is limited to tests:
@@ -268,7 +345,7 @@ exists yet.
 
 ---
 
-## 8. What Stays in Game Layer
+## 10. What Stays in Game Layer
 
 The engine provides the hierarchy machinery. Game code provides the
 domain-specific usage:
@@ -281,24 +358,23 @@ domain-specific usage:
   viewport
 - **Spatial audio** — reads `World_transform` for stereo positioning of audio
   sources
+- **Cascade destruction** — emit `Destroy_entity` for each child before the
+  parent if the game domain requires it
 
 Game code never calls the DFS traversal, never directly writes
 `World_transform`, and never directly writes `Children`.
 
 ---
 
-## 9. Deferred
+## 11. Deferred
 
 - **Dirty tracking** — current design recomputes all world transforms every
   frame. A dirty flag on `Local_transform` + propagation through `Children`
   would skip unchanged subtrees. Not needed for v1; flag for profiling.
-- **Entity-destroyed event** — a formal engine event for entity destruction
-  would make the destroyed-parent case cleaner. Deferred; v1 relies on game
-  code to detach before destroy.
 
 ---
 
-## 10. Key Decisions
+## 12. Key Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -312,3 +388,6 @@ Game code never calls the DFS traversal, never directly writes
 | Destroyed parent | Detach — children become roots | No invisible cascade destruction; children survive with last world position |
 | Composition formula | Scale child offset, then rotate, then translate | Correct 2D composition; non-uniform scale distorts child offsets (document, don't prevent) |
 | Math types | `Eon_engine.Math.Vec2` | Available since ecs-030; no new dependency |
+| Entity destruction | `Destroy_entity` command + `Lifecycle_system` | Makes destruction async; other systems react before entity disappears; fully optional |
+| Lifecycle_system registration | Always last (finalizer convention) | `Transform_system` must detach children before `World.destroy_entity` is called |
+| Cascade destruction | Game code's responsibility | Transform parent ≠ ownership; cascade is domain logic, not engine default |
