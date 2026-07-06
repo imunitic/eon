@@ -1,6 +1,8 @@
 # Multiplayer Architecture: Grim Dawn-Style Listen Server and Distributed Buses
 
-**Document status**: Exploratory design notes. No implementation is planned for the current game. This document records architectural thinking for future reference and establishes one forward-looking constraint on event design (§6).
+## Status
+
+**Exploratory.** No implementation is planned for the current game. This document records architectural thinking for future reference and establishes one forward-looking constraint on event design (§6).
 
 ## 1. Motivation and Scope
 

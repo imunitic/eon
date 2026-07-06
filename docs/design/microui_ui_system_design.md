@@ -1,8 +1,8 @@
 # Eon Engine — UI System Design (microui)
 
-**Document status**: Exploratory design. The core rendering layer (Render_graph,
-Render_graph_collector, Render_system, Rendering_backend) must be implemented first — this
-document depends on that foundation. See `docs/design/rendering_layer_design.md`.
+## Status
+
+**Exploratory.** Depends on the rendering layer (`rendering_layer_design.md`) being implemented first — `Render_graph`, `Render_graph_collector`, `Render_system`, and `Rendering_backend` must exist before any of this applies.
 
 ## 1. Overview
 
