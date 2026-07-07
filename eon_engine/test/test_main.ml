@@ -26,4 +26,5 @@ let () =
     ("Transform system", Test_transform_system.tests);
     ("Lifecycle system", Test_lifecycle_system.tests);
     ("Hierarchy", Test_hierarchy.tests);
+    ("Time", Test_time.tests);
   ]

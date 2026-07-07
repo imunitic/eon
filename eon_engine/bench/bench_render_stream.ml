@@ -85,7 +85,7 @@ let iter_suite =
 (* ------------------------------------------------------------------ *)
 
 let () =
-  let cfg = Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) () in
+  let cfg = Benchmark.cfg ~limit:50 ~quota:(Bechamel.Time.second 1.0) () in
   Format.printf "=== Q1: Steady-state frame cycle (pre-warmed Dynarray) ===@.";
   Format.printf "  minor_allocated should be 0 at all sizes@.@.";
   Benchmark_helpers.bench_with_gc cfg frame_suite;

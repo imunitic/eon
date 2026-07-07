@@ -21,3 +21,12 @@ val iter_world  : 'command t -> ('command -> unit) -> unit
 
 val iter_screen : 'command t -> ('command -> unit) -> unit
 (** Iterate screen-space commands in emission order. *)
+
+val fetch     : [> World.ro] World.t -> 'command t
+(** Raises [Not_found] if no stream has been stored this frame. *)
+
+val fetch_opt : [> World.ro] World.t -> 'command t option
+(** Returns [None] when no [Render_system] is registered — expected in
+    headless configurations. Use this in the loop. *)
+
+val store : World.rw World.t -> 'command t -> unit

@@ -20,7 +20,7 @@ module Make
        Platform.Audio_backend.submit (Audio_command_buffer.to_list buf);
        Audio_command_buffer.clear buf
      | None -> ());
-    (match Render_stream_resource.fetch_opt world with
+    (match Render_stream.fetch_opt world with
      | None -> ()
      | Some stream ->
        let result = Platform.Rendering_backend.render stream ~dt in
@@ -29,16 +29,17 @@ module Make
     let continue = should_continue world in
     (world, now, continue)
 
-  let run ~progress ~world ~should_continue () =
+  let run ~progress ~world ?(paused = fun _ -> false) ~should_continue () =
     Platform.Input_backend.init ();
     Platform.Audio_backend.init ();
     Platform.Rendering_backend.init ();
     let rec loop world last_time =
-      let now = Clock.now () in
+      let clock_now = Clock.now () in
+      let now = if paused world then last_time else clock_now in
       let world, _, continue =
         step ~progress ~world ~last_time ~now ~should_continue
       in
-      if continue then loop world now else world
+      if continue then loop world clock_now else world
     in
     let result = loop world (Clock.now ()) in
     Platform.Rendering_backend.shutdown ();

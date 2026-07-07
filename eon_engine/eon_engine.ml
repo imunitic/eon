@@ -70,7 +70,6 @@ module Render_stream           = Render_stream
 module Rendering_result        = Rendering_result
 module Rendering_backend       = Rendering_backend
 module Render_stream_collector = Render_stream_collector
-module Render_stream_resource  = Render_stream_resource
 module Render_system           = Render_system
 
 module Hierarchy = Hierarchy
@@ -83,6 +82,7 @@ module Lifecycle_system = struct
   module Default = Lifecycle_system.Default
 end
 
+module Time           = Time
 module Platform        = Platform
 module Progress       = Progress
 module Loop           = Loop

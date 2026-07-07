@@ -1,16 +1,16 @@
-# Time Resource — Thought Dump
+# Time Resource
 
 ## Status
 
-**IDEA** — not a task, not a draft, just captured so it doesn't get lost.
+**DRAFT** — decisions settled, ready for task creation and implementation.
 
 ---
 
 ## The One-Liner
 
 `dt` stays as an explicit `update` parameter — documents time-awareness at
-the signature level. `Time` exists as a `Resource.S` for richer time data
-that `dt` alone doesn't cover.
+the signature level. `Time` exists as a resource for richer time data that
+`dt` alone doesn't cover.
 
 ```ocaml
 (* common case — dt is enough *)
@@ -18,7 +18,7 @@ let update world dt = ...
 
 (* richer time needed — fetch the resource *)
 let update world _dt =
-  let time = Resource.fetch world (module Time) in
+  let time = Time.fetch world in
   if time.elapsed > 30.0 then ...
 ```
 
@@ -39,61 +39,137 @@ type t = {
 
 ---
 
-## Methods
+## Decisions
 
-Probably none. `Time.t` is a plain record — data only, no behaviour.
-Helpers like `Time.seconds_to_frames` or `Time.fps` can be added later
-if a real consumer needs them. Don't add them speculatively.
+### `Time.delta` in fixed/hybrid mode
 
----
+`Time.delta` is always the **real frame delta** — the `dt` passed to
+`Progress.tick` from the loop. It does not reflect the fixed sub-step.
 
-## Who Writes It
+Fixed and hybrid systems that need the exact step duration use the `dt`
+parameter already passed to `update`. `Time` is a frame-level resource,
+not a per-tick resource. Writing it once per frame (before any dispatch)
+is the only coherent option — writing it per fixed sub-tick would cause
+`elapsed` and `frame` to advance multiple times per frame.
 
-`Progress` writes `Time` before dispatching `tick` — it already owns all
-the time math (`delta`, `elapsed`, `frame`), so writing the resource is
-just making that computation visible to systems. No dedicated `Time_system`
-needed, no loop leak, no phase ordering concern. If `Time` is registered,
-`Progress` populates it. If not, `Progress` ignores it. Opt-in with zero
-cost when unused.
+### Frame numbering
 
----
+The first frame is **frame 0**. The resource is pre-initialised to
+`{ delta = 0.; elapsed = 0.; frame = 0 }` during world setup. Each
+`Progress.tick` writes the updated value before dispatch, so after the
+first tick frame becomes 1. Systems always read the current frame's value.
 
-## Open Questions (not urgent, just noted)
+### Resource as its own accumulator
 
-- Fixed timestep: does `Time.delta` reflect the fixed step or the real
-  frame delta? Probably the fixed step during fixed-update systems and
-  real delta during variable-update systems — needs thought when Progress
-  modes are wired in.
-- Pause: does `elapsed` freeze when the game is paused? Probably yes for
-  game time, but then you might want a separate `wall_clock_elapsed` for
-  UI and audio that ignores pause. Two time resources or one with both?
-- Frame 0: is the first frame `frame = 0` or `frame = 1`? Trivial but
-  worth deciding once and documenting.
-
----
-
-## Integration with Progress.Make
-
-Functor parameters in OCaml can't be truly optional — you either pass a
-module or you don't. The clean solution is two explicit functors following
-the existing `Make` / `Make_with_X` eon idiom:
+No shadow state lives outside the resource. `elapsed` and `frame` are
+accumulated by reading the previous value before each write:
 
 ```ocaml
-module Progress.Make(P : Pipeline.S)                        (* no Time *)
-module Progress.Make_with_time(P : Pipeline.S)(T : Time.S) (* with Time *)
+let prev = try Time.fetch world with Not_found -> Time.zero in
+Time.store world { delta = dt; elapsed = prev.elapsed +. dt; frame = prev.frame + 1 }
 ```
 
-`Progress.Make` stays untouched — `eon_ecs` never sees `Time`, the default
-stack is unaffected. `Progress.Make_with_time` is the opt-in variant that
-writes the `Time` resource before dispatching `tick`.
+Pre-initialising the resource at world setup removes any "missing on first
+frame" edge case and makes `Time.fetch` safe to call before the first tick:
 
-Sentinel module approach (`No_time` dummy) was considered and rejected —
-explicit functor names are more honest and consistent with how `System.Make`
-vs `System.Make_with_kinds` works.
+```ocaml
+Time.store world Time.zero
+```
+
+### Pause
+
+The engine's pause contract is simple: pause = time stops. `Progress.tick`
+still runs — buses collect and drain, systems execute — but `dt = 0.0` so
+`elapsed` and `frame` do not advance.
+
+`Eon_engine.Loop.run` gains a `~paused:(world -> bool)` predicate (defaults
+to `fun _ -> false`). When it returns true the loop passes `~now:last_time`
+to the internal `step`, making `dt = last_time - last_time = 0.0`. The real
+clock value is always used as `last_time` for the next iteration, so there
+is no time jump on unpause. `step` itself is unchanged. Pause state lives
+in the world (a resource or marker component) — the predicate just reads it.
+
+What games do with pause beyond that is their concern — keeping UI running,
+ticking audio independently, splitting clocks — these are game-layer problems.
+The engine has no opinion on them. Do not add fields to `Time.t` for these
+use cases.
 
 ---
 
-## Not Now
+## Where Time Lives
 
-After the core loop and Progress modes are settled — Time depends on
-knowing exactly what the loop writes each frame.
+`Time` is an `eon_engine` concern, not an `eon_ecs` primitive. `eon_ecs`
+has no awareness of `Time.S` or any time resource.
+
+### Module boundary
+
+- `Time.S` and the concrete `Time` module live in `eon_engine`.
+- `Eon_ecs.Progress` is untouched — it knows nothing about Time.
+- `Eon_engine.Progress` wraps `Eon_ecs.Progress` and adds the Time write
+  as a pre-tick step via `Make_with_time`.
+
+### `Eon_engine.Progress.Make`
+
+A pass-through alias — identical to `Eon_ecs.Progress.Make`. Engine-layer
+users who don't need `Time` use this and never touch `eon_ecs` directly.
+
+### `Eon_engine.Progress.Make_with_time`
+
+```ocaml
+(* eon_engine *)
+module Progress = struct
+  module Make_with_time
+    (P : Eon_ecs.Pipeline.S)
+    (T : Time.S)
+  = struct
+    module Base = Eon_ecs.Progress.Make(P)
+
+    let tick t ~world ~dt =
+      T.write world dt;          (* fetch-or-zero, increment, store — before any system runs *)
+      Base.tick t ~world ~dt
+  end
+end
+```
+
+Whatever world `T.write` receives must satisfy `Eon_engine.World.S` with
+`rw` capability — writing is a mutation and the type system enforces this.
+The wrapper holds a world satisfying that constraint before dispatch, so
+the call is natural.
+
+### `Time.S` signature
+
+`Time.S` is hand-written — not via `Resource.Make`. `Resource.Make` is for
+resources that need only `fetch`/`store`; `Time` adds `zero` and `write` so
+it writes its own `fetch` and `store` directly against `World.get_data` /
+`World.set_data`.
+
+```ocaml
+module type S = sig
+  type t = { delta : float; elapsed : float; frame : int }
+  val fetch : [> World.ro] World.t -> t
+  val store : World.rw World.t -> t -> unit
+  val zero  : t
+  val write : World.rw World.t -> float -> unit  (* fetch-or-zero, increment, store *)
+end
+```
+
+`write` is the one entry point `Progress.Make_with_time` calls. `fetch`,
+`store`, and `zero` are exposed for world setup and testing.
+
+---
+
+## Methods
+
+`Time.t` is a plain record — data only, no behaviour. Helpers like
+`Time.seconds_to_frames` or `Time.fps` can be added later if a real
+consumer needs them. Do not add them speculatively.
+
+---
+
+## Not in Scope
+
+- Helpers / computed fields on `Time.t` — add on demand.
+- Any time tracking outside the `Time` resource — `Progress` and the loop
+  hold only `dt`; all accumulation lives in the resource.
+- Wall-clock, UI time, audio time — game-layer concerns; the engine has no
+  opinion on them.

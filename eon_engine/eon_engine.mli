@@ -253,10 +253,23 @@ module Pipeline : sig
      and type world = World.rw World.t
 end
 
+(** {2 Time} *)
+
+(** Frame-level time resource — [delta], [elapsed], [frame].
+
+    Pre-initialise at world setup with [Time.store world Time.zero].
+    Fetch in systems via [Time.fetch world].
+    Opt in to automatic writes by using [Progress.Make_with_time] instead of
+    [Progress.Make]. *)
+module Time : module type of Time
+
 (** {2 Progress} *)
 
 (** Time-step progression manager for engine pipelines.
-    Typed for [World.rw World.t]; mirrors [Eon_ecs.Progress]. *)
+    Typed for [World.rw World.t]; mirrors [Eon_ecs.Progress].
+
+    Use [Make] for no Time resource. Use [Make_with_time] to write [Time]
+    before each tick — requires pre-initialisation with [Time.store world Time.zero]. *)
 module Progress : sig
   include module type of Progress
 end
@@ -304,7 +317,8 @@ module Color : module type of Color
     Backends extend via polymorphic variant inclusion. *)
 module Render_commands : module type of Render_commands
 
-(** Ordered render command buffer — world-space and screen-space lists. *)
+(** Ordered render command buffer — world-space and screen-space lists.
+    Also owns [fetch], [fetch_opt], and [store] for world resource access. *)
 module Render_stream : module type of Render_stream
 
 (** Non-fatal errors from a render call. *)
@@ -315,9 +329,6 @@ module Rendering_backend : module type of Rendering_backend
 
 (** Phase-ordered collector runner for [Render_stream]. *)
 module Render_stream_collector : module type of Render_stream_collector
-
-(** [Resource.S] facade for the per-frame render stream. *)
-module Render_stream_resource : module type of Render_stream_resource
 
 (** ECS system that populates and stores a [Render_stream] each frame.
     [Make(B)] produces a system typed for [B.command]. *)

@@ -107,7 +107,7 @@ let ecs_suite =
 (* ------------------------------------------------------------------ *)
 
 let () =
-  let cfg = Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) () in
+  let cfg = Benchmark.cfg ~limit:50 ~quota:(Bechamel.Time.second 1.0) () in
   Format.printf "=== Q1: Pool overhead (no-op jobs) ===@.";
   Benchmark_helpers.bench_with_gc cfg overhead_suite;
   Format.printf "@.=== Q2: Crossover point (compute jobs) ===@.";

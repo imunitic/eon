@@ -48,7 +48,13 @@ module Make
   val run :
     progress:'phase Progress.t ->
     world:Progress.world ->
+    ?paused:(Progress.world -> bool) ->
     should_continue:(Progress.world -> bool) ->
     unit ->
     Progress.world
+  (** Drive the game loop until [should_continue] returns [false].
+      [~paused] defaults to [fun _ -> false]. When it returns [true],
+      [dt = 0.0] is passed to [Progress.tick] — time stops, everything
+      else keeps running. [last_time] still advances so there is no time
+      jump on unpause. *)
 end
