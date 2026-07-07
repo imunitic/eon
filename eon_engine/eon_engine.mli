@@ -268,10 +268,15 @@ module Time : module type of Time
 (** Time-step progression manager for engine pipelines.
     Typed for [World.rw World.t]; mirrors [Eon_ecs.Progress].
 
-    Use [Make] for no Time resource. Use [Make_with_time] to write [Time]
-    before each tick — requires pre-initialisation with [Time.store world Time.zero]. *)
+    Use [Default] for no Time resource. Use [Default_with_time] for automatic
+    [Time] writes before each tick — requires pre-initialisation with
+    [Time.store world Time.zero].
+
+    [Make] / [Make_with_time] are available for custom pipeline wiring. *)
 module Progress : sig
   include module type of Progress
+  module Default           : module type of Eon_ecs.Progress.Make(Pipeline.Default)
+  module Default_with_time : module type of Eon_ecs.Progress.Make(Pipeline.Default)
 end
 
 (** {2 Assets} *)
@@ -429,3 +434,4 @@ end
 module Loop_buses : sig
   include module type of Loop_buses
 end
+

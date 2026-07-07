@@ -84,7 +84,11 @@ end
 
 module Time           = Time
 module Platform        = Platform
-module Progress       = Progress
+module Progress = struct
+  include Progress
+  module Default           = Progress.Make(Pipeline.Default)
+  module Default_with_time = Progress.Make_with_time(Pipeline.Default)(Time)
+end
 module Loop           = Loop
 module Loop_buses     = Loop_buses
 
