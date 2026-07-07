@@ -134,10 +134,12 @@ digraph eon_engine_dependencies {
     eng_raw_input     [label="Raw_input_frame"]
     eng_input_be      [label="Input_backend"]
 
+    // Time
+    eng_time          [label="Time"]
+
     // Render
     eng_render_cmds   [label="Render_commands"]
     eng_render_stream [label="Render_stream"]
-    eng_render_res    [label="Render_stream_resource"]
     eng_render_coll   [label="Render_stream_collector"]
     eng_render_sys    [label="Render_system"]
     eng_rendering_be  [label="Rendering_backend"]
@@ -153,7 +155,7 @@ digraph eon_engine_dependencies {
     eng_loop       -> eng_platform
     eng_loop       -> eng_raw_input
     eng_loop       -> eng_audio_buf
-    eng_loop       -> eng_render_res
+    eng_loop       -> eng_render_stream
     eng_platform   -> eng_input_be
     eng_platform   -> eng_rendering_be
     eng_platform   -> eng_audio_be
@@ -189,12 +191,14 @@ digraph eon_engine_dependencies {
     eng_raw_input  -> eng_gamepad_btn
     eng_input_be   -> eng_raw_input
 
+    eng_time          -> eng_world
+    eng_progress      -> eng_time
+
     eng_render_stream -> eng_render_cmds
-    eng_render_res    -> eng_world
-    eng_render_res    -> eng_render_stream
+    eng_render_stream -> eng_world
     eng_render_coll   -> eng_render_stream
     eng_render_coll   -> eng_world
-    eng_render_sys    -> eng_render_res
+    eng_render_sys    -> eng_render_stream
     eng_render_sys    -> eng_render_coll
     eng_rendering_be  -> eng_render_stream
     eng_rendering_be  -> eng_rendering_res
@@ -343,6 +347,7 @@ digraph functor_instantiation {
     eng_res_t     [label="(type t, key : Obj.t)"]
     eng_svc_t     [label="(type t, key : Obj.t)"]
     eng_render_b  [label="Rendering_backend B"]
+    eng_time_s    [label="Time\n(Time.S)"]
 
     // functors
     node [shape=box fillcolor="#b9f6ca" color="#2e7d32"]
@@ -352,6 +357,7 @@ digraph functor_instantiation {
     eng_res_make      [label="Resource.Make"]
     eng_svc_make      [label="Service.Make"]
     eng_render_make   [label="Render_system.Make_with_system"]
+    eng_prog_wt_make  [label="Progress.Make_with_time"]
 
     // results
     node [shape=box fillcolor="#2e7d32" fontcolor=white color="#1b5e20" penwidth=2]
@@ -361,6 +367,7 @@ digraph functor_instantiation {
     eng_res_mod   [label="(Resource.S module)"]
     eng_svc_mod   [label="(Service.S module)"]
     eng_render_sys [label="(Render system)"]
+    eng_prog_wt   [label="(Progress + Time)"]
 
     eng_ecs_sys  -> eng_sys_make
     eng_sys_make -> eng_sys_def
@@ -381,6 +388,10 @@ digraph functor_instantiation {
 
     eng_render_b  -> eng_render_make
     eng_render_make -> eng_render_sys
+
+    eng_pip_def    -> eng_prog_wt_make
+    eng_time_s     -> eng_prog_wt_make
+    eng_prog_wt_make -> eng_prog_wt
   }
 
   // cross-package: eon_ecs defaults feed into eon_engine
@@ -400,11 +411,11 @@ ECS_MODULES="entity_id entity_manager component component_registry sparse_set re
 # eon_engine modules — grouped by area for the coverage check
 # Format: "module:test_file_basename"  (test_file_basename without the test_ prefix)
 # When multiple modules share one test file, each lists the composite file.
-ENG_MODULES_CORE="world:world query:query view:view component:api_structure component_descriptor:api_structure components:components single_bus:api_structure double_bus:api_structure buses:api_structure system:api_structure pipeline:pipeline progress:api_structure loop:api_structure loop_buses:api_structure executor:executor sparse_set_backend:api_structure query_backend:query asset_lookup:api_structure math:math"
+ENG_MODULES_CORE="world:world query:query view:view component:api_structure component_descriptor:api_structure components:components single_bus:api_structure double_bus:api_structure buses:api_structure system:api_structure pipeline:pipeline progress:api_structure time:time loop:api_structure loop_buses:api_structure executor:executor sparse_set_backend:api_structure query_backend:query asset_lookup:api_structure math:math"
 ENG_MODULES_RESOURCE="resource:resource_service service:resource_service namespace:resource_service"
 ENG_MODULES_AUDIO="audio_command:audio audio_command_buffer:audio"
 ENG_MODULES_INPUT="raw_input_frame:input"
-ENG_MODULES_RENDER="render_commands:render_modules render_stream:render_stream render_stream_resource:render_modules render_stream_collector:render_modules render_system:render_modules rendering_backend:render_modules rendering_result:render_modules"
+ENG_MODULES_RENDER="render_commands:render_modules render_stream:render_stream render_stream_collector:render_modules render_system:render_modules rendering_backend:render_modules rendering_result:render_modules"
 ENG_MODULES_TRANSFORM="hierarchy:hierarchy transform_system:transform_system lifecycle_system:lifecycle_system"
 
 # Emit coverage nodes for eon_engine; checks test/test_<testfile>.ml
