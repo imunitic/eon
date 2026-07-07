@@ -2,7 +2,7 @@
 
 ## Status
 
-**DRAFT** — decisions settled, ready for task creation and implementation.
+**IMPLEMENTED** — implemented in ecs-035 (see issue #35).
 
 ---
 
