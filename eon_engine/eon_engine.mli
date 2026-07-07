@@ -257,10 +257,8 @@ end
 
 (** Frame-level time resource — [delta], [elapsed], [frame].
 
-    Pre-initialise at world setup with [Time.store world Time.zero].
-    Fetch in systems via [Time.fetch world].
-    Opt in to automatic writes by using [Progress.Make_with_time] instead of
-    [Progress.Make]. *)
+    [Progress.Make_with_time] seeds the resource automatically on the first tick.
+    Fetch in systems via [Time.fetch world]. *)
 module Time : module type of Time
 
 (** {2 Progress} *)
@@ -269,8 +267,8 @@ module Time : module type of Time
     Typed for [World.rw World.t]; mirrors [Eon_ecs.Progress].
 
     Use [Default] for no Time resource. Use [Default_with_time] for automatic
-    [Time] writes before each tick — requires pre-initialisation with
-    [Time.store world Time.zero].
+    [Time] writes before each tick — seeds the resource on the first tick,
+    no manual pre-initialisation needed.
 
     [Make] / [Make_with_time] are available for custom pipeline wiring. *)
 module Progress : sig

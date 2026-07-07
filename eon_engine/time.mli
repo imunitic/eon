@@ -4,8 +4,9 @@
     or the frame counter fetch it via {!fetch}; the common case is just the
     [dt] parameter passed to [update].
 
-    Pre-initialise at world setup with {!store} [world] {!zero} so that
-    {!fetch} is safe before the first tick and frame-0 semantics hold. *)
+    When using [Progress.Make_with_time], {!write} is called before the first
+    tick and seeds the resource automatically — no manual pre-initialisation
+    needed. {!fetch} raises [Not_found] only if called before the first tick. *)
 
 (** Signature every Time module satisfies. *)
 module type S = sig
@@ -22,11 +23,11 @@ end
 type t = { delta : float; elapsed : float; frame : int }
 
 val fetch : [> World.ro] World.t -> t
-(** Read the current frame's time data. Raises [Not_found] if {!store} has
-    never been called — pre-initialise with {!zero} to avoid this. *)
+(** Read the current frame's time data. Raises [Not_found] if {!write} has
+    never been called (i.e. before the first tick). *)
 
 val store : World.rw World.t -> t -> unit
-(** Write a time value directly. Used for pre-initialisation and testing. *)
+(** Write a time value directly. Useful for testing. *)
 
 val zero  : t
 val write : World.rw World.t -> float -> unit

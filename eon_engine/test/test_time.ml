@@ -54,7 +54,6 @@ let test_write_first_frame_no_prior_store () =
 
 let test_write_accumulates_elapsed () =
   let world = World.create () in
-  Time.store world Time.zero;
   Time.write world 0.016;
   Time.write world 0.016;
   Time.write world 0.016;
@@ -64,14 +63,12 @@ let test_write_accumulates_elapsed () =
 
 let test_write_delta_is_current_dt () =
   let world = World.create () in
-  Time.store world Time.zero;
   Time.write world 0.033;
   let t = Time.fetch world in
   Alcotest.(check (float 1e-9)) "delta reflects current dt" 0.033 t.Time.delta
 
 let test_write_zero_dt_does_not_advance () =
   let world = World.create () in
-  Time.store world Time.zero;
   Time.write world 0.016;
   Time.write world 0.0;
   let t = Time.fetch world in
