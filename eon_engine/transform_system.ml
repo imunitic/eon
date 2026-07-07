@@ -10,18 +10,25 @@ module Make (Sys : System.DISPATCH) = struct
     scale    = Math.Vec2.mul_v parent.scale child.scale;
   }
 
-  let rec propagate world parent_entity (parent_wt : World_transform.t) =
-    match World.get_component world parent_entity Children.component with
-    | None -> ()
-    | Some { Children.entities } ->
-      List.iter (fun child ->
-        match World.get_component world child Local_transform.component with
-        | None -> ()
-        | Some lt ->
-          let wt = compose parent_wt lt in
-          World.set_component world child World_transform.component wt;
-          propagate world child wt
-      ) entities
+  let propagate world root_entity (root_wt : World_transform.t) =
+    let rec loop = function
+      | [] -> ()
+      | (entity, parent_wt) :: rest ->
+        let next = match World.get_component world entity Children.component with
+          | None -> rest
+          | Some { Children.entities } ->
+            List.fold_left (fun acc child ->
+              match World.get_component world child Local_transform.component with
+              | None -> acc
+              | Some lt ->
+                let wt = compose parent_wt lt in
+                World.set_component world child World_transform.component wt;
+                (child, wt) :: acc
+            ) rest entities
+        in
+        loop next
+    in
+    loop [(root_entity, root_wt)]
 
   let handle_reparent world entity new_parent =
     (match World.get_component world entity Parent.component with
