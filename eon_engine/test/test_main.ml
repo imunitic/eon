@@ -25,6 +25,6 @@ let () =
     ("Render modules", Test_render_modules.tests);
     ("Transform system", Test_transform_system.tests);
     ("Lifecycle system", Test_lifecycle_system.tests);
-    ("Hierarchy", Test_hierarchy.tests);
+    ("Transform hierarchy", Test_transform_hierarchy.tests);
     ("Time", Test_time.tests);
   ]

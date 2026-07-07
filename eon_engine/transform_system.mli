@@ -14,9 +14,9 @@
     [DISPATCH] pipeline. *)
 
 module Make (Sys : System.DISPATCH) : sig
-  val make : unit -> (unit, unit, [> `Reparent of Hierarchy.reparent | `Destroy_entity of Hierarchy.entity_id ]) Sys.t
+  val make : unit -> (unit, unit, [> `Reparent of Transform_hierarchy.reparent | `Destroy_entity of Transform_hierarchy.entity_id ]) Sys.t
 end
 
 module Default : sig
-  val make : unit -> (unit, unit, [> `Reparent of Hierarchy.reparent | `Destroy_entity of Hierarchy.entity_id ]) System.Default.t
+  val make : unit -> (unit, unit, [> `Reparent of Transform_hierarchy.reparent | `Destroy_entity of Transform_hierarchy.entity_id ]) System.Default.t
 end

@@ -24,7 +24,7 @@ let test_despawn_leaf () =
   let world = create_world () in
   let e = World.create_entity world in
   let (buf, emit) = collect () in
-  Hierarchy.despawn_recursive world e ~emit;
+  Transform_hierarchy.despawn_recursive world e ~emit;
   Alcotest.(check int)  "one entity emitted" 1 (List.length !buf);
   Alcotest.(check bool) "entity is e"
     true (Eon_ecs.Entity_id.equal (List.hd !buf) e)
@@ -39,7 +39,7 @@ let test_despawn_linear_chain () =
   World.set_component world mid  Components.Children.component
     ({ entities = [leaf] } : Components.Children.t);
   let (buf, emit) = collect () in
-  Hierarchy.despawn_recursive world root ~emit;
+  Transform_hierarchy.despawn_recursive world root ~emit;
   Alcotest.(check int)  "all 3 emitted"   3 (List.length !buf);
   Alcotest.(check bool) "leaf before mid" true (pos leaf !buf < pos mid  !buf);
   Alcotest.(check bool) "mid before root" true (pos mid  !buf < pos root !buf)
@@ -55,20 +55,20 @@ let test_despawn_branching () =
   World.set_component world c1 Components.Children.component
     ({ entities = [leaf] }   : Components.Children.t);
   let (buf, emit) = collect () in
-  Hierarchy.despawn_recursive world root ~emit;
+  Transform_hierarchy.despawn_recursive world root ~emit;
   Alcotest.(check int)  "all 4 emitted"  4 (List.length !buf);
   Alcotest.(check bool) "leaf before c1" true (pos leaf !buf < pos c1   !buf);
   Alcotest.(check bool) "c1 before root" true (pos c1   !buf < pos root !buf);
   Alcotest.(check bool) "c2 before root" true (pos c2   !buf < pos root !buf);
   Alcotest.(check bool) "root is last"   true (pos root !buf = 3)
 
-(* --- Hierarchy.attach --- *)
+(* --- Transform_hierarchy.attach --- *)
 
 let test_attach_single_child () =
   let world = create_world () in
   let parent = World.create_entity world in
   let child  = World.create_entity world in
-  Hierarchy.attach world ~parent ~child;
+  Transform_hierarchy.attach world ~parent ~child;
   (match World.get_component world child Components.Parent.component with
    | None -> Alcotest.fail "child should have Parent component"
    | Some (p : Components.Parent.t) ->
@@ -85,8 +85,8 @@ let test_attach_multiple_children () =
   let parent = World.create_entity world in
   let c1 = World.create_entity world in
   let c2 = World.create_entity world in
-  Hierarchy.attach world ~parent ~child:c1;
-  Hierarchy.attach world ~parent ~child:c2;
+  Transform_hierarchy.attach world ~parent ~child:c1;
+  Transform_hierarchy.attach world ~parent ~child:c2;
   match World.get_component world parent Components.Children.component with
   | None -> Alcotest.fail "parent should have Children"
   | Some (c : Components.Children.t) ->

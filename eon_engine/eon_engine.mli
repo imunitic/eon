@@ -341,8 +341,8 @@ module Render_system : module type of Render_system
 
 (** {2 Transform & Lifecycle} *)
 
-(** Payload types for hierarchy-related commands on the command bus. *)
-module Hierarchy : sig
+(** Payload types and helpers for transform hierarchy commands and setup. *)
+module Transform_hierarchy : sig
   type reparent = {
     entity     : entity_id;
     new_parent : entity_id option;
@@ -381,11 +381,11 @@ end
     Use [Make] for a custom [DISPATCH]. *)
 module Transform_system : sig
   module Make (Sys : System.DISPATCH) : sig
-    val make : unit -> (unit, unit, [> `Reparent of Hierarchy.reparent | `Destroy_entity of entity_id ]) Sys.t
+    val make : unit -> (unit, unit, [> `Reparent of Transform_hierarchy.reparent | `Destroy_entity of entity_id ]) Sys.t
   end
 
   module Default : sig
-    val make : unit -> (unit, unit, [> `Reparent of Hierarchy.reparent | `Destroy_entity of entity_id ]) System.Default.t
+    val make : unit -> (unit, unit, [> `Reparent of Transform_hierarchy.reparent | `Destroy_entity of entity_id ]) System.Default.t
   end
 end
 

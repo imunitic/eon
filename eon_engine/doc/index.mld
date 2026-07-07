@@ -448,7 +448,7 @@ their [shutdown] counterparts after it returns.
 
 - {{!page-math}Math types} — [Vec2], [Vec2i], [Rect], [Circle], [Transform2D]: construction, common patterns, tile coordinate conversion, spatial queries, and hierarchy transforms.
 - {{!page-rendering}Rendering} — [Color], [Render_commands], [Render_stream], [Render_stream_collector], [Render_system], [Rendering_backend]: command vocabulary, phase-ordered collection, multi-camera setup, backend wiring, and complete loop integration.
-- {{!page-transform_and_lifecycle}Transform hierarchy and entity lifecycle} — [Local_transform], [World_transform], [Parent], [Children], [Transform_system], [Lifecycle_system], [Hierarchy]: DFS world-transform propagation, reparenting, entity destruction, registration order, and cascade patterns.
+- {{!page-transform_and_lifecycle}Transform hierarchy and entity lifecycle} — [Local_transform], [World_transform], [Parent], [Children], [Transform_system], [Lifecycle_system], [Transform_hierarchy]: DFS world-transform propagation, reparenting, entity destruction, registration order, and cascade patterns.
 
 {1 API reference}
 

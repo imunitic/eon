@@ -12,14 +12,14 @@
 
 module Make (Sys : System.DISPATCH) : sig
   val make :
-    ?on_command:(World.rw World.t -> ([> `Destroy_entity of Hierarchy.entity_id ] as 'c) -> unit) ->
+    ?on_command:(World.rw World.t -> ([> `Destroy_entity of Transform_hierarchy.entity_id ] as 'c) -> unit) ->
     unit ->
     (unit, unit, 'c) Sys.t
 end
 
 module Default : sig
   val make :
-    ?on_command:(World.rw World.t -> ([> `Destroy_entity of Hierarchy.entity_id ] as 'c) -> unit) ->
+    ?on_command:(World.rw World.t -> ([> `Destroy_entity of Transform_hierarchy.entity_id ] as 'c) -> unit) ->
     unit ->
     (unit, unit, 'c) System.Default.t
 end

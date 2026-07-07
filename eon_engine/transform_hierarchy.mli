@@ -1,4 +1,4 @@
-(** Payload types and helpers for hierarchy-related commands on the command bus. *)
+(** Payload types and helpers for transform hierarchy commands and setup. *)
 
 type entity_id = Eon_ecs.Entity_id.t
 

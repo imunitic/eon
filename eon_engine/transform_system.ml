@@ -77,7 +77,7 @@ module Make (Sys : System.DISPATCH) = struct
     Sys.make
       ~on_command:(fun world cmd ->
         match cmd with
-        | `Reparent ({ entity; new_parent } : Hierarchy.reparent) ->
+        | `Reparent ({ entity; new_parent } : Transform_hierarchy.reparent) ->
           handle_reparent world entity new_parent
         | `Destroy_entity entity ->
           handle_destroy world entity

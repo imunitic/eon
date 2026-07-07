@@ -100,7 +100,7 @@ let test_reparent_attach () =
   World.set_component world parent Components.Local_transform.component (lt Math.Vec2.zero);
   World.set_component world child  Components.Local_transform.component (lt Math.Vec2.zero);
   with_sys world sys (fun () ->
-    emit_cmd (`Reparent Hierarchy.{ entity = child; new_parent = Some parent });
+    emit_cmd (`Reparent Transform_hierarchy.{ entity = child; new_parent = Some parent });
     (match World.get_component world child Components.Parent.component with
      | None -> Alcotest.fail "child should have Parent after Reparent"
      | Some (p : Components.Parent.t) ->
@@ -124,7 +124,7 @@ let test_reparent_detach () =
   World.set_component world parent Components.Children.component
     ({ entities = [child] } : Components.Children.t);
   with_sys world sys (fun () ->
-    emit_cmd (`Reparent Hierarchy.{ entity = child; new_parent = None });
+    emit_cmd (`Reparent Transform_hierarchy.{ entity = child; new_parent = None });
     Alcotest.(check bool) "Parent removed after detach"
       true (World.get_component world child Components.Parent.component = None);
     Alcotest.(check bool) "Children removed when empty after detach"

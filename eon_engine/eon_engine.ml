@@ -72,7 +72,7 @@ module Rendering_backend       = Rendering_backend
 module Render_stream_collector = Render_stream_collector
 module Render_system           = Render_system
 
-module Hierarchy = Hierarchy
+module Transform_hierarchy = Transform_hierarchy
 module Transform_system = struct
   module Make    = Transform_system.Make
   module Default = Transform_system.Default

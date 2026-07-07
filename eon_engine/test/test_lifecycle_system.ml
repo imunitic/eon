@@ -48,7 +48,7 @@ let test_reparent_command_ignored () =
   let sys = Lifecycle_system.Default.make () in
   let e = World.create_entity world in
   with_pipe world (make_pipe sys) (fun () ->
-    emit_cmd (`Reparent { Hierarchy.entity = e; new_parent = None });
+    emit_cmd (`Reparent { Transform_hierarchy.entity = e; new_parent = None });
     Alcotest.(check bool) "entity still alive" true (World.is_alive world e))
 
 let test_transform_then_lifecycle_ordering () =

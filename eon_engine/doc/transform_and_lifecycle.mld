@@ -119,7 +119,7 @@ Hierarchy mutations during simulation go through the [`Reparent] command.
 
   (* Attach weapon to character *)
   Single_bus.emit (Buses.Default.commands ())
-    (`Reparent Hierarchy.{ entity = weapon; new_parent = Some character })
+    (`Reparent Transform_hierarchy.{ entity = weapon; new_parent = Some character })
 ]}
 
 After [Transform_system.update] runs:
@@ -130,7 +130,7 @@ After [Transform_system.update] runs:
 
 {2 Attach at setup time}
 
-[Hierarchy.attach] is a synchronous helper for world configuration before
+[Transform_hierarchy.attach] is a synchronous helper for world configuration before
 the simulation loop starts. It writes [Parent] and [Children] directly —
 no command bus required:
 
@@ -145,15 +145,15 @@ no command bus required:
   let weapon = World.create_entity world
 
   (* Build the hierarchy before the loop *)
-  let () = Hierarchy.attach world ~parent:root   ~child:torso
-  let () = Hierarchy.attach world ~parent:torso  ~child:weapon
+  let () = Transform_hierarchy.attach world ~parent:root   ~child:torso
+  let () = Transform_hierarchy.attach world ~parent:torso  ~child:weapon
 
   (* root → torso → weapon — Transform_system will propagate on the first frame *)
 ]}
 
 {b Only for setup time.} Once the simulation loop is running, use [`Reparent]
 commands instead — [Transform_system] needs to see the mutation during drain to
-keep [Parent] and [Children] consistent. Calling [Hierarchy.attach] mid-simulation
+keep [Parent] and [Children] consistent. Calling [Transform_hierarchy.attach] mid-simulation
 bypasses that and will leave the hierarchy in an inconsistent state.
 
 {2 Detach a child}
@@ -162,7 +162,7 @@ Pass [new_parent = None] to detach and make an entity a root again:
 
 {[
   Single_bus.emit (Buses.Default.commands ())
-    (`Reparent Hierarchy.{ entity = weapon; new_parent = None })
+    (`Reparent Transform_hierarchy.{ entity = weapon; new_parent = None })
 ]}
 
 [weapon.Parent] is removed. [character.Children] is updated (the entry is
@@ -215,7 +215,7 @@ After [drain]:
 
 {2 Cascade destruction with despawn_recursive}
 
-[Hierarchy.despawn_recursive] walks the subtree depth-first and emits
+[Transform_hierarchy.despawn_recursive] walks the subtree depth-first and emits
 [`Destroy_entity] for every node — deepest descendants first, the root
 entity last. Call it from a system's [update] (tick phase); the commands
 are queued and processed during drain as usual:
@@ -227,7 +227,7 @@ are queued and processed during drain as usual:
   let update (world : World.ro World.t) _dt =
     let emit = Single_bus.emit (Buses.Default.commands ()) in
     (* despawn the full subtree rooted at `root_entity` *)
-    Hierarchy.despawn_recursive world root_entity ~emit
+    Transform_hierarchy.despawn_recursive world root_entity ~emit
 ]}
 
 [Transform_system] detaches children and [Lifecycle_system] calls
@@ -239,7 +239,7 @@ single [`Destroy_entity].
 
 {2 Cascade destruction (manual)}
 
-If you prefer an explicit one-level cascade without [Hierarchy.despawn_recursive]:
+If you prefer an explicit one-level cascade without [Transform_hierarchy.despawn_recursive]:
 
 {[
   (* Shallow cascade: immediate children only *)
