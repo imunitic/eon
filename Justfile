@@ -1,6 +1,7 @@
 # Eon project tasks
 BENCH_NAMES := "sparse_set entity_manager query world loop"
 ENGINE_BENCH_NAMES := "executor render_stream"
+EDN_BENCH_NAMES := "edn_parser"
 
 # Build project
 build:
@@ -75,6 +76,14 @@ engine-bench name:
       *) echo "Unknown engine benchmark: {{name}}"; exit 1 ;; \
     esac
     opam exec -- dune exec --profile=release eon_engine/bench/bench_{{name}}.exe
+
+# Run an eon_edn benchmark by name: edn_parser
+edn-bench name:
+    case " {{EDN_BENCH_NAMES}} " in \
+      *" {{name}} "*) ;; \
+      *) echo "Unknown eon_edn benchmark: {{name}}"; exit 1 ;; \
+    esac
+    opam exec -- dune exec --profile=release eon_edn/bench/bench_{{name}}.exe
 
 # Run snake non-reactive example
 snake_nonreactive:

@@ -1,0 +1,4 @@
+(library
+ (name eon_edn)
+ (public_name eon-edn)
+ (flags (:standard -warn-error +A)))

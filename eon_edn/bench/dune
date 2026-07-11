@@ -1,0 +1,7 @@
+(executable
+ (name bench_edn_parser)
+ (public_name eon-edn-bench-edn-parser)
+ (modules bench_edn_parser)
+ (libraries bechamel unix eon_edn benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-edn))
