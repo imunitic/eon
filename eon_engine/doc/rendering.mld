@@ -167,17 +167,17 @@ private streams and merge them in a sequential pass.
          rotation = None; target = None; viewport = None })
 
   let collect_sprites (world : World.ro World.t) stream =
-    Query.from world
-    |> Query.having Components.Position.name
-    |> Query.having Components.Sprite.name
-    |> Query.iter (fun view ->
-         let pos    = View.get view (module Components.Position) in
+    Query.Default.from world
+    |> Query.Default.having Components.Local_transform.name
+    |> Query.Default.having Components.Sprite.name
+    |> Query.Default.iter (fun view ->
+         let lt     = View.get view (module Components.Local_transform) in
          let sprite = View.get view (module Components.Sprite) in
          Render_stream.add_world stream
            (`Draw_texture Render_commands.{
               texture_id = sprite.texture_id;
               source     = sprite.source_rect;
-              dest       = Math.Rect.create pos.x pos.y sprite.w sprite.h;
+              dest       = Math.Rect.create lt.position.x lt.position.y sprite.w sprite.h;
               rotation   = None; origin = None; tint = None;
               layer      = sprite.layer }))
 

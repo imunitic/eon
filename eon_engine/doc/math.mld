@@ -261,25 +261,28 @@ similarity transform.
 The engine ships a [Collider] component that carries shape data (circle, box,
 capsule) plus layer/mask bits. For games that don't need rigid-body physics you
 can roll your own detection in a few lines by combining [Collider] with
-[Position] and the math primitives above.
+[World_transform] and the math primitives above.
 
 {2 Building a Math shape from a Collider}
 
-[Collider.shape] stores dimensions; [Position] stores the world centre. Convert
-them to [Math] shapes before testing:
+[Collider.shape] stores dimensions; [World_transform] stores the world centre
+(use [World_transform], not [Local_transform] — it's the fully composed
+world-space value, correct regardless of parenting; see
+{{!page-transform_and_lifecycle}Transform hierarchy and entity lifecycle}).
+Convert them to [Math] shapes before testing:
 
 {[
   open Eon_engine
 
-  let circle_of (pos : Position.t) (radius : float) =
-    Math.Circle.create (Math.Vec2.create pos.x pos.y) radius
+  let circle_of (wt : World_transform.t) (radius : float) =
+    Math.Circle.create (Math.Vec2.create wt.position.x wt.position.y) radius
 
-  let rect_of (pos : Position.t) (w : float) (h : float) =
-    Math.Rect.create (pos.x -. w *. 0.5) (pos.y -. h *. 0.5) w h
+  let rect_of (wt : World_transform.t) (w : float) (h : float) =
+    Math.Rect.create (wt.position.x -. w *. 0.5) (wt.position.y -. h *. 0.5) w h
 
   let intersects_shapes
-      (pa : Position.t) (a : Collider.shape)
-      (pb : Position.t) (b : Collider.shape) =
+      (pa : World_transform.t) (a : Collider.shape)
+      (pb : World_transform.t) (b : Collider.shape) =
     match a, b with
     | Collider.Circle ra,    Collider.Circle rb    ->
         Math.Circle.intersects (circle_of pa ra) (circle_of pb rb)
@@ -294,9 +297,9 @@ them to [Math] shapes before testing:
 
 {2 A collision detection system}
 
-Query every entity that has both [Position] and [Collider], collect them into a
-list, then test all pairs. Emit a [(entity_a, entity_b)] event for each hit so
-other systems can react:
+Query every entity that has both [World_transform] and [Collider], collect
+them into a list, then test all pairs. Emit a [(entity_a, entity_b)] event
+for each hit so other systems can react:
 
 {[
   open Eon_engine
@@ -308,10 +311,10 @@ other systems can react:
   let detect_collisions world events =
     let entities = ref [] in
     Q.from world
-    |> Q.having_all [ Position.name; Collider.name ]
+    |> Q.having_all [ World_transform.name; Collider.name ]
     |> Q.iter (fun view ->
          let entity   = View.entity view in
-         let pos      = View.get view Position.component in
+         let pos      = View.get view World_transform.component in
          let collider = View.get view Collider.component in
          entities := (entity, pos, collider) :: !entities);
     (* Naive O(n²) broad phase — fine for small entity counts *)

@@ -66,17 +66,21 @@ Both systems follow the [Make(Sys : System.DISPATCH)] / [Default] pattern.
   let lifecycle  = Lifecycle_system.Default.make ()
   let transforms = Transform_system.Default.make ()
 
-  (* IMPORTANT: register Transform_system BEFORE Lifecycle_system.
-     Single_bus dispatches in pipeline registration order (FIFO),
-     so Transform_system's handler runs first — detaching children
-     before Lifecycle_system removes the entity. *)
+  (* IMPORTANT: the explicit [before] edge is what guarantees Transform
+     runs before Lifecycle — two phases with no edge between them have
+     unspecified relative order (the topological sort's tie-breaking is
+     not add_phase call order), so this cannot be left implicit.
+     Single_bus dispatches handlers in the order systems were attached,
+     which follows this phase order — so Transform_system's handler runs
+     first, detaching children before Lifecycle_system removes the entity. *)
   let pipeline =
     Pipeline.Default.create ()
-    |> Pipeline.Default.add_phase `Lifecycle
-    |> Pipeline.Default.add_system `Lifecycle lifecycle
     |> Pipeline.Default.add_phase `Transform
+    |> Pipeline.Default.add_phase `Lifecycle
+    |> Pipeline.Default.before ~earlier:`Transform ~later:`Lifecycle
     |> Pipeline.Default.add_system `Transform transforms
-    (* `Transform must come after phases that write Local_transform
+    |> Pipeline.Default.add_system `Lifecycle lifecycle
+    (* `Transform must also come after phases that write Local_transform
        and before phases that read World_transform *)
 ]}
 
@@ -94,17 +98,19 @@ Both systems follow the [Make(Sys : System.DISPATCH)] / [Default] pattern.
   let character = World.create_entity world
   let () =
     World.set_component world character Components.Local_transform.component
-      { position = Math.Vec2.create 100.0 200.0;
-        rotation = 0.0;
-        scale    = Math.Vec2.one }
+      ({ position = Math.Vec2.create 100.0 200.0;
+         rotation = 0.0;
+         scale    = Math.Vec2.one }
+       : Components.Local_transform.t)
 
   (* Spawn a weapon at offset (20, 0) — relative to whatever parent it gets *)
   let weapon = World.create_entity world
   let () =
     World.set_component world weapon Components.Local_transform.component
-      { position = Math.Vec2.create 20.0 0.0;
-        rotation = 0.0;
-        scale    = Math.Vec2.one }
+      ({ position = Math.Vec2.create 20.0 0.0;
+         rotation = 0.0;
+         scale    = Math.Vec2.one }
+       : Components.Local_transform.t)
 ]}
 
 {2 Attach a child to a parent}

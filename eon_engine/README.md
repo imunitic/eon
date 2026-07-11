@@ -6,7 +6,7 @@ Eon Engine builds on top of `eon-ecs` and adds:
 - **Capability-typed world** — phantom types (`ro`/`rw`) prevent writes from parallel systems at compile time
 - **Query builder** — composable filters with a typed `View` cursor
 - **Parallel pipeline** — `Parallel` systems run concurrently via `Executor`; `Exclusive` systems run sequentially after
-- **Built-in components** — `Position`, `Velocity`, `Rotation`, `Scale`, `Sprite`, `Animation`, `Camera`, `Collider`, `Tag`
+- **Built-in components** — `Local_transform`/`World_transform` (position, rotation, scale — see below), `Parent`/`Children`, `Velocity`, `Sprite`, `Animation`, `Camera`, `Collider`, `Tag`
 - **Rendering layer** — backend-agnostic `Render_commands`/`Render_stream`, phase-ordered `Render_stream_collector`, and a `Rendering_backend.S` seam that decouples the ECS tick from the GPU
 - **Transform hierarchy and lifecycle** — optional `Transform_system` (DFS world-transform propagation) and `Lifecycle_system` (`` `Destroy_entity `` with hierarchy-aware cascade)
 - **Prefab loading** — format-agnostic `Prefab.Make(Source)(Document_shape)`, with a batteries-included EDN instantiation (`Prefab_edn`) built on `eon-edn`
@@ -17,7 +17,6 @@ Eon Engine builds on top of `eon-ecs` and adds:
 open Eon_engine
 
 (* 1. Alias the default stack *)
-module System   = System.Default
 module Pipeline = Pipeline.Default
 module Progress = Progress
 module Loop     = Loop
@@ -33,32 +32,60 @@ let () = ignore (World.register world health)
 (* 4. Spawn an entity *)
 let player = World.create_entity world
 let () =
-  World.add_component world player Components.Position.component { x = 0.0; y = 0.0 };
-  World.add_component world player Components.Velocity.component { dx = 1.0; dy = 0.5 };
+  World.add_component world player Components.Local_transform.component
+    ({ position = Math.Vec2.zero; rotation = 0.0; scale = Math.Vec2.one }
+     : Components.Local_transform.t);
+  World.add_component world player Components.Velocity.component
+    ({ dx = 1.0; dy = 0.5 } : Components.Velocity.t);
   World.add_component world player health 100
 
-(* 5. Define a parallel system (read-only world) *)
-let movement_system =
-  System.make
-    (Parallel (fun world dt ->
-      Query.from world
-      |> Query.having Components.Position.name
-      |> Query.having Components.Velocity.name
-      |> Query.iter (fun view ->
-           let pos = View.get view (module Components.Position) in
-           let vel = View.get view (module Components.Velocity) in
-           ignore (pos.x +. vel.dx *. dt, pos.y +. vel.dy *. dt))))
-    ~kind:`Variable
-    ()
+(* 5. Define a parallel system: `update` only reads (via `Query`) and
+   emits a command — a `Parallel` system's world is `ro`, so it cannot
+   write directly. The write happens in `on_command`, which runs
+   sequentially during `drain`. `System.make_parallel` takes a
+   first-class module — its types are fixed by the module's own type
+   declarations, so (unlike the raw `System.Default.make` constructor)
+   no type annotation is needed here. *)
+module Movement = struct
+  type signal  = unit
+  type event   = unit
+  type command = [ `Move of entity_id * float * float ]
+
+  let on_signal  _ _ = ()
+  let on_event   _ _ = ()
+
+  let on_command (world : World.rw World.t) = function
+    | `Move (e, x, y) ->
+      World.set_component world e Components.Local_transform.component
+        ({ position = Math.Vec2.create x y; rotation = 0.0; scale = Math.Vec2.one }
+         : Components.Local_transform.t)
+
+  let update (world : World.ro World.t) dt =
+    let bus = Buses.Default.commands () in
+    Query.Default.from world
+    |> Query.Default.having Components.Local_transform.name
+    |> Query.Default.having Components.Velocity.name
+    |> Query.Default.iter (fun view ->
+         let e   = View.entity view in
+         let lt  = View.get view (module Components.Local_transform) in
+         let vel = View.get view (module Components.Velocity) in
+         Commands.emit bus
+           (`Move (e, lt.position.x +. vel.dx *. dt,
+                      lt.position.y +. vel.dy *. dt)))
+end
+
+let movement_system = System.make_parallel (module Movement)
 
 (* 6. Build a pipeline *)
-let pipeline =
+let pipeline : [ `Gameplay ] Pipeline.t =
   Pipeline.create ()
   |> Pipeline.add_phase `Gameplay
   |> Pipeline.add_system `Gameplay movement_system
 
-(* 7. Build loop and run *)
-module Engine_progress = Progress.Make(Pipeline.Default)
+(* 7. Build loop and run — note: `Pipeline` already aliases
+   `Eon_engine.Pipeline.Default` via the `module Pipeline = Pipeline.Default`
+   alias above, so it's passed directly here, not as `Pipeline.Default`. *)
+module Engine_progress = Progress.Make(Pipeline)
 module Engine_loop =
   Loop.Make(Eon_ecs.Clock.Mtime)(Engine_progress)(Platform.Headless)(Loop_buses)
 
@@ -149,26 +176,29 @@ end
 
 ### Query builder
 
-`Eon_engine.Query` is a composable builder that accepts both `ro` and `rw`
-worlds. Filters narrow the entity set; `iter` executes the query and
-passes a typed `Eon_engine.View` cursor per matching entity.
+`Eon_engine.Query` is a functor (pluggable backend via
+`Query_backend.S`) — `Query.Default` is the pre-instantiated, concrete
+instance backed by `World.t`; use it unless you have a custom backend.
+It accepts both `ro` and `rw` worlds. Filters narrow the entity set;
+`iter` executes the query and passes a typed `Eon_engine.View` cursor
+per matching entity.
 
 ```ocaml
-Query.from world
-|> Query.having     Components.Position.name   (* must have Position *)
-|> Query.having     Components.Velocity.name   (* must have Velocity *)
-|> Query.not_having Components.Tag.name        (* must not have Tag  *)
-|> Query.iter (fun view ->
+Query.Default.from world
+|> Query.Default.having     Components.Local_transform.name  (* must have Local_transform *)
+|> Query.Default.having     Components.Velocity.name         (* must have Velocity *)
+|> Query.Default.not_having Components.Tag.name              (* must not have Tag *)
+|> Query.Default.iter (fun view ->
      let entity = View.entity view in
-     let pos    = View.get view (module Components.Position) in
+     let lt     = View.get view (module Components.Local_transform) in
      let vel    = View.get view (module Components.Velocity) in
-     ignore (entity, pos, vel))
+     ignore (entity, lt, vel))
 ```
 
 Use `View.get` for components you required in the query (raises on
 absent — treat as programmer error). Use `View.get_opt` for optional
-components. Use `Query.count` instead of `iter` when you only need the
-entity count.
+components. Use `Query.Default.count` instead of `iter` when you only
+need the entity count.
 
 ### Parallel and exclusive systems
 
@@ -208,20 +238,22 @@ let on_event   _ _ = ()
 (* on_command runs sequentially during drain with full rw access *)
 let on_command (world : World.rw World.t) = function
   | `Move_to (entity, x, y) ->
-    World.set_component world entity Components.Position.component { x; y }
+    World.set_component world entity Components.Local_transform.component
+      ({ position = Math.Vec2.create x y; rotation = 0.0; scale = Math.Vec2.one }
+       : Components.Local_transform.t)
 
 (* update is ro — compute new positions and emit, never write directly *)
 let update (world : World.ro World.t) dt =
   let bus = Buses.Default.commands () in
-  Query.from world
-  |> Query.having Components.Position.name
-  |> Query.having Components.Velocity.name
-  |> Query.iter (fun view ->
+  Query.Default.from world
+  |> Query.Default.having Components.Local_transform.name
+  |> Query.Default.having Components.Velocity.name
+  |> Query.Default.iter (fun view ->
        let e   = View.entity view in
-       let pos = View.get view (module Components.Position) in
+       let lt  = View.get view (module Components.Local_transform) in
        let vel = View.get view (module Components.Velocity) in
-       Commands.emit bus (`Move_to (e, pos.x +. vel.dx *. dt,
-                                       pos.y +. vel.dy *. dt)))
+       Commands.emit bus (`Move_to (e, lt.position.x +. vel.dx *. dt,
+                                        lt.position.y +. vel.dy *. dt)))
 ```
 
 **Exclusive system — mutations happen in `update`, which has full `rw` access:**
@@ -234,15 +266,21 @@ type signal  = unit
 type event   = unit
 type command = unit
 
+(* This system happens not to need reactive handling — cleanup lives
+   entirely in update. That's not a property of Exclusive systems in
+   general: on_signal/on_event/on_command work exactly the same way
+   here as on a Parallel system (see "Systems with reactive bus
+   handlers" below) — always rw, always sequential during drain,
+   regardless of update's dispatch kind. *)
 let on_signal  _ _ = ()
 let on_event   _ _ = ()
 let on_command _ _ = ()
 
 (* update receives rw — spawn, destroy, add/remove components freely *)
 let update (world : World.rw World.t) _dt =
-  Query.from world
-  |> Query.having Components.Tag.name
-  |> Query.iter (fun view ->
+  Query.Default.from world
+  |> Query.Default.having Components.Tag.name
+  |> Query.Default.iter (fun view ->
        let e   = View.entity view in
        let tag = View.get view (module Components.Tag) in
        if tag = "dead" then World.destroy_entity world e)
@@ -282,14 +320,15 @@ let on_event (world : World.rw World.t) = function
 
 let on_command (world : World.rw World.t) = function
   | `Apply_damage (e, amount) ->
+    (* health_desc : int Components.t — a game-defined descriptor, see Quick start *)
     (match World.get_component world e health_desc with
      | Some hp -> World.set_component world e health_desc (hp - amount)
      | None    -> ())
 
 let update (world : World.ro World.t) _dt =
-  Query.from world
-  |> Query.having Components.Position.name
-  |> Query.iter (fun _view -> ())
+  Query.Default.from world
+  |> Query.Default.having Components.Local_transform.name
+  |> Query.Default.iter (fun _view -> ())
 ```
 
 #### Inline closure style (for simple or one-off systems)
@@ -304,14 +343,12 @@ let debug_system =
       let n = World.count_entities world in
       ignore n))
     ~kind:`Variable
-    ()
 
 let reset_system =
   System.Default.make
     (Exclusive (fun world _dt ->
       ignore (World.create_entity world)))
     ~kind:`Variable
-    ()
 ```
 
 ### Executor
@@ -368,10 +405,15 @@ Four components make up the hierarchy (`Local_transform`, `World_transform`,
 game code writes; `World_transform` is the derived, read-only result —
 never write it or `Children` directly, `Transform_system` owns both.
 
-**Registration order matters.** Both buses dispatch handlers in pipeline
-registration order (FIFO), so `Transform_system` must be registered
-*before* `Lifecycle_system` — its handler detaches children from the
-hierarchy before `Lifecycle_system` removes the entity:
+**Registration order matters.** Bus handlers dispatch in the order
+systems were `attach`ed, which follows `Pipeline.register_all`'s phase
+order — but phase order is only guaranteed where an explicit `before`/
+`after` edge exists. Two phases with no edge between them have
+*unspecified* relative order (the topological sort's tie-breaking is not
+addition order — don't rely on "I called `add_phase` for `Transform`
+first"). So `Transform`'s phase must be explicitly ordered before
+`Lifecycle`'s: its handler needs to detach children from the hierarchy
+before `Lifecycle_system` removes the entity.
 
 ```ocaml
 open Eon_engine
@@ -379,13 +421,16 @@ open Eon_engine
 let lifecycle  = Lifecycle_system.Default.make ()
 let transforms = Transform_system.Default.make ()
 
-(* IMPORTANT: Transform_system before Lifecycle_system — see above *)
+(* IMPORTANT: the explicit `before` edge is what guarantees Transform
+   runs before Lifecycle — without it, their relative order is
+   unspecified regardless of add_phase call order. *)
 let pipeline =
   Pipeline.Default.create ()
-  |> Pipeline.Default.add_phase `Lifecycle
-  |> Pipeline.Default.add_system `Lifecycle lifecycle
   |> Pipeline.Default.add_phase `Transform
+  |> Pipeline.Default.add_phase `Lifecycle
+  |> Pipeline.Default.before ~earlier:`Transform ~later:`Lifecycle
   |> Pipeline.Default.add_system `Transform transforms
+  |> Pipeline.Default.add_system `Lifecycle lifecycle
 ```
 
 Hierarchy mutations go through commands, not direct component writes:
