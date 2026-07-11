@@ -9,7 +9,16 @@ module World = World
 module Components = Components
 module Query_backend = Query_backend
 module Sparse_set_backend = Sparse_set_backend
-module Query = Query
+
+module Query = struct
+  include Query
+
+  (** Pre-instantiated with [Sparse_set_backend.Default] — the concrete
+      instance backed by [World.t]. Use this unless you have a custom
+      [Query_backend.S] implementation. *)
+  module Default = Make (Sparse_set_backend.Default)
+end
+
 module View = View
 
 module Bus        = Bus

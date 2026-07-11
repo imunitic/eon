@@ -10,7 +10,20 @@ module Query_backend = Query_backend
 
 module Sparse_set_backend = Sparse_set_backend
 
-module Query = Query
+module Query : sig
+  include module type of Query
+
+  (** Pre-instantiated with {!Sparse_set_backend.Default} — the concrete
+      instance backed by [World.t]. Use this unless you have a custom
+      {!Query_backend.S} implementation.
+
+      {[
+        Query.Default.from world
+        |> Query.Default.having Components.Velocity.name
+        |> Query.Default.iter (fun view -> ...)
+      ]} *)
+  module Default : module type of Query.Make (Sparse_set_backend.Default)
+end
 
 module View = View
 
@@ -159,7 +172,7 @@ module System : sig
         let on_command world = function `Move (e, dx, dy) -> ...
 
         let update (world : World.ro World.t) dt =
-          Query.from world |> Query.iter (fun view -> ...)
+          Query.Default.from world |> Query.Default.iter (fun view -> ...)
       ]} *)
   module type Parallel_def = System.Parallel_def
 
@@ -373,10 +386,12 @@ end
 
 (** ECS system that maintains the transform hierarchy (DFS world-transform propagation).
 
-    Register this system BEFORE [Lifecycle_system]: [Single_bus] dispatches in
-    pipeline registration order (FIFO), so this system's handler fires first —
-    detaching children before [Lifecycle_system] removes the entity.
-    Use [Make] for a custom [DISPATCH]. *)
+    Register this system's phase BEFORE [Lifecycle_system]'s, with an
+    explicit [Pipeline.before]/[after] edge — two phases with no edge
+    between them have unspecified relative order, so this cannot be left
+    implicit. Handlers attach in phase order, so this system's handler
+    fires first — detaching children before [Lifecycle_system] removes the
+    entity. Use [Make] for a custom [DISPATCH]. *)
 module Transform_system : sig
   module Make (Sys : System.DISPATCH) : sig
     val make : unit -> (unit, unit, [> `Reparent of Transform_hierarchy.reparent | `Destroy_entity of entity_id ]) Sys.t
@@ -389,10 +404,12 @@ end
 
 (** ECS system that processes [`Destroy_entity] commands.
 
-    Guards with [World.is_alive] — duplicate destroy commands for the same entity
-    are safe. Register AFTER [Transform_system]: [Single_bus] dispatches in
-    pipeline registration order (FIFO), so [Transform_system]'s handler fires
-    first — detaching children before this system removes the entity.
+    Guards with [World.is_alive] — duplicate destroy commands for the same
+    entity are safe. Register this system's phase AFTER [Transform_system]'s,
+    with an explicit [Pipeline.before]/[after] edge — two phases with no edge
+    between them have unspecified relative order, so this cannot be left
+    implicit. Handlers attach in phase order, so [Transform_system]'s handler
+    fires first — detaching children before this system removes the entity.
     Use [Make] for a custom [DISPATCH]. *)
 module Lifecycle_system : sig
   module Make (Sys : System.DISPATCH) : sig
