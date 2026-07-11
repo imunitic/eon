@@ -7,6 +7,8 @@ Eon Engine builds on top of `eon-ecs` and adds:
 - **Query builder** — composable filters with a typed `View` cursor
 - **Parallel pipeline** — `Parallel` systems run concurrently via `Executor`; `Exclusive` systems run sequentially after
 - **Built-in components** — `Position`, `Velocity`, `Rotation`, `Scale`, `Sprite`, `Animation`, `Camera`, `Collider`, `Tag`
+- **Rendering layer** — backend-agnostic `Render_commands`/`Render_stream`, phase-ordered `Render_stream_collector`, and a `Rendering_backend.S` seam that decouples the ECS tick from the GPU
+- **Transform hierarchy and lifecycle** — optional `Transform_system` (DFS world-transform propagation) and `Lifecycle_system` (`` `Destroy_entity `` with hierarchy-aware cascade)
 - **Prefab loading** — format-agnostic `Prefab.Make(Source)(Document_shape)`, with a batteries-included EDN instantiation (`Prefab_edn`) built on `eon-edn`
 
 ## Quick start
@@ -348,6 +350,184 @@ Their collect/drain semantics are identical to `eon_ecs`:
 | `Signals`  | Same-frame delivery (`drain = collect`) |
 | `Events`   | Next-frame delivery (double-buffer swap) |
 | `Commands` | Same-frame delivery, intended for mutations |
+
+### Transform hierarchy and entity lifecycle
+
+Two optional, independent systems for spatial hierarchy and controlled
+entity destruction. Use one, both, or neither — they share a command bus
+but have no module dependency on each other.
+
+| System | Responsibility |
+|---|---|
+| `Transform_system` | DFS world-transform propagation; `` `Reparent `` command handling |
+| `Lifecycle_system` | `` `Destroy_entity `` command; guards with `World.is_alive` |
+
+Four components make up the hierarchy (`Local_transform`, `World_transform`,
+`Parent`, `Children`), all registered by
+`Components.Engine_components.register_all`. `Local_transform` is what
+game code writes; `World_transform` is the derived, read-only result —
+never write it or `Children` directly, `Transform_system` owns both.
+
+**Registration order matters.** Both buses dispatch handlers in pipeline
+registration order (FIFO), so `Transform_system` must be registered
+*before* `Lifecycle_system` — its handler detaches children from the
+hierarchy before `Lifecycle_system` removes the entity:
+
+```ocaml
+open Eon_engine
+
+let lifecycle  = Lifecycle_system.Default.make ()
+let transforms = Transform_system.Default.make ()
+
+(* IMPORTANT: Transform_system before Lifecycle_system — see above *)
+let pipeline =
+  Pipeline.Default.create ()
+  |> Pipeline.Default.add_phase `Lifecycle
+  |> Pipeline.Default.add_system `Lifecycle lifecycle
+  |> Pipeline.Default.add_phase `Transform
+  |> Pipeline.Default.add_system `Transform transforms
+```
+
+Hierarchy mutations go through commands, not direct component writes:
+`` `Reparent `` (attach/detach — pass `new_parent = None` to detach) and
+`` `Destroy_entity `` (safe to emit twice; guarded by `is_alive`).
+`Transform_hierarchy.attach` is a synchronous helper for building the
+hierarchy *before* the loop starts (setup time only — mid-simulation use
+`` `Reparent `` instead, so `Transform_system` can keep `Parent`/`Children`
+consistent). `Transform_hierarchy.despawn_recursive` walks a subtree
+depth-first and emits `` `Destroy_entity `` for every node, deepest first:
+
+```ocaml
+(* In a Parallel system's update — reads world (ro), emits commands *)
+let update (world : World.ro World.t) _dt =
+  let emit = Single_bus.emit (Buses.Default.commands ()) in
+  Transform_hierarchy.despawn_recursive world root_entity ~emit
+```
+
+**Extending `Lifecycle_system`.** `Lifecycle_system.Default.make` accepts
+an optional `~on_command` callback that fires *before* the built-in
+`` `Destroy_entity `` handler — the entity is still alive when it runs, so
+its components are still readable. The callback receives the full command
+type, not just `` `Destroy_entity ``, which makes `Lifecycle_system` a
+natural extensible lifecycle hub — spawn logic, audio teardown, logging,
+particle despawn, all in one place with correct ordering relative to
+`Transform_system`:
+
+```ocaml
+let lifecycle = Lifecycle_system.Default.make
+  ~on_command:(fun world cmd ->
+    match cmd with
+    | `Spawn { position; prefab } -> Prefab.instantiate world ~position prefab
+    | `Destroy_entity entity      -> Fx.play_death_effect world entity
+    | _ -> ()
+  )
+  ()
+```
+
+Either system can be omitted independently — `Transform_system` alone
+propagates transforms with no lifecycle handling; `Lifecycle_system` alone
+destroys entities with no hierarchy cleanup (fine if entities have no
+hierarchy components). Full deep dive, including manual cascade
+destruction without either system:
+`eon_engine/doc/transform_and_lifecycle.mld`.
+
+### Rendering
+
+This is the most order-sensitive part of the engine, so it's worth
+walking through in full. The rendering layer decouples the ECS tick from
+the GPU: during a tick, game systems write backend-agnostic commands into
+a `Render_stream`; after the tick, the loop hands that stream to a
+`Rendering_backend.S` implementation which produces pixels. The two sides
+never call each other directly. Frame order:
+
+```
+collect  →  tick (Render_system clears + fills stream)
+         →  drain
+         →  Platform.Rendering_backend.render stream ~dt
+```
+
+**`Render_commands`** defines seven backend-agnostic commands covering a
+complete 2D game: `` `Clear_background ``, `` `Set_camera ``,
+`` `Draw_texture ``, `` `Draw_rect ``, `` `Draw_text ``, `` `Draw_line ``,
+`` `Draw_circle ``. Backends that need more extend the type via
+polymorphic variant inclusion — the engine never sees the extended type:
+
+```ocaml
+type command = [
+  | Render_commands.command   (* includes all seven base commands *)
+  | `Apply_shader   of shader
+  | `Draw_particles of particle_system
+]
+```
+
+**`Render_stream`** holds two independent command lists: **world space**
+(camera-relative — `` `Set_camera `` followed by draw commands, repeated
+per camera) and **screen space** (fixed regardless of camera — HUD,
+damage numbers, overlays). It's a reusable buffer: `Render_stream.clear`
+resets both lists but retains backing-array capacity, so a steady-state
+frame allocates nothing.
+
+**`Render_stream_collector`** organises collectors into named phases,
+ordered with `~after` — the same model as `Pipeline.before`/`after`. A
+collector has type `World.ro World.t -> 'command Render_stream.t -> unit`
+(read-only world access enforced by the type system). Collectors within
+and across phases run **sequentially in phase, then addition, order** —
+this is intentional: concurrent collectors writing to the same stream
+would interleave non-deterministically. For parallel collection, collect
+into per-collector private streams and merge them in a sequential pass.
+
+```ocaml
+let render_collector =
+  Render_stream_collector.create ()
+  |> Render_stream_collector.add_phase `Camera
+  |> Render_stream_collector.add_phase `World  ~after:`Camera
+  |> Render_stream_collector.add_phase `Screen ~after:`World
+  |> Render_stream_collector.add_collector `Camera collect_camera
+  |> Render_stream_collector.add_collector `World  collect_sprites
+  |> Render_stream_collector.add_collector `Screen collect_hud
+```
+
+Multi-camera setups just add more `~after`-chained phase pairs — a
+minimap is two more `add_phase` lines, no central list to edit. The
+backend then iterates the world-space list linearly and tracks camera
+state as it goes, calling `begin_mode_2d`/`end_mode_2d` around the
+commands between each `` `Set_camera ``.
+
+**`Render_system.Make`** produces a standard ECS system that (1) clears
+the `Render_stream` at the start of each tick, (2) calls
+`Render_stream_collector.collect` to repopulate it, (3) stores the stream
+reference in the world data plane under `` `Render_stream ``. It never
+calls the backend itself — add it to whichever pipeline phase runs last:
+
+```ocaml
+module My_render_system = Render_system.Make(Rendering_backend.Null)
+let render_system = My_render_system.make ~render_stream_collector:render_collector
+
+let pipeline =
+  Pipeline.Default.create ()
+  |> Pipeline.Default.add_phase `Gameplay
+  |> Pipeline.Default.add_phase `Render   ~after:`Gameplay
+  |> Pipeline.Default.add_system `Gameplay movement_system
+  |> Pipeline.Default.add_system `Render   render_system
+```
+
+`Render_system` is optional — the loop only looks for a `Render_stream`
+value under `` `Render_stream `` in the world data plane, and doesn't care
+how it got there; a headless simulation with no `Render_system`
+registered silently skips the render step.
+
+**`Rendering_backend.S`** is the seam a platform library (raylib, etc.)
+implements. It receives the populated stream once per frame, after
+`drain`, and has full autonomy over batching, layer sorting, and GPU
+dispatch — the engine imposes no structure beyond "iterate the stream".
+It returns `Rendering_result.t` for non-fatal errors (missing textures,
+unknown fonts); the loop logs those automatically, while fatal errors
+(GPU lost, OOM) should just raise. `Rendering_backend.Null` discards
+every command and is wired into `Platform.Headless` for tests and CI.
+
+Full deep dive — color, all seven commands, multi-camera walkthrough, a
+skeleton raylib backend, asset loading conventions, and non-fatal error
+handling: `eon_engine/doc/rendering.mld`.
 
 ### Input
 
