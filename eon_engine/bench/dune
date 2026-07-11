@@ -15,3 +15,11 @@
  (libraries bechamel unix eon-engine benchmark_helpers)
  (flags (:standard -warn-error -a))
  (package eon-engine))
+
+(executable
+ (name bench_prefab)
+ (public_name eon-engine-bench-prefab)
+ (modules bench_prefab)
+ (libraries bechamel unix eon-engine benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-engine))

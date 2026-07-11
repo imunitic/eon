@@ -82,6 +82,10 @@ module Lifecycle_system = struct
   module Default = Lifecycle_system.Default
 end
 
+module Prefab = Prefab
+module Prefab_edn = Prefab_edn
+module Prefab_edn_defaults = Prefab_edn_defaults
+
 module Time           = Time
 module Platform        = Platform
 module Progress = struct

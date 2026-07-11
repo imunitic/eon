@@ -2,4 +2,4 @@
 
 (test
  (name test_main)
- (libraries eon-engine eon-ecs alcotest qcheck qcheck-alcotest))
+ (libraries eon-engine eon-ecs alcotest qcheck qcheck-alcotest unix))

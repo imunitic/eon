@@ -1,0 +1,345 @@
+{0 Prefab loading}
+
+Load a named entity definition from some data source, get back a live
+entity with all its components attached:
+
+{[
+  let entity = Prefab_edn.load world "goblin"
+]}
+
+Format-agnostic by design — {!Eon_engine.Prefab.Make} is a functor over
+{i where the data comes from} and {i how a document decomposes}, not tied
+to any one format. {!Eon_engine.Prefab_edn} is the pre-built EDN
+instantiation shipped out of the box; you can build your own the same
+way for any other format.
+
+{1 The EDN prefab schema}
+
+Every [.edn] prefab document is a map with up to three keys — nothing
+else is special-cased:
+
+{table
+  {tr {th Key} {th Type} {th Meaning}}
+  {tr {td [:extends]} {td string} {td Name of a parent prefab to inherit from}}
+  {tr {td [:components]} {td map} {td Component key {i (keyword)} → component data, dispatched to a registered deserializer}}
+  {tr {td [:children]} {td vector} {td Nested prefab documents — {b not} named, each spawns as its own entity {!Eon_engine.Transform_hierarchy.attach}ed to this one}}
+}
+
+All three are independently optional — [{}] is a valid document (an
+entity with nothing attached). [:children]'s elements are full prefab
+documents themselves, recursively the same three-key shape, so nesting
+depth is unbounded.
+
+{2 Simple example}
+
+A single flat entity, no inheritance or nesting:
+
+{[
+  (* goblin.edn *)
+  {:components
+   {:Tag {:value "goblin"}
+    :Velocity {:dx 0 :dy 0}}}
+]}
+
+{2 A more advanced example}
+
+Combining all three — a base goblin, a captain variant that overrides one
+field and adds a child entity, using the [#eon/percent] tag from later
+in this page:
+
+{[
+  (* goblin_base.edn *)
+  {:components
+   {:Tag {:value "goblin"}
+    :Velocity {:dx 0 :dy 0}
+    :Health {:current 30 :max 30 :regen_rate #eon/percent "2%"}}}
+
+  (* goblin_captain.edn *)
+  {:extends "goblin_base"
+   :components
+   {:Health {:current 60 :max 60 :regen_rate #eon/percent "5%"}}
+   :children
+   [{:components
+     {:Tag {:value "banner"}
+      :Sprite {:texture_id "banner.png" :layer 1 :flip_x false :flip_y false}}}]}
+]}
+
+Loading ["goblin_captain"] produces an entity with [Health] overridden
+(60/60, faster regen), [Tag]/[Velocity] inherited from [goblin_base]
+untouched, and one child entity (the banner) attached via [:children] —
+override, inheritance, nesting, and a tag, all in one document. See the
+sections below for what each piece means and how to wire up the
+[Health]/[#eon/percent] parts yourself.
+
+{1 Using the provided EDN loader}
+
+{2 Point it at a directory}
+
+{!Eon_engine.Prefab_edn} is a functor of a root directory — same shape
+as {!Eon_engine.Asset_lookup.Dir}'s parameter — so instantiate it once
+with wherever your prefab [.edn] files live:
+
+{[
+  module Prefab_edn = Eon_engine.Prefab_edn.Make (struct
+    let path = "assets/prefabs"
+  end)
+]}
+
+[Prefab_edn.load world "goblin"] reads [assets/prefabs/goblin.edn].
+
+{2 Register deserializers}
+
+Before loading anything, every component key a prefab document might use
+needs a registered {!Eon_engine.Prefab.Component_deserializer}. The
+engine ships opt-in defaults for its own prefab-authorable components —
+nothing is registered automatically:
+
+{[
+  let () = Eon_engine.Prefab_edn_defaults.register_all Prefab_edn.register_component
+]}
+
+This covers [Velocity], [Local_transform], [Collider], [Sprite],
+[Animation], [Camera], and [Tag]. It deliberately does {b not} cover
+[Parent]/[Children]/[World_transform] — those are managed by
+{!Eon_engine.Transform_hierarchy}/{!Eon_engine.Transform_system}, set via
+[attach]/[propagate], not authored prefab data.
+
+{2 Write the prefab file}
+
+{[
+  {:components
+   {:Tag {:value "goblin"}
+    :Velocity {:dx 0 :dy 0}}}
+]}
+
+Component keys match the component's [name]
+(e.g. ["Tag"], ["Velocity"], ["Local_transform"] — [PascalCase], matching
+the module name), not a lowercase convention.
+
+{2 Load it}
+
+{[
+  let () =
+    let world = Eon_engine.World.create () in
+    Eon_engine.Components.Engine_components.register_all world;
+    let goblin = Prefab_edn.load world "goblin" in
+    ignore goblin
+]}
+
+{1 Writing your own deserializer}
+
+For a game-specific component, implement
+{!Eon_engine.Prefab.Component_deserializer} and register it under the
+key your prefab documents will use. This is the same shape
+{!Eon_engine.Prefab_edn_defaults} uses internally for the built-in
+components — small field-extraction helpers, then a record construction,
+then {!Eon_engine.World.set_component} (never [add_component] — see
+below):
+
+{[
+  module Health = struct
+    type t = { current : int; max : int }
+    let component : t Eon_engine.Components.t = Eon_engine.component "Health"
+  end
+
+  module Health_deserializer = struct
+    open Eon_edn.Edn_effects
+
+    type raw_data = value
+
+    let field kvs name =
+      match List.assoc_opt (VKeyword name) kvs with
+      | Some v -> v
+      | None -> failwith (Printf.sprintf "Health: missing field %S" name)
+
+    let as_int = function VNumber n -> int_of_float n | _ -> failwith "Health: expected a number"
+
+    let deserialize world entity ~key:_ data =
+      match data with
+      | VMap kvs ->
+          let v = { Health.current = as_int (field kvs "current"); max = as_int (field kvs "max") } in
+          Eon_engine.World.set_component world entity Health.component v
+      | _ -> failwith "Health: expected a map"
+  end
+
+  let () =
+    Prefab_edn.register_component "Health"
+      (module Health_deserializer : Eon_engine.Prefab.Component_deserializer with type raw_data = Eon_edn.Edn_effects.value)
+]}
+
+{b Always call [set_component], never [add_component].} [set_component]
+promotes to add if the component is absent, so the exact same
+deserializer works both for a fresh spawn and, later, a hot-reload
+re-run against an existing entity — [add_component] would raise on the
+second call and force two separate code paths.
+
+{b Don't forget to register the component type with the world too} —
+this is a component lifecycle rule, not a [Prefab]-specific one:
+[Prefab_edn.register_component] only wires up the {i deserializer}; the
+component type itself still needs [World.register] before any entity can
+carry it, the same as if you were calling [World.add_component] by hand:
+
+{[
+  let () =
+    let world = Eon_engine.World.create () in
+    Eon_engine.Components.Engine_components.register_all world;
+    ignore (Eon_engine.World.register world Health.component)
+]}
+
+{1 Custom EDN tags in component data}
+
+A component field can use a [#tag] to run custom logic {i during
+parsing}, before the deserializer ever sees the value — the same
+{!Eon_edn.Edn_middleware.register_tag_handler} mechanism from
+[eon-edn]'s own tutorial, just used inside a prefab document instead of
+a standalone EDN file.
+
+{2 Register the tag handler}
+
+Say prefab authors want to write a regen rate as a percentage string
+(["5%"]) rather than a raw fraction ([0.05]):
+
+{[
+  let () =
+    Eon_edn.Edn_middleware.register_tag_handler "eon/percent" (fun _ v ->
+        match v with
+        | Eon_edn.Edn_effects.VString s
+          when String.length s > 0 && s.[String.length s - 1] = '%' ->
+            let n = float_of_string (String.sub s 0 (String.length s - 1)) in
+            Eon_edn.Edn_effects.VNumber (n /. 100.0)
+        | _ -> failwith "eon/percent: expected a string like \"75%\"")
+]}
+
+Register this once, at startup, same as [Prefab_edn_defaults.register_all]
+— order relative to [register_component] doesn't matter, tag handlers and
+component deserializers are two independent registries.
+
+{2 Use it in a prefab file}
+
+{[
+  {:components {:Health {:current 80 :max 100 :regen_rate #eon/percent "5%"}}}
+]}
+
+{2 The deserializer treats it like any other field}
+
+Extending [Health] from the previous section with a [regen_rate] field —
+the field extraction is ordinary, no special-casing for the fact that
+this particular value happens to come from a tag:
+
+{[
+  module Health = struct
+    type t = { current : int; max : int; regen_rate : float }
+    let component : t Eon_engine.Components.t = Eon_engine.component "Health"
+  end
+
+  module Health_deserializer = struct
+    open Eon_edn.Edn_effects
+
+    type raw_data = value
+
+    let field kvs name =
+      match List.assoc_opt (VKeyword name) kvs with
+      | Some v -> v
+      | None -> failwith (Printf.sprintf "Health: missing field %S" name)
+
+    let as_int = function VNumber n -> int_of_float n | _ -> failwith "Health: expected a number"
+    let as_float = function VNumber n -> n | _ -> failwith "Health: expected a number"
+
+    let deserialize world entity ~key:_ data =
+      match data with
+      | VMap kvs ->
+          let v =
+            { Health.current = as_int (field kvs "current")
+            ; max = as_int (field kvs "max")
+            ; regen_rate = as_float (field kvs "regen_rate")
+            }
+          in
+          Eon_engine.World.set_component world entity Health.component v
+      | _ -> failwith "Health: expected a map"
+  end
+]}
+
+By the time [deserialize] runs, [#eon/percent "5%"] has already resolved
+to [VNumber 0.05] {i during parsing} (see [eon-edn]'s tutorial for why
+this happens inline, not as a second pass) — [as_float (field kvs
+"regen_rate")] is indistinguishable from reading any other plain numeric
+field. Verified end to end: loading a prefab with [:regen_rate
+#eon/percent "5%"] produces [Health.regen_rate = 0.05].
+
+{1 Inheritance and nested entities}
+
+{2 [:extends]}
+
+A prefab can extend another by name; the base's components load first,
+the extending prefab's data overrides/adds on top field-by-field:
+
+{[
+  (* goblin_base.edn *)
+  {:components {:Tag {:value "goblin"} :Velocity {:dx 0 :dy 0}}}
+
+  (* goblin_archer.edn *)
+  {:extends "goblin_base"
+   :components {:Velocity {:dx 5 :dy 0}}}
+]}
+
+Loading ["goblin_archer"] produces an entity with [Velocity.dx = 5]
+(overridden) and [Tag.value = "goblin"] (inherited, untouched). Chains
+resolve to arbitrary depth (["archer"] extends ["goblin"] extends
+["humanoid_base"] costs nothing extra), and a cyclic chain raises
+[Failure "prefab inheritance cycle: ..."] rather than hanging.
+
+{2 [:children]}
+
+A prefab can declare nested entities; each spawns as its own entity,
+wired to the parent via {!Eon_engine.Transform_hierarchy.attach} — the
+same primitive used for manual world setup, not special prefab-only
+hierarchy machinery:
+
+{[
+  {:components {:Tag {:value "turret"}}
+   :children
+   [{:components {:Tag {:value "turret_base"}}}
+    {:components {:Tag {:value "turret_barrel"}}}]}
+]}
+
+The root's {!Eon_engine.Components.Children} component ends up with both
+child entities; each child's {!Eon_engine.Components.Parent} points back
+at the root.
+
+{1 Building a custom instantiation}
+
+EDN isn't the only option. {!Eon_engine.Prefab.Make} takes two arguments:
+
+{table
+  {tr {th Module type} {th Responsibility}}
+  {tr {td {!Eon_engine.Prefab.Source}} {td Where the data comes from — [load : string -> raw_data]}}
+  {tr {td {!Eon_engine.Prefab.Document_shape}} {td How to decompose a document — [extends_of]/[components_of]/[children_of]/[merge]}}
+}
+
+A minimal source with no real inheritance support — everything else
+(the registry, [load]'s tail-recursive spawn work-list, cycle detection)
+comes for free from {!Eon_engine.Prefab.Make}:
+
+{[
+  module My_source = struct
+    type raw_data = My_format.t
+    let load name = My_format.read_file (name ^ ".myfmt")
+  end
+
+  module My_document = struct
+    type raw_data = My_format.t
+    let extends_of _ = None                       (* no inheritance support *)
+    let components_of doc = My_format.components doc
+    let children_of _doc = []                      (* no nesting support *)
+    let merge _base override = override             (* degenerate: override always wins *)
+  end
+
+  module My_prefab = Eon_engine.Prefab.Make (My_source) (My_document)
+]}
+
+[My_prefab.register_component]/[My_prefab.load] work exactly like
+[Prefab_edn]'s — same API, independent of [eon_edn] entirely.
+
+{1 API reference}
+
+{!modules: Eon_engine}

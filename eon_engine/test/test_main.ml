@@ -27,4 +27,6 @@ let () =
     ("Lifecycle system", Test_lifecycle_system.tests);
     ("Transform hierarchy", Test_transform_hierarchy.tests);
     ("Time", Test_time.tests);
+    ("Prefab", Test_prefab.tests);
+    ("Prefab properties", Test_prop_prefab.tests);
   ]

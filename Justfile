@@ -1,6 +1,6 @@
 # Eon project tasks
 BENCH_NAMES := "sparse_set entity_manager query world loop"
-ENGINE_BENCH_NAMES := "executor render_stream"
+ENGINE_BENCH_NAMES := "executor render_stream prefab"
 EDN_BENCH_NAMES := "edn_parser"
 
 # Build project

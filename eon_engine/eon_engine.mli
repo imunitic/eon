@@ -410,6 +410,31 @@ module Lifecycle_system : sig
   end
 end
 
+(** {2 Prefab} *)
+
+(** Generic prefab loading: [Prefab.Make(Source)(Document_shape)] gives
+    [load]/[register_component], with [raw_data] an associated type — not
+    tied to EDN or any specific format. Build your own instantiation
+    against this for a non-EDN prefab format. See
+    [docs/design/prefab_system_design.md]. *)
+module Prefab : module type of Prefab
+
+(** The pre-built EDN instantiation of [Prefab.Make] — [eon_engine]'s
+    "out of the box" prefab loading path, for the common case. Most
+    consumers only need this one. [Prefab_edn.Make(Root)], not a single
+    fixed module, since a game needs to point it at its own prefabs
+    directory. Its [Source]/[Document_shape] implementations
+    ([Edn_source]/[Edn_document]) are internal — not part of the public
+    API, since nothing needs to reuse them independently of [Prefab_edn]
+    today. *)
+module Prefab_edn : module type of Prefab_edn
+
+(** Opt-in default deserializers for the engine's prefab-authorable
+    components ([Velocity], [Local_transform], [Collider], [Sprite],
+    [Animation], [Camera], [Tag]) — not auto-registered, call
+    [register_all] explicitly if you want them. *)
+module Prefab_edn_defaults : module type of Prefab_edn_defaults
+
 (** {2 Platform} *)
 
 (** Platform seam — bundles input, audio, and rendering backends for [Loop.Make]. *)
