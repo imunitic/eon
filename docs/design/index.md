@@ -2,7 +2,7 @@
 
 Authoritative architecture and design decision documents. These govern implementation; when in conflict with other docs, these win.
 
-- [codebase_map.md](codebase_map.md) — Visual reference for the structure of `eon_ecs` and `eon_engine`: module dependency graphs (per-package and cross-package), with regeneration instructions.
+- [codebase_map.md](codebase_map.md) — Visual reference for the structure of `eon_ecs`, `eon_engine`, and `eon_edn`: module dependency graphs (per-package and cross-package), with regeneration instructions.
 - [eon_engine_design.md](eon_engine_design.md) — Top-level design document for `eon_engine`: core philosophy, principles, module structure, and how the engine layer relates to `eon_ecs`.
 - [eon_engine_query_design.md](eon_engine_query_design.md) — **SUPERSEDED** by `query_view_design.md`. Historical context for the earlier query API (`iter1..4`, `with_component`, `Archetype_backend`). Retained for design evolution reference only.
 - [world_module_design.md](world_module_design.md) — World module design (ecs-016): `World.S` signature, concrete `World` module with per-world `Id_counter`, and `Sparse_set_backend.Make(W : World.S)` functor. Supersedes the `Archetype_backend` sections of the query design doc.
