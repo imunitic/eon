@@ -52,6 +52,12 @@ bench-ci:
     for bench in {{BENCH_NAMES}}; do \
       just bench "$bench"; \
     done
+    for bench in {{ENGINE_BENCH_NAMES}}; do \
+      just engine-bench "$bench"; \
+    done
+    for bench in {{EDN_BENCH_NAMES}}; do \
+      just edn-bench "$bench"; \
+    done
 
 # Run benchmark 3 times and save outputs under /tmp
 bench-compare name:

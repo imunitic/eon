@@ -69,5 +69,17 @@ jobs:
       - name: Run world component benchmark
         run: just bench world
 
+      - name: Run loop benchmark
+        run: just bench loop
+
       - name: Run executor benchmark
         run: just engine-bench executor
+
+      - name: Run render-stream benchmark
+        run: just engine-bench render_stream
+
+      - name: Run prefab benchmark
+        run: just engine-bench prefab
+
+      - name: Run edn-parser benchmark
+        run: just edn-bench edn_parser
