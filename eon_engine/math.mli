@@ -1,9 +1,10 @@
 (** Concrete 2D math primitives. All types are exposed as records — use field
     access directly rather than accessor functions where possible.
 
-    Five modules cover the full surface needed for 2D game math:
+    Six modules cover the full surface needed for 2D game math:
     - {!Vec2} — float 2D vector: position, velocity, direction, scale
     - {!Vec2i} — integer 2D vector: tile coordinates, grid positions
+    - {!Manifold} — shape-vs-shape collision contact data (normal + depth)
     - {!Rect} — axis-aligned bounding boxes
     - {!Circle} — circle for collision and spatial queries
     - {!Transform2D} — decomposed 2D transform for the hierarchy *)
@@ -125,6 +126,21 @@ module Vec2i : sig
   (** Convert float vector to integer by ceiling each component. *)
 end
 
+module Manifold : sig
+  type t = {
+    normal : Vec2.t;
+    (** Unit vector — points from the first shape argument toward the second.
+        Direction to push the second shape (or push the first shape by
+        [Vec2.neg normal]) to resolve the overlap. *)
+    depth  : float;
+    (** Penetration depth along [normal]. Always [>= 0]. *)
+  }
+  (** Contact data returned by shape-vs-shape collision detection
+      ({!Circle.collide}, {!Circle.collide_rect}, {!Rect.collide}). Detection
+      only — no resolution, stepping, or physics simulation. See
+      [docs/design/collision_detection_functions.md] (ecs-037). *)
+end
+
 module Rect : sig
   type t = { x : float; y : float; w : float; h : float }
   (** Axis-aligned bounding box with origin at the top-left corner. *)
@@ -166,6 +182,14 @@ module Rect : sig
 
   val merge : t -> t -> t
   (** Smallest rect containing both inputs. Use for bounding-box accumulation. *)
+
+  (** {2 Collision} *)
+
+  val collide : t -> t -> Manifold.t option
+  (** Box-box (AABB) overlap test with contact data. [None] if disjoint.
+      [normal] points from the first rect toward the second, along the axis
+      of minimum penetration (standard AABB minimum-translation-vector
+      manifold — one of the four axis directions). *)
 end
 
 module Circle : sig
@@ -183,6 +207,19 @@ module Circle : sig
 
   val intersects_rect : t -> Rect.t -> bool
   (** Circle-AABB intersection test. True if the circle and rect overlap. *)
+
+  (** {2 Collision} *)
+
+  val collide : t -> t -> Manifold.t option
+  (** Circle-circle overlap test with contact data. [None] if disjoint.
+      [normal] points from the first circle's center toward the second's. *)
+
+  val collide_rect : t -> Rect.t -> Manifold.t option
+  (** Circle-box overlap test with contact data. [None] if disjoint.
+      [normal] points from the rect toward the circle (i.e. the direction
+      that would push the circle out of the box). If the circle's center
+      lies inside the box, falls back to pushing out along whichever edge
+      is nearest. *)
 end
 
 module Transform2D : sig

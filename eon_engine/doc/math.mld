@@ -1,6 +1,6 @@
 {0 Math types}
 
-{!Eon_engine.Math} provides five concrete 2D math primitives. All types are
+{!Eon_engine.Math} provides six concrete 2D math primitives. All types are
 plain records — read and write fields directly, no getters required.
 
 {1 Vec2 — float vectors}
@@ -179,6 +179,39 @@ EDN-loaded level data. The key operations are the conversions from [Vec2].
 
 Circles are cheaper than rects for radial checks (distance squared vs AABB
 overlap), and more natural for explosion radii, aggro ranges, and pick-up areas.
+
+{2 Collision detection with contact data}
+
+[intersects] / [intersects_rect] only answer yes/no. When you need to
+separate two overlapping shapes — not just detect the overlap — use
+[collide] / [collide_rect] instead. They return a
+{{!Eon_engine.Math.Manifold}[Manifold.t]}: a unit [normal] (pointing from the
+first shape toward the second) plus a penetration [depth]:
+
+{[
+  open Eon_engine.Math
+
+  let a = Circle.create (Vec2.create 0.0 0.0) 20.0
+  let b = Circle.create (Vec2.create 25.0 0.0) 10.0
+
+  let resolve () =
+    match Circle.collide a b with
+    | None -> ()
+    | Some { Manifold.normal; depth } ->
+      (* push b out of a along normal by depth *)
+      let separation = Vec2.mul normal depth in
+      ignore separation
+
+  let () = resolve ()
+]}
+
+Circle-Circle ([Circle.collide]), Circle-Box ([Circle.collide_rect]), and
+Box-Box ([Rect.collide]) are supported. Capsule pairs are not implemented yet.
+These functions detect only — no resolution, stepping, or physics simulation;
+see [docs/design/collision_detection_functions.md] (ecs-037) for the full API
+and scope, including why rotational response (torque, contact points) is a
+deliberate non-goal — that's rigid-body simulation territory, and the answer
+there is to integrate a physics engine like Box2D, not extend this module.
 
 {1 Transform2D — spatial hierarchy}
 

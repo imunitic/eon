@@ -160,6 +160,27 @@ let prop_circle_contains_center =
     arb_circle
     (fun c -> Circle.contains_point c c.Circle.center)
 
+let manifold_valid (m : Manifold.t) = float_eq (Vec2.length m.normal) 1.0 && m.depth >= 0.0
+
+let prop_circle_collide_manifold_valid =
+  QCheck.Test.make ~name:"Circle collide manifold has unit normal and depth >= 0" ~count:1_000
+    (QCheck.pair arb_circle arb_circle)
+    (fun (a, b) ->
+       match Circle.collide a b with
+       | None   -> true
+       | Some m -> manifold_valid m)
+
+let prop_circle_collide_symmetric =
+  QCheck.Test.make ~name:"Circle collide swapping args negates normal, same depth" ~count:1_000
+    (QCheck.pair arb_circle arb_circle)
+    (fun (a, b) ->
+       match Circle.collide a b, Circle.collide b a with
+       | None, None -> true
+       | Some m1, Some m2 ->
+         vec2_eq m1.normal (Vec2.neg m2.normal) && float_eq m1.depth m2.depth
+       | _ -> false)
+
+
 (* ------------------------------------------------------------------ *)
 (* Rect properties                                                      *)
 (* ------------------------------------------------------------------ *)
@@ -211,6 +232,32 @@ let prop_rect_intersection_consistent_with_contains =
        match Rect.intersection a b with
        | None    -> not (Rect.intersects a b)
        | Some _i -> Rect.intersects a b)
+
+let prop_circle_collide_rect_manifold_valid =
+  QCheck.Test.make ~name:"Circle collide_rect manifold has unit normal and depth >= 0" ~count:1_000
+    (QCheck.pair arb_circle arb_rect)
+    (fun (c, r) ->
+       match Circle.collide_rect c r with
+       | None   -> true
+       | Some m -> manifold_valid m)
+
+let prop_rect_collide_manifold_valid =
+  QCheck.Test.make ~name:"Rect collide manifold has unit normal and depth >= 0" ~count:1_000
+    (QCheck.pair arb_rect arb_rect)
+    (fun (a, b) ->
+       match Rect.collide a b with
+       | None   -> true
+       | Some m -> manifold_valid m)
+
+let prop_rect_collide_symmetric =
+  QCheck.Test.make ~name:"Rect collide swapping args negates normal, same depth" ~count:1_000
+    (QCheck.pair arb_rect arb_rect)
+    (fun (a, b) ->
+       match Rect.collide a b, Rect.collide b a with
+       | None, None -> true
+       | Some m1, Some m2 ->
+         vec2_eq m1.normal (Vec2.neg m2.normal) && float_eq m1.depth m2.depth
+       | _ -> false)
 
 (* ------------------------------------------------------------------ *)
 (* Transform2D properties                                               *)
@@ -318,6 +365,11 @@ let tests =
     prop_vec2i_to_vec2_floor_roundtrip;
     prop_circle_intersects_symmetric;
     prop_circle_contains_center;
+    prop_circle_collide_manifold_valid;
+    prop_circle_collide_symmetric;
+    prop_circle_collide_rect_manifold_valid;
+    prop_rect_collide_manifold_valid;
+    prop_rect_collide_symmetric;
     prop_vec2_add_associative;
     prop_vec2_mul_div_roundtrip;
     prop_vec2_length_sq_eq_length_squared;

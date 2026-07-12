@@ -69,6 +69,13 @@ module Vec2i = struct
   let of_vec2_ceil  v  = { x = int_of_float (ceil v.Vec2.x); y = int_of_float (ceil v.Vec2.y) }
 end
 
+module Manifold = struct
+  type t = {
+    normal : Vec2.t;
+    depth  : float;
+  }
+end
+
 module Rect = struct
   type t = { x : float; y : float; w : float; h : float }
 
@@ -109,6 +116,23 @@ module Rect = struct
     let x1 = Float.max (a.x +. a.w) (b.x +. b.w) in
     let y1 = Float.max (a.y +. a.h) (b.y +. b.h) in
     { x = x0; y = y0; w = x1 -. x0; h = y1 -. y0 }
+
+  let collide a b =
+    let overlap_x = Float.min (a.x +. a.w) (b.x +. b.w) -. Float.max a.x b.x in
+    let overlap_y = Float.min (a.y +. a.h) (b.y +. b.h) -. Float.max a.y b.y in
+    if overlap_x <= 0.0 || overlap_y <= 0.0 then None
+    else
+      let ac = center a and bc = center b in
+      if overlap_x < overlap_y then
+        let normal =
+          if ac.Vec2.x < bc.Vec2.x then Vec2.create 1.0 0.0 else Vec2.create (-1.0) 0.0
+        in
+        Some Manifold.{ normal; depth = overlap_x }
+      else
+        let normal =
+          if ac.Vec2.y < bc.Vec2.y then Vec2.create 0.0 1.0 else Vec2.create 0.0 (-1.0)
+        in
+        Some Manifold.{ normal; depth = overlap_y }
 end
 
 module Circle = struct
@@ -129,6 +153,41 @@ module Circle = struct
     let dx = c.center.Vec2.x -. cx in
     let dy = c.center.Vec2.y -. cy in
     dx *. dx +. dy *. dy <= c.radius *. c.radius
+
+  let collide a b =
+    let d = Vec2.sub b.center a.center in
+    let dist = Vec2.length d in
+    let overlap = a.radius +. b.radius -. dist in
+    if overlap <= 0.0 then None
+    else
+      let normal = if dist > 0.0 then Vec2.div d dist else Vec2.create 1.0 0.0 in
+      Some Manifold.{ normal; depth = overlap }
+
+  let collide_rect c r =
+    let cx = Float.max r.Rect.x (Float.min c.center.Vec2.x (r.Rect.x +. r.Rect.w)) in
+    let cy = Float.max r.Rect.y (Float.min c.center.Vec2.y (r.Rect.y +. r.Rect.h)) in
+    let dx = c.center.Vec2.x -. cx in
+    let dy = c.center.Vec2.y -. cy in
+    let dist_sq = dx *. dx +. dy *. dy in
+    if dist_sq >= c.radius *. c.radius then None
+    else if dist_sq > 0.0 then
+      let dist = sqrt dist_sq in
+      let normal = Vec2.create (dx /. dist) (dy /. dist) in
+      Some Manifold.{ normal; depth = c.radius -. dist }
+    else
+      (* center inside the box: push out along whichever edge is nearest *)
+      let left   = c.center.Vec2.x -. r.Rect.x in
+      let right  = r.Rect.x +. r.Rect.w -. c.center.Vec2.x in
+      let top    = c.center.Vec2.y -. r.Rect.y in
+      let bottom = r.Rect.y +. r.Rect.h -. c.center.Vec2.y in
+      let min_dist = Float.min (Float.min left right) (Float.min top bottom) in
+      let normal =
+        if min_dist = left then Vec2.create (-1.0) 0.0
+        else if min_dist = right then Vec2.create 1.0 0.0
+        else if min_dist = top then Vec2.create 0.0 (-1.0)
+        else Vec2.create 0.0 1.0
+      in
+      Some Manifold.{ normal; depth = c.radius +. min_dist }
 end
 
 module Transform2D = struct

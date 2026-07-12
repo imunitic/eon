@@ -14,6 +14,15 @@ let check_transform ~msg (a : Transform2D.t) (b : Transform2D.t) =
   check_float ~msg:(msg ^ ".rotation") a.rotation b.rotation;
   check_vec2  ~msg:(msg ^ ".scale")    a.scale    b.scale
 
+let check_manifold ~msg (m : Manifold.t) ~normal ~depth =
+  check_vec2  ~msg:(msg ^ ".normal") m.normal normal;
+  check_float ~msg:(msg ^ ".depth")  m.depth  depth
+
+let check_none_manifold ~msg (m : Manifold.t option) =
+  match m with
+  | None -> ()
+  | Some _ -> Alcotest.fail (msg ^ ": expected None")
+
 (* ------------------------------------------------------------------ *)
 (* Vec2                                                                 *)
 (* ------------------------------------------------------------------ *)
@@ -254,6 +263,89 @@ let test_circle_intersects_rect () =
   Alcotest.(check bool) "separate"    false (Circle.intersects_rect c r_far)
 
 (* ------------------------------------------------------------------ *)
+(* Collision: Circle.collide (circle-circle)                            *)
+(* ------------------------------------------------------------------ *)
+
+let test_circle_collide_overlapping () =
+  let a = Circle.create (Vec2.create 0.0 0.0) 3.0 in
+  let b = Circle.create (Vec2.create 4.0 0.0) 2.0 in
+  match Circle.collide a b with
+  | None -> Alcotest.fail "expected Some"
+  | Some m -> check_manifold ~msg:"circle-circle" m ~normal:(Vec2.create 1.0 0.0) ~depth:1.0
+
+let test_circle_collide_disjoint () =
+  let a = Circle.create (Vec2.create 0.0 0.0) 1.0 in
+  let b = Circle.create (Vec2.create 10.0 0.0) 1.0 in
+  check_none_manifold ~msg:"circle-circle disjoint" (Circle.collide a b)
+
+let test_circle_collide_edge_touching () =
+  (* radii sum exactly equals distance: overlap = 0, treated as no collision *)
+  let a = Circle.create (Vec2.create 0.0 0.0) 2.0 in
+  let b = Circle.create (Vec2.create 5.0 0.0) 3.0 in
+  check_none_manifold ~msg:"circle-circle edge-touching" (Circle.collide a b)
+
+let test_circle_collide_same_center () =
+  (* degenerate: identical centers — normal falls back to (1, 0) *)
+  let a = Circle.create (Vec2.create 2.0 2.0) 3.0 in
+  let b = Circle.create (Vec2.create 2.0 2.0) 4.0 in
+  match Circle.collide a b with
+  | None -> Alcotest.fail "expected Some"
+  | Some m -> check_manifold ~msg:"circle-circle same center" m ~normal:(Vec2.create 1.0 0.0) ~depth:7.0
+
+(* ------------------------------------------------------------------ *)
+(* Collision: Circle.collide_rect (circle-box)                          *)
+(* ------------------------------------------------------------------ *)
+
+let test_circle_collide_rect_overlapping () =
+  let c = Circle.create (Vec2.create 0.0 0.0) 5.0 in
+  let r = Rect.create 3.0 0.0 4.0 4.0 in
+  match Circle.collide_rect c r with
+  | None -> Alcotest.fail "expected Some"
+  | Some m ->
+    (* rect's nearest point to the circle's center is (3, 0); normal points
+       from that point toward the circle's center, i.e. back toward it *)
+    check_manifold ~msg:"circle-box" m ~normal:(Vec2.create (-1.0) 0.0) ~depth:2.0
+
+let test_circle_collide_rect_disjoint () =
+  let c = Circle.create (Vec2.create 0.0 0.0) 1.0 in
+  let r = Rect.create 10.0 10.0 2.0 2.0 in
+  check_none_manifold ~msg:"circle-box disjoint" (Circle.collide_rect c r)
+
+let test_circle_collide_rect_edge_touching () =
+  let c = Circle.create (Vec2.create 0.0 0.0) 3.0 in
+  let r = Rect.create 3.0 (-1.0) 2.0 2.0 in
+  check_none_manifold ~msg:"circle-box edge-touching" (Circle.collide_rect c r)
+
+let test_circle_collide_rect_center_inside () =
+  (* degenerate: circle center inside the box — nearest edge is the right one *)
+  let c = Circle.create (Vec2.create 4.0 5.0) 1.0 in
+  let r = Rect.create 0.0 0.0 5.0 10.0 in
+  match Circle.collide_rect c r with
+  | None -> Alcotest.fail "expected Some"
+  | Some m -> check_manifold ~msg:"circle-box center inside" m ~normal:(Vec2.create 1.0 0.0) ~depth:2.0
+
+(* ------------------------------------------------------------------ *)
+(* Collision: Rect.collide (box-box)                                    *)
+(* ------------------------------------------------------------------ *)
+
+let test_rect_collide_overlapping () =
+  let a = Rect.create 0.0 0.0 5.0 5.0 in
+  let b = Rect.create 3.0 0.0 5.0 5.0 in
+  match Rect.collide a b with
+  | None -> Alcotest.fail "expected Some"
+  | Some m -> check_manifold ~msg:"box-box" m ~normal:(Vec2.create 1.0 0.0) ~depth:2.0
+
+let test_rect_collide_disjoint () =
+  let a = Rect.create 0.0 0.0 5.0 5.0 in
+  let b = Rect.create 10.0 10.0 2.0 2.0 in
+  check_none_manifold ~msg:"box-box disjoint" (Rect.collide a b)
+
+let test_rect_collide_edge_touching () =
+  let a = Rect.create 0.0 0.0 5.0 5.0 in
+  let b = Rect.create 5.0 0.0 5.0 5.0 in
+  check_none_manifold ~msg:"box-box edge-touching" (Rect.collide a b)
+
+(* ------------------------------------------------------------------ *)
 (* Transform2D                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -364,6 +456,17 @@ let tests = [
   "Circle contains_point",    `Quick, test_circle_contains_point;
   "Circle intersects",        `Quick, test_circle_intersects;
   "Circle intersects_rect",   `Quick, test_circle_intersects_rect;
+  "Circle collide overlapping",         `Quick, test_circle_collide_overlapping;
+  "Circle collide disjoint",            `Quick, test_circle_collide_disjoint;
+  "Circle collide edge-touching",       `Quick, test_circle_collide_edge_touching;
+  "Circle collide same center",         `Quick, test_circle_collide_same_center;
+  "Circle collide_rect overlapping",    `Quick, test_circle_collide_rect_overlapping;
+  "Circle collide_rect disjoint",       `Quick, test_circle_collide_rect_disjoint;
+  "Circle collide_rect edge-touching",  `Quick, test_circle_collide_rect_edge_touching;
+  "Circle collide_rect center inside",  `Quick, test_circle_collide_rect_center_inside;
+  "Rect collide overlapping",           `Quick, test_rect_collide_overlapping;
+  "Rect collide disjoint",              `Quick, test_rect_collide_disjoint;
+  "Rect collide edge-touching",         `Quick, test_rect_collide_edge_touching;
   "Transform2D identity",                  `Quick, test_transform_identity;
   "Transform2D compose identity left",     `Quick, test_transform_compose_identity_left;
   "Transform2D compose identity right",    `Quick, test_transform_compose_identity_right;
