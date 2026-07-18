@@ -166,6 +166,13 @@ private streams and merge them in a sequential pass.
          position = (0.0, 0.0); zoom = None;
          rotation = None; target = None; viewport = None })
 
+  (* Components.Sprite.t is { texture_id; layer; flip_x; flip_y } — it does
+     NOT carry a source rect or a size. A real sprite renderer needs a size
+     from somewhere else (an atlas lookup keyed by texture_id, a separate
+     Size component, etc.) — this uses a fixed placeholder size to keep the
+     collector runnable without inventing an unshipped component. *)
+  let sprite_size = 32.0
+
   let collect_sprites (world : World.ro World.t) stream =
     Query.Default.from world
     |> Query.Default.having Components.Local_transform.name
@@ -176,8 +183,8 @@ private streams and merge them in a sequential pass.
          Render_stream.add_world stream
            (`Draw_texture Render_commands.{
               texture_id = sprite.texture_id;
-              source     = sprite.source_rect;
-              dest       = Math.Rect.create lt.position.x lt.position.y sprite.w sprite.h;
+              source     = None;
+              dest       = Math.Rect.create lt.position.x lt.position.y sprite_size sprite_size;
               rotation   = None; origin = None; tint = None;
               layer      = sprite.layer }))
 
@@ -207,6 +214,32 @@ camera is two more [add_phase] lines — no central list to edit.
 
 {[
   open Eon_engine
+
+  let collect_main_camera (_world : World.ro World.t) stream =
+    Render_stream.add_world stream
+      (`Set_camera Render_commands.{
+         position = (0.0, 0.0); zoom = None;
+         rotation = None; target = None; viewport = None })
+
+  let collect_minimap_camera (_world : World.ro World.t) stream =
+    Render_stream.add_world stream
+      (`Set_camera Render_commands.{
+         position = (0.0, 0.0); zoom = Some 0.1;
+         rotation = None; target = None;
+         viewport = Some (Math.Rect.create 500.0 10.0 128.0 128.0) })
+
+  let collect_minimap_icons (_world : World.ro World.t) stream =
+    Render_stream.add_world stream
+      (`Draw_circle Render_commands.{
+         center = (0.0, 0.0); radius = 2.0; color = Color.white;
+         filled = true; layer = 0 })
+
+  let collect_hud (_world : World.ro World.t) stream =
+    Render_stream.add_screen stream
+      (`Draw_text Render_commands.{
+         text = "HP: 100"; position = (8.0, 8.0);
+         font_id = "fonts/ui.ttf"; size = 14.0;
+         color = Color.white; layer = 0 })
 
   let render_collector =
     Render_stream_collector.create ()
@@ -239,64 +272,77 @@ calling [begin_mode_2d] / [end_mode_2d] around the commands between each
 
 {1 Render system}
 
-{!Eon_engine.Render_system.Make} produces a standard ECS system that:
+{!Eon_engine.Render_system.Make} is documented to produce a standard ECS
+system that clears the [Render_stream] at the start of each tick, calls
+[Render_stream_collector.collect] to repopulate it, and stores the stream
+reference in the world data plane. It never calls the backend.
 
-+ Clears the [Render_stream] at the start of each tick
-+ Calls [Render_stream_collector.collect] to repopulate it
-+ Stores the stream reference in the world data plane under [`Render_stream]
-
-It never calls the backend. Add it to whichever pipeline phase runs last.
+{b [Render_system.Make(B).make]'s result cannot actually be passed to
+[Pipeline.Default.add_system] today} — confirmed by direct experiment.
+[eon_engine.mli] declares [module Render_system : module type of
+Render_system], a raw signature copy of the private
+[src/render/render_system.mli]. That file's own [Make(B).make]'s return
+type is written as [(unit, unit, unit) System.Default.t] using {i its own}
+in-scope private [System] module — copying the signature verbatim does not
+repoint that reference at the public [Eon_engine.System.Default], so the
+value comes out typed as an abstract [Eon_engine__System.Default.t],
+distinct from the [Eon_engine.System.Default.t] that
+[Pipeline.Default.add_system] expects.
+{{!page-queries_and_systems}Transform_system and Lifecycle_system} don't
+have this problem because [eon_engine.mli] gives them a hand-written
+signature that references the public [System] module directly, instead of
+[module type of]-copying their private one — until [Render_system] gets the
+same treatment, drive it manually: call the collector and
+[Render_stream.store] directly from an [Exclusive] system, replicating what
+[Render_system] does internally:
 
 {[
   open Eon_engine
 
-  (* Wire Render_system for the Null backend (headless / tests) *)
-  module My_render_system = Render_system.Make(Rendering_backend.Null)
-
   let render_system =
-    My_render_system.make ~render_stream_collector:render_collector
+    System.Default.make
+      (Exclusive (fun world _dt ->
+        let stream = Render_stream.create () in
+        Render_stream_collector.collect render_collector (World.readonly world) stream;
+        Render_stream.store world stream))
 
   let pipeline =
     Pipeline.Default.create ()
-    |> Pipeline.Default.add_phase `Gameplay
-    |> Pipeline.Default.add_phase `Render   ~after:`Gameplay
-    |> Pipeline.Default.add_system `Gameplay movement_system
-    |> Pipeline.Default.add_system `Render   render_system
+    |> Pipeline.Default.add_phase `Render
+    |> Pipeline.Default.add_system `Render render_system
 ]}
 
-{2 Custom system module}
+Unqualified [Exclusive] resolves via type-directed disambiguation from
+[System.Default.make]'s expected argument type, the same as
+{{!page-queries_and_systems}the previous chapter}'s inline-closure systems —
+the qualified [System.Exclusive] form does not.
 
-When using a pipeline built with a custom [System.Make] / [Pipeline.Make],
-use [Render_system.Make_with_system] to match the system type:
+{2 Bypassing Render_system entirely}
 
-{[
-  open Eon_engine
-
-  module My_system = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
-
-  module My_render = Render_system.Make_with_system
-    (Rendering_backend.Null)
-    (My_system)
-
-  let render_system = My_render.make ~render_stream_collector:render_collector
-]}
-
-{2 Bypassing Render_system}
-
-[Render_system] is optional. The loop only looks for a [Render_stream] value
-under [`Render_stream] in the world data plane — it does not care how it got
-there. Write any [Exclusive] system and call [World.set_data] directly:
+The loop only looks for a value [Render_stream.fetch_opt] can find in the
+world data plane — it does not care how it got there, so any [Exclusive]
+system populating and storing a stream (as above) already {i is} "bypassing
+[Render_system]" in the sense the original API intends. Use
+[Render_stream.fetch_opt]/[store] directly, not raw [World.get_data]/
+[set_data] with a bare [`Render_stream] tag — [Render_stream] wraps that raw
+plane with its own internal key, the same [Resource]-style facade pattern
+from {{!page-world_and_components}World and components}, and a hand-rolled
+tag will not round-trip through it:
 
 {[
   open Eon_engine
 
   let my_custom_render_system =
-    System.Default.make (System.Exclusive (fun world _dt ->
-      let stream = World.get_data world `My_private_stream
-        |> Option.value ~default:(Render_stream.create ()) in
-      (* ... custom population logic ... *)
-      World.set_data world `Render_stream stream
-    ))
+    System.Default.make
+      (Exclusive (fun world _dt ->
+        let stream =
+          match Render_stream.fetch_opt (World.readonly world) with
+          | Some s -> s
+          | None -> Render_stream.create ()
+        in
+        Render_stream.add_world stream (`Clear_background Color.black);
+        (* ... custom population logic ... *)
+        Render_stream.store world stream))
 ]}
 
 {1 Rendering backend}
@@ -432,6 +478,9 @@ requires no changes to loop setup.
 
 {1 Complete wiring example}
 
+Every collector below ([collect_camera], [collect_sprites], [collect_hud])
+was defined earlier in this chapter:
+
 {[
   open Eon_engine
 
@@ -445,19 +494,25 @@ requires no changes to loop setup.
     |> Render_stream_collector.add_collector `World  collect_sprites
     |> Render_stream_collector.add_collector `Screen collect_hud
 
-  (* 2. Build the render system *)
-  module My_render_system = Render_system.Make(Rendering_backend.Null)
-
+  (* 2. Build the render system — manually, per "Render system" above;
+     Render_system.Make(B).make cannot be passed to
+     Pipeline.Default.add_system today *)
   let render_system =
-    My_render_system.make ~render_stream_collector:render_collector
+    System.Default.make
+      (Exclusive (fun world _dt ->
+        let stream = Render_stream.create () in
+        Render_stream_collector.collect render_collector (World.readonly world) stream;
+        Render_stream.store world stream))
 
   (* 3. Build the pipeline *)
   let pipeline =
     Pipeline.Default.create ()
-    |> Pipeline.Default.add_phase `Gameplay
-    |> Pipeline.Default.add_phase `Render   ~after:`Gameplay
-    |> Pipeline.Default.add_system `Gameplay movement_system
-    |> Pipeline.Default.add_system `Render   render_system
+    |> Pipeline.Default.add_phase `Render
+
+  (* Add gameplay systems that write Local_transform / Sprite before this
+     phase, with a Pipeline.before/after edge — omitted here since none are
+     defined in this example *)
+  let pipeline = pipeline |> Pipeline.Default.add_system `Render render_system
 
   (* 4. Build and run the loop *)
   module Engine_progress = Progress.Make(Pipeline.Default)
@@ -471,6 +526,13 @@ requires no changes to loop setup.
   let () =
     let world    = World.create () in
     let ()       = Components.Engine_components.register_all world in
+    Pipeline.Default.register_all pipeline world;
     let progress = Engine_progress.create ~mode:Engine_progress.Variable pipeline in
     ignore (Engine_loop.run ~progress ~world ~should_continue:(fun _ -> true) ())
 ]}
+
+{1 Next}
+
+{{!page-audio}Audio} — [Audio_backend], [Audio_command], [Audio_command_buffer]:
+the command vocabulary, the shared per-frame buffer any system can append
+to, voice budget prioritization, and a worked spatial-audio example.

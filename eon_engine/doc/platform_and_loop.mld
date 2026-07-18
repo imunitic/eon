@@ -1,0 +1,165 @@
+{0 Platform and loop}
+
+Continuing from {{!page-queries_and_systems}Queries and systems}: this
+chapter covers the engine's buses in their platform context, input polling,
+the [Platform.S] backend seam, and [Loop.Make], which ties collect/tick/drain
+into one automatic per-frame call. Examples are from
+{{:https://github.com/imunitic/eon/blob/main/eon_engine/examples/book/platform_and_loop_example.ml}[platform_and_loop_example.ml]}.
+
+{1 Buses}
+
+The engine buses ([Signals], [Events], [Commands]) are mutex-wrapped
+versions of the core [eon_ecs] buses, safe to [emit] from parallel system
+threads. Their collect/drain semantics are otherwise identical:
+
+{table
+  {tr {th Module} {th Semantics}}
+  {tr {td [Signals]}  {td Same-frame delivery ([drain = collect])}}
+  {tr {td [Events]}   {td Next-frame delivery (double-buffer swap) — an emission needs {b two} drains before its handler fires, see {{!page-queries_and_systems}the previous chapter}'s worked example}}
+  {tr {td [Commands]} {td Same-frame delivery, intended for mutations}}
+}
+
+[Loop.Make] (below) drains all three automatically, in the fixed order
+Signals → Commands → Events, once per frame — the previous chapter's manual
+[Commands.drain] calls exist only because those examples called
+[Pipeline.run] directly, without a [Loop].
+
+{1 Input}
+
+The engine's input job is minimal: poll the platform backend once per frame
+and store the result as a {!Eon_engine.Raw_input_frame} world resource. Game
+systems read it via [Raw_input_frame.fetch]/[fetch_opt world] — {b not}
+[.get], which doesn't exist. [fetch] raises [Not_found] before the first
+tick (absent frame is a programming error); [fetch_opt] returns [None]
+instead. Everything above the raw frame — action mapping, binding tables,
+event dispatch — is a game-layer concern.
+
+{b Key types} are backend-agnostic enums. Backends map native codes to these:
+
+{table
+  {tr {th Module} {th Description}}
+  {tr {td {!Eon_engine.Key}}           {td Keyboard keys}}
+  {tr {td {!Eon_engine.Mouse_button}}  {td Mouse buttons}}
+  {tr {td {!Eon_engine.Gamepad_button}} {td Gamepad buttons}}
+}
+
+Each has a [Set] submodule ([Key.Set], [Mouse_button.Set], [Gamepad_button.Set])
+for efficient membership tests.
+
+{b Raw_input_frame} is an immutable snapshot written before [Buses.collect]
+runs. Fields include pressed/released/down sets, mouse position and delta,
+gamepad state, scroll delta, text input from the OS IME, and a timestamped
+event list — see {!Eon_engine.Raw_input_frame.t} for the full record.
+
+{b Input_backend.S} is the seam for platform-specific input polling. Two
+built-in implementations ship with the engine:
+
+- {!Eon_engine.Input_backend.Null} — always returns [Raw_input_frame.empty]
+- {!Eon_engine.Input_backend.Scripted} — replays a pre-set list of frames;
+  use this in tests to feed deterministic input without a window. Returns
+  [Raw_input_frame.empty] once the list is exhausted.
+
+{[
+  Input_backend.Scripted.set_frames
+    [ { Raw_input_frame.empty with
+        keys_pressed = Key.Set.singleton Key.Space };
+      Raw_input_frame.empty ];
+
+  let frame1 = Input_backend.Scripted.collect () in
+  assert (Key.Set.mem Key.Space frame1.keys_pressed);
+
+  let frame2 = Input_backend.Scripted.collect () in
+  assert (Key.Set.is_empty frame2.keys_pressed);
+
+  (* Once exhausted, Scripted returns Raw_input_frame.empty. *)
+  let frame3 = Input_backend.Scripted.collect () in
+  assert (frame3 = Raw_input_frame.empty);
+  Input_backend.Scripted.shutdown ()
+]}
+
+Reading a frame stored in the world, from inside a system's [update]:
+
+{[
+  let update (world : World.rw World.t) _dt =
+    match Raw_input_frame.fetch_opt world with
+    | None -> ()
+    | Some frame ->
+      if Key.Set.mem Key.Space frame.keys_pressed then
+        (* space was pressed this frame — emit a jump command *)
+        ()
+]}
+
+{1 Platform}
+
+{!Eon_engine.Platform.S} is the compile-time seam passed to [Loop.Make]. It
+bundles [Input_backend], [Audio_backend], and [Rendering_backend]. Game
+binaries supply a concrete platform (e.g. a raylib platform); servers and
+tests use {!Eon_engine.Platform.Headless} — null input, audio, and rendering:
+
+{[
+  let module P = Platform.Headless in
+  P.Input_backend.init ();
+  let frame = P.Input_backend.collect () in
+  assert (frame = Raw_input_frame.empty);
+  P.Input_backend.shutdown ()
+]}
+
+{1 Loop}
+
+{!Eon_engine.Loop.Make} orchestrates one frame:
+
++ [Platform.Input_backend.collect ()] — poll backend; result stored as
+  [Raw_input_frame] world resource before any system runs
++ [Buses.collect] — Signals, then Events, then Commands
++ [Progress.tick] — runs the pipeline; [Render_system] (if registered) clears
+  and populates the [Render_stream] during this step
++ [Buses.drain] — Signals, then Commands, then Events
++ [Platform.Audio_backend.submit] — submit accumulated audio commands
++ [Platform.Rendering_backend.render] — consume the [Render_stream] from the
+  world data plane; skipped silently if no stream is present
+
+[Loop.run] calls [init] on all three backends before entering the loop and
+their [shutdown] counterparts after it returns.
+
+[Loop.Make]'s bus argument type is [Eon_ecs.Loop.BUSES] (just [collect] /
+[drain] : [unit -> unit]), not [Eon_engine.Bus.S] — {!Eon_engine.Loop_buses}
+satisfies it, closed over {!Eon_engine.Buses.Default} at module init time
+(no world argument, no per-frame service lookups needed). Its [Progress]
+argument needs [type world = World.rw World.t] and a matching [tick] —
+{!Eon_engine.Progress.Default} ([Progress.Make(Pipeline.Default)]) is the
+one to reach for:
+
+{[
+  module Engine_progress = Progress.Make (Pipeline.Default)
+
+  module Engine_loop =
+    Loop.Make
+      (Eon_ecs.Clock.Mtime)
+      (Engine_progress)
+      (Platform.Headless)
+      (Loop_buses)
+
+  let world = make_world () in
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Gameplay
+  in
+  Pipeline.Default.reset pipeline;
+  Pipeline.Default.register_all pipeline world;
+  let progress = Engine_progress.create ~mode:Engine_progress.Variable pipeline in
+
+  let final_world =
+    Engine_loop.run ~progress ~world
+      ~should_continue:(fun _world -> (* your exit condition *) false)
+      ()
+]}
+
+For a game binary, swap [Platform.Headless] for a concrete platform backed by
+your chosen windowing and audio library — nothing else in the assembly
+changes.
+
+{1 Next}
+
+{{!page-math}Math types} — [Vec2], [Vec2i], [Rect], [Circle], [Transform2D]:
+construction, common patterns, tile coordinate conversion, spatial queries,
+and hierarchy transforms.

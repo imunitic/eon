@@ -4,14 +4,19 @@ Load a named entity definition from some data source, get back a live
 entity with all its components attached:
 
 {[
+  module Prefab_edn = Eon_engine.Prefab_edn.Make (struct
+    let path = "assets/prefabs"
+  end)
+
   let entity = Prefab_edn.load world "goblin"
 ]}
 
-Format-agnostic by design — {!Eon_engine.Prefab.Make} is a functor over
-{i where the data comes from} and {i how a document decomposes}, not tied
-to any one format. {!Eon_engine.Prefab_edn} is the pre-built EDN
-instantiation shipped out of the box; you can build your own the same
-way for any other format.
+[Prefab_edn] is a functor — [Prefab_edn.load] doesn't exist until it's
+applied to a root directory, as above. Format-agnostic by design —
+{!Eon_engine.Prefab.Make} is a functor over {i where the data comes from}
+and {i how a document decomposes}, not tied to any one format.
+{!Eon_engine.Prefab_edn} is the pre-built EDN instantiation shipped out of
+the box; you can build your own the same way for any other format.
 
 {1 The EDN prefab schema}
 
@@ -340,6 +345,53 @@ comes for free from {!Eon_engine.Prefab.Make}:
 [My_prefab.register_component]/[My_prefab.load] work exactly like
 [Prefab_edn]'s — same API, independent of [eon_edn] entirely.
 
-{1 API reference}
+{1 Asset_lookup}
 
-{!modules: Eon_engine}
+{!Eon_engine.Asset_lookup} maps logical string ids to absolute file paths —
+the same directory-is-the-manifest idea {!Eon_engine.Prefab_edn} uses for
+prefab files, generalised to any asset kind. Backends receive a module
+satisfying {!Eon_engine.Asset_lookup.S} at [init] time and walk it once
+(via [iter]) to pre-load assets into their own internal handles; game code
+never sees those handles, only the logical id strings, forever:
+
+{[
+  assets/
+    sounds/hit.wav   →  logical_id: "sounds/hit.wav"
+    music/theme.ogg  →  logical_id: "music/theme.ogg"
+]}
+
+{table
+  {tr {th Module} {th Behaviour}}
+  {tr {td {!Eon_engine.Asset_lookup.Dir}} {td Scans a root directory recursively at every [iter] call — hot-reloading friendly, no code changes needed to pick up a new file}}
+  {tr {td {!Eon_engine.Asset_lookup.Null}} {td Always empty — CI and tests that need no real files}}
+  {tr {td {!Eon_engine.Asset_lookup.Scripted}} {td Hand-maintained [(logical_id, absolute_path)] list — tests that need precise control over which assets are visible}}
+}
+
+{[
+  open Eon_engine
+
+  module Assets = Asset_lookup.Dir (struct
+    let path = "assets/prefabs"
+  end)
+
+  let () =
+    Assets.iter (fun logical_id absolute_path ->
+      Printf.printf "%s -> %s\n" logical_id absolute_path)
+
+  let () =
+    Asset_lookup.Scripted.set [ ("sounds/hit.wav", "/tmp/hit.wav") ];
+    Asset_lookup.Scripted.iter (fun id path ->
+      Printf.printf "%s -> %s\n" id path)
+]}
+
+There is no central asset manager anywhere in the engine — each backend
+(rendering, audio) owns its own GPU/audio handles from [init] to
+[shutdown], resolved from the same logical ids an [Asset_lookup.S] walked
+at startup. See {{!page-rendering}Rendering}'s "Asset loading" section for
+the backend side of this contract.
+
+{1 Next}
+
+This is the last chapter — return to {{!page-index}the index} for the API
+reference, or revisit {{!page-world_and_components}World and components}
+to start again from the beginning.

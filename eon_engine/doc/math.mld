@@ -302,29 +302,43 @@ can roll your own detection in a few lines by combining [Collider] with
 (use [World_transform], not [Local_transform] — it's the fully composed
 world-space value, correct regardless of parenting; see
 {{!page-transform_and_lifecycle}Transform hierarchy and entity lifecycle}).
-Convert them to [Math] shapes before testing:
+Convert them to [Math] shapes before testing. Both components are reached as
+[Components.World_transform] / [Components.Collider] — the bare, unqualified
+names [World_transform] / [Collider] don't exist at this scope:
 
 {[
   open Eon_engine
 
-  let circle_of (wt : World_transform.t) (radius : float) =
+  let circle_of (wt : Components.World_transform.t) (radius : float) =
     Math.Circle.create (Math.Vec2.create wt.position.x wt.position.y) radius
 
-  let rect_of (wt : World_transform.t) (w : float) (h : float) =
+  let rect_of (wt : Components.World_transform.t) (w : float) (h : float) =
     Math.Rect.create (wt.position.x -. w *. 0.5) (wt.position.y -. h *. 0.5) w h
+]}
 
+{b [Components.Collider]'s shape type and constructors have no accessible
+qualified path at all.} [Components.Collider] is constrained to
+[Component.S] ([type t], [component], [name] only) — the [shape] type and
+its [Circle]/[Box]/[Capsule] constructors aren't part of that signature, and
+the underlying [Collider] module that declares them is never re-exported by
+[eon_engine.mli] under any public path. There is no way to write the type
+annotation [Components.Collider.shape] or the qualified pattern
+[Components.Collider.Circle _] from outside [eon_engine]. Match on the bare,
+unqualified field access and constructors instead — type-directed
+disambiguation resolves them from the already-pinned [Components.Collider.t]
+argument type, the same mechanism that makes bare [Parallel]/[Exclusive]
+work in {{!page-queries_and_systems}the previous chapter}, just with no
+qualified fallback available here at all:
+
+{[
   let intersects_shapes
-      (pa : World_transform.t) (a : Collider.shape)
-      (pb : World_transform.t) (b : Collider.shape) =
-    match a, b with
-    | Collider.Circle ra,    Collider.Circle rb    ->
-        Math.Circle.intersects (circle_of pa ra) (circle_of pb rb)
-    | Collider.Box (wa, ha), Collider.Box (wb, hb) ->
-        Math.Rect.intersects (rect_of pa wa ha) (rect_of pb wb hb)
-    | Collider.Circle r,     Collider.Box (w, h)   ->
-        Math.Circle.intersects_rect (circle_of pa r) (rect_of pb w h)
-    | Collider.Box (w, h),   Collider.Circle r     ->
-        Math.Circle.intersects_rect (circle_of pb r) (rect_of pa w h)
+      (pa : Components.World_transform.t) (ca : Components.Collider.t)
+      (pb : Components.World_transform.t) (cb : Components.Collider.t) =
+    match ca.shape, cb.shape with
+    | Circle ra,    Circle rb    -> Math.Circle.intersects (circle_of pa ra) (circle_of pb rb)
+    | Box (wa, ha), Box (wb, hb) -> Math.Rect.intersects (rect_of pa wa ha) (rect_of pb wb hb)
+    | Circle r,     Box (w, h)   -> Math.Circle.intersects_rect (circle_of pa r) (rect_of pb w h)
+    | Box (w, h),   Circle r     -> Math.Circle.intersects_rect (circle_of pb r) (rect_of pa w h)
     | _ -> false   (* Capsule: delegate to a physics library *)
 ]}
 
@@ -332,23 +346,25 @@ Convert them to [Math] shapes before testing:
 
 Query every entity that has both [World_transform] and [Collider], collect
 them into a list, then test all pairs. Emit a [(entity_a, entity_b)] event
-for each hit so other systems can react:
+for each hit so other systems can react. {!Eon_engine.Query.Default} is the
+pre-instantiated query instance — no need to re-apply
+[Query.Make(Sparse_set_backend.Default)] by hand. [View.get] needs a
+first-class module ([module Components.World_transform]), not a bare
+[.component] value — see {{!page-queries_and_systems}Queries and systems}:
 
 {[
   open Eon_engine
 
-  module Q = Query.Make(Sparse_set_backend.Default)
-
-  (* world  : rw World.t   — the ECS world
-     events : (Entity_id.t * Entity_id.t) Events.t — bus for collision events *)
-  let detect_collisions world events =
+  (* world  : ro World.t   — the ECS world
+     events : (Eon_ecs.Entity_id.t * Eon_ecs.Entity_id.t) Events.t — collision-event bus *)
+  let detect_collisions (world : World.ro World.t) events =
     let entities = ref [] in
-    Q.from world
-    |> Q.having_all [ World_transform.name; Collider.name ]
-    |> Q.iter (fun view ->
+    Query.Default.from world
+    |> Query.Default.having_all [ Components.World_transform.name; Components.Collider.name ]
+    |> Query.Default.iter (fun view ->
          let entity   = View.entity view in
-         let pos      = View.get view World_transform.component in
-         let collider = View.get view Collider.component in
+         let pos      = View.get view (module Components.World_transform) in
+         let collider = View.get view (module Components.Collider) in
          entities := (entity, pos, collider) :: !entities);
     (* Naive O(n²) broad phase — fine for small entity counts *)
     let arr = Array.of_list !entities in
@@ -358,13 +374,12 @@ for each hit so other systems can react:
       for j = i + 1 to n - 1 do
         let (eb, pb, cb) = arr.(j) in
         let layers_interact =
-          ca.Collider.mask land cb.Collider.layer <> 0 ||
-          cb.Collider.mask land ca.Collider.layer <> 0
+          ca.mask land cb.layer <> 0 ||
+          cb.mask land ca.layer <> 0
         in
-        if layers_interact &&
-           intersects_shapes pa ca.Collider.shape pb cb.Collider.shape
+        if layers_interact && intersects_shapes pa ca pb cb
         then
-          Events.emit events (ea, eb)
+          Double_bus.emit events (ea, eb)
       done
     done
 ]}
@@ -372,3 +387,10 @@ for each hit so other systems can react:
 For larger scenes replace the O(n²) loop with a spatial hash or a broadphase
 grid — the [Math] primitives and [Collider] data stay the same; only the
 iteration strategy changes.
+
+{1 Next}
+
+{{!page-transform_and_lifecycle}Transform hierarchy and entity lifecycle} —
+[Local_transform], [World_transform], [Parent], [Children],
+[Transform_system], [Lifecycle_system]: DFS world-transform propagation,
+reparenting, entity destruction, registration order, and cascade patterns.

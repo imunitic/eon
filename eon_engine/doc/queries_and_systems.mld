@@ -1,0 +1,298 @@
+{0 Queries and systems}
+
+Continuing from {{!page-world_and_components}World and components}: this
+chapter covers reading component data through {!Eon_engine.Query}, and the
+two ways engine systems declare how they touch the world —
+{!Eon_engine.System}'s [Parallel]/[Exclusive] dispatch and the
+{!Eon_engine.Executor} seam underneath it. Examples are from
+{{:https://github.com/imunitic/eon/blob/main/eon_engine/examples/book/queries_and_systems_example.ml}[queries_and_systems_example.ml]}.
+
+{1 Query builder}
+
+{!Eon_engine.Query} is a functor (pluggable backend via
+{!Eon_engine.Query_backend.S}) — {!Eon_engine.Query.Default} is the
+pre-instantiated, concrete instance backed by [World.t]; use it unless you
+have a custom backend. It accepts both [ro] and [rw] worlds.
+[having]/[having_all]/[not_having]/[not_having_any] take component
+{i names} (plain [string], via [Components.Foo.name]), not descriptors —
+they narrow the entity set; [iter] executes the query and passes a typed
+{!Eon_engine.View} cursor per matching entity, [count] returns the size of
+the intersection without a callback:
+
+{[
+  let moving_count =
+    Query.Default.from world
+    |> Query.Default.having Components.Local_transform.name
+    |> Query.Default.having Components.Velocity.name
+    |> Query.Default.count
+  in
+  assert (moving_count = 1);
+
+  Query.Default.from world
+  |> Query.Default.having Components.Local_transform.name
+  |> Query.Default.having Components.Velocity.name
+  |> Query.Default.iter (fun view ->
+       let e = View.entity view in
+       assert (e = mover));
+
+  let without_velocity_count =
+    Query.Default.from world
+    |> Query.Default.having Components.Local_transform.name
+    |> Query.Default.not_having Components.Velocity.name
+    |> Query.Default.count
+  in
+  assert (without_velocity_count = 1)
+]}
+
+Use [View.get] for components you required in the query (raises on absent —
+treat as programmer error). Use [View.get_opt] for optional components.
+
+{1 Parallel and exclusive systems}
+
+Engine systems declare their world-access pattern up front:
+
+- {b [Parallel]} — [update] receives [World.ro World.t]; the pipeline dispatches it concurrently with other parallel systems in the same phase. Safe for queries and reads.
+- {b [Exclusive]} — [update] receives [World.rw World.t]; runs sequentially {i after} all parallel systems in the phase have completed. Structural mutations — spawning, destroying entities, adding or removing components — belong in [update] here; that is the entire reason [Exclusive] exists.
+
+{2 Module-based style (recommended)}
+
+Each system lives in its own file and satisfies either {!Eon_engine.System.Parallel_def}
+or {!Eon_engine.System.Exclusive_def}. Both signatures require:
+
+- [type signal], [type event], [type command] — the message payload types for the three buses
+- [on_signal], [on_event], [on_command] — reactive handlers; implement as [let on_* _ _ = ()] if unused
+- [update] — [World.ro World.t] for [Parallel_def], [World.rw World.t] for [Exclusive_def]
+
+{b Parallel system — queries in [update], writes via emitted commands:}
+
+Parallel systems cannot write directly in [update] — the world is [ro] there.
+Instead they compute new state and emit a command; the [on_command] handler
+applies the mutation with [rw] access once the command bus is drained.
+
+{[
+  module Movement = struct
+    type signal  = unit
+    type event   = unit
+    type command = [ `Move_to of Eon_ecs.Entity_id.t * float * float ]
+
+    let on_signal  _ _ = ()
+    let on_event   _ _ = ()
+
+    let on_command (world : World.rw World.t) = function
+      | `Move_to (entity, x, y) ->
+        World.set_component world entity Components.Local_transform.component
+          ({ position = Math.Vec2.create x y; rotation = 0.0; scale = Math.Vec2.one }
+           : Components.Local_transform.t)
+
+    let update (world : World.ro World.t) dt =
+      let bus = Buses.Default.commands () in
+      Query.Default.from world
+      |> Query.Default.having Components.Local_transform.name
+      |> Query.Default.having Components.Velocity.name
+      |> Query.Default.iter (fun view ->
+           let e   = View.entity view in
+           let lt  = View.get view (module Components.Local_transform) in
+           let vel = View.get view (module Components.Velocity) in
+           Commands.emit bus (`Move_to (e, lt.position.x +. vel.dx *. dt,
+                                            lt.position.y +. vel.dy *. dt)))
+  end
+]}
+
+{b Exclusive system — mutations happen in [update], which has full [rw] access:}
+
+{[
+  module Cleanup = struct
+    type signal  = unit
+    type event   = unit
+    type command = unit
+
+    let on_signal  _ _ = ()
+    let on_event   _ _ = ()
+    let on_command _ _ = ()
+
+    let update (world : World.rw World.t) _dt =
+      Query.Default.from world
+      |> Query.Default.having Components.Tag.name
+      |> Query.Default.iter (fun view ->
+           let e   = View.entity view in
+           let tag = View.get view (module Components.Tag) in
+           if tag.value = "dead" then World.destroy_entity world e)
+  end
+]}
+
+Note [Components.Tag.t] is [{ value : string }], not a bare [string] —
+dereference [.value] to compare it.
+
+{b Assemble and add to the pipeline:}
+
+{[
+  let pipeline =
+    Pipeline.Default.create ()
+    |> Pipeline.Default.add_phase `Gameplay
+    |> Pipeline.Default.add_system `Gameplay (System.make_parallel  (module Movement))
+    |> Pipeline.Default.add_system `Gameplay (System.make_exclusive (module Cleanup))
+    (* parallel systems run concurrently first,
+       then exclusive systems run with rw access *)
+]}
+
+{b [Pipeline.run] does not drain any bus.} It dispatches parallel systems
+(concurrently, via [Executor.run_all]) then exclusive systems (sequentially)
+for each phase — but a command emitted during [update] is only staged. The
+caller must drain the command bus ([Commands.drain], an alias for
+[Single_bus]'s [collect]) before [on_command] actually runs.
+{{!page-platform_and_loop}The next chapter's [Loop]} does this automatically
+every frame; calling [Pipeline.run] directly, as below, means doing it by
+hand:
+
+{[
+  Pipeline.Default.register_all pipeline world;
+  let world = Pipeline.Default.run pipeline world (1.0 /. 60.0) in
+  Commands.drain (Buses.Default.commands ());
+
+  (match World.get_component world mover Components.Local_transform.component with
+   | Some (lt : Components.Local_transform.t) -> assert (lt.position.x > 0.0)
+   | None -> assert false);
+  assert (not (World.is_alive world corpse))
+]}
+
+{b [Pipeline.Default] shares one process-global bus.} [Pipeline.Default]
+wires [System.Default] to the process-global {!Eon_engine.Buses.Default}
+singleton. Every [Pipeline.Default.create ()] is a fresh phase/system graph,
+but [register_all] attaches its systems' handlers to that same global bus —
+calling [register_all] again from a second, independent [Pipeline.Default]
+instance without an intervening [Pipeline.Default.reset pipeline] leaves the
+first instance's handlers still subscribed, so a later drain dispatches to
+both. Call [reset] (on the fresh pipeline, before [register_all]) whenever
+more than one [Pipeline.Default]-based system set runs in the same process —
+a single long-running game usually only registers once and never hits this,
+but tests and REPL sessions do.
+
+{2 Systems with reactive bus handlers}
+
+Bus handlers always receive [World.rw World.t] regardless of the system's
+[Parallel]/[Exclusive] dispatch — handlers run sequentially during drain,
+never concurrently. [Signals] and [Commands] ({!Eon_engine.Single_bus}) need
+one drain; [Events] ({!Eon_engine.Double_bus}) are next-frame — an emission
+is only visible to [on_event] after {b two} drains: the first moves it from
+the staging queue into the live queue, the second actually dispatches it.
+
+{[
+  module Combat = struct
+    type signal  = unit
+    type event   = [ `Enemy_died of Eon_ecs.Entity_id.t ]
+    type command = [ `Apply_damage of Eon_ecs.Entity_id.t * int ]
+
+    let on_signal _ _ = ()
+
+    let on_event (world : World.rw World.t) = function
+      | `Enemy_died e -> World.destroy_entity world e
+
+    let health : int Components.t = Eon_engine.component "Health"
+
+    let on_command (world : World.rw World.t) = function
+      | `Apply_damage (e, amount) ->
+        (match World.get_component world e health with
+         | Some hp -> World.set_component world e health (hp - amount)
+         | None -> ())
+
+    let update (_world : World.ro World.t) _dt = ()
+  end
+]}
+
+{[
+  (* Command path: one drain is enough. *)
+  Single_bus.emit (Buses.Default.commands ()) (`Apply_damage (attacker, 3));
+  Commands.drain (Buses.Default.commands ());
+  (match World.get_component world attacker Combat.health with
+   | Some hp -> assert (hp = 7)
+   | None -> assert false);
+
+  (* Event path: needs two drains before on_event fires. *)
+  Double_bus.emit (Buses.Default.events ()) (`Enemy_died enemy);
+  assert (World.is_alive world enemy);
+  Events.drain (Buses.Default.events ());
+  assert (World.is_alive world enemy);   (* not dispatched yet *)
+  Events.drain (Buses.Default.events ());
+  assert (not (World.is_alive world enemy))
+]}
+
+{2 Inline closure style (for simple or one-off systems)}
+
+For throwaway or test systems, skip the module file and pass closures
+directly. [Parallel]/[Exclusive] resolve here via type-directed
+disambiguation from [System.Default.make]'s expected argument type — write
+them unqualified:
+
+{[
+  let debug_system =
+    System.Default.make
+      (Parallel (fun world _dt ->
+        let n = World.count_entities world in
+        ignore n))
+      ~kind:`Variable
+
+  let reset_system =
+    System.Default.make
+      (Exclusive (fun world _dt ->
+        ignore (World.create_entity world)))
+      ~kind:`Variable
+]}
+
+The fully-qualified form ([System.Exclusive], [System.Parallel]) does
+{b not} resolve — [eon_engine.mli] never re-exports [System.update_kind] or
+its constructors under the [System] module path, only [System.S]/[DISPATCH]/
+[Make]/[Default], which reference [update_kind] structurally. Write the
+constructors unqualified, as above.
+
+{1 Executor}
+
+{!Eon_engine.Executor} is the threading-substrate seam [Pipeline.Make]
+dispatches parallel jobs through — [Executor.S] is just [run_all : (unit ->
+unit) list -> unit], synchronous, blocking until every job completes.
+[Pipeline.Default] is fixed to [Executor.Sequential] internally:
+
+{[
+  let counter = Atomic.make 0 in
+  let jobs = List.init 8 (fun _ () -> Atomic.incr counter) in
+  Executor.Sequential.run_all jobs;
+  assert (Atomic.get counter = 8);
+
+  let pool_size = max 1 (Executor.Domain_pool.recommended_size () - 1) in
+  let module Pool = Executor.Domain_pool.Make (struct let size = pool_size end) in
+  let counter2 = Atomic.make 0 in
+  let jobs2 = List.init 8 (fun _ () -> Atomic.incr counter2) in
+  Pool.run_all jobs2;
+  assert (Atomic.get counter2 = 8)
+]}
+
+[Executor.run_all] is always synchronous — it returns only after every job
+finishes, giving automatic phase barriers with no extra synchronisation
+code. [Domain_pool.recommended_size] returns all logical cores minus
+Domain 0 (the main program domain), clamped to at least 1; for a game,
+prefer [max 1 (recommended_size () - 1)] to leave a core free for the
+render thread and OS work.
+
+{b Assembling a custom [Pipeline.Make] with a different [Executor] is not
+currently possible from application code}, despite what the module doc
+comments on [System.Make]/[Pipeline.Make] suggest (e.g. "pass
+[System.Make(Core)] as the system argument"). [eon_engine.mli]'s
+[System.Make (C : Eon_ecs.System.S) : System.DISPATCH with type kind =
+C.kind] leaves [Signal_bus]/[Event_bus]/[Command_bus] abstract — it does not
+also constrain them to [= C.Signal_bus] etc. Every concrete [Buses] value
+([Buses.Default], or a fresh [Buses.Make(Single_bus)(Double_bus)(Single_bus)])
+is then structurally incompatible with any [System.Make(...)] result's bus
+types when passed to [Pipeline.Make], even when built from the exact same
+underlying [Single_bus]/[Double_bus] modules. [Pipeline.Default] sidesteps
+this because it is assembled inside [eon_engine] itself, where the types are
+still transparent. Until [System.Make]'s signature additionally exposes
+[and module Signal_bus = C.Signal_bus and module Event_bus = C.Event_bus and
+module Command_bus = C.Command_bus], a custom-[Executor] pipeline is a
+library-internal capability only — use [Executor.run_all] directly, as
+above, if you need domain-pool parallelism for your own job batches outside
+the pipeline.
+
+{1 Next}
+
+{{!page-platform_and_loop}Platform and loop} — buses in more depth, input,
+the platform backend trifecta, and [Loop], which drives collect/tick/drain
+automatically every frame.

@@ -31,11 +31,8 @@ derived, read-only result. Never write [World_transform] or [Children] directly 
   open Eon_engine
 
   (* Local_transform — position/rotation/scale relative to parent (or world origin) *)
-  type local : Components.Local_transform.t = {
-    position : Math.Vec2.t;
-    rotation : float;       (* radians *)
-    scale    : Math.Vec2.t;
-  }
+  let make_local ~position ~rotation ~scale : Components.Local_transform.t =
+    { position; rotation (* radians *); scale }
 
   (* World_transform — fully composed world-space transform; same fields, read-only *)
 ]}
@@ -316,61 +313,52 @@ still alive when it runs, so all components are accessible:
 {[
   open Eon_engine
 
+  (* Stand-in for whatever teardown a game actually needs on destruction
+     (audio stop, particle despawn, logging, ...) — there is no built-in
+     Log or top-level Audio module; wire your own. *)
+  let destroyed_log : (Eon_ecs.Entity_id.t * float * float) list ref = ref []
+
   let lifecycle = Lifecycle_system.Default.make
     ~on_command:(fun world cmd ->
       match cmd with
       | `Destroy_entity entity ->
         (* entity still alive here — read components before destruction *)
         (match World.get_component world entity Components.Local_transform.component with
-         | Some lt -> Log.info "destroying entity at %.1f %.1f" lt.position.x lt.position.y
-         | None -> ());
-        Audio.stop_all world entity
+         | Some (lt : Components.Local_transform.t) ->
+           destroyed_log := (entity, lt.position.x, lt.position.y) :: !destroyed_log
+         | None -> ())
       | _ -> ()
     )
     ()
 ]}
 
 The callback receives the {b full command type} — not just [`Destroy_entity].
-This makes [Lifecycle_system] an extensible lifecycle hub: spawn logic, audio
-teardown, logging, particle despawn — all in one place, with correct ordering
-relative to [Transform_system]:
-
-{[
-  open Eon_engine
-
-  let lifecycle = Lifecycle_system.Default.make
-    ~on_command:(fun world cmd ->
-      match cmd with
-      | `Spawn { position; prefab } -> Prefab.instantiate world ~position prefab
-      | `Destroy_entity entity      -> Fx.play_death_effect world entity
-      | _ -> ()
-    )
-    ()
-]}
-
-For complex cases — a dedicated audio system, a particle system with its own
-state — a separate handler-only system registered before [Lifecycle_system]
-remains the right approach. The two compose cleanly.
+This makes [Lifecycle_system] an extensible lifecycle hub: any other command
+your game defines on the same command type can be handled alongside
+[`Destroy_entity], all in one place, with correct ordering relative to
+[Transform_system]. For complex cases — a dedicated audio system, a particle
+system with its own state — a separate handler-only system registered
+before [Lifecycle_system] remains the right approach; the two compose
+cleanly.
 
 {1 Custom DISPATCH pipeline}
 
 Both systems expose [Make(Sys : System.DISPATCH)] for use with a non-default
-pipeline. [Default] is simply [Make(System.Default)]:
-
-{[
-  open Eon_engine
-
-  (* Wire into a custom pipeline with a domain-pool executor *)
-  module My_pipeline = Pipeline.Make
-    (System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands)))
-    (Executor.Domain_pool.Make(struct let size = 4 end))
-    (Buses.Default)
-
-  module My_dispatch = System.Make(Eon_ecs.System.Make(Signals)(Events)(Commands))
-
-  let transforms = Transform_system.Make(My_dispatch).make ()
-  let lifecycle  = Lifecycle_system.Make(My_dispatch).make ()
-]}
+pipeline — [Default] is simply [Make(System.Default)]. As
+{{!page-queries_and_systems}the Executor section of the previous chapter}
+found, though, a [Pipeline.Make] assembly with a custom [Executor] is not
+actually constructible from application code today: any [System.Make(...)]
+result's bus types are structurally incompatible with every concrete
+[Buses] value ([Buses.Default] included), because [eon_engine.mli]'s
+[System.Make] signature leaves [Signal_bus]/[Event_bus]/[Command_bus]
+abstract. [Transform_system.Make]/[Lifecycle_system.Make] are real and do
+accept a custom [DISPATCH] — but there is currently no way to build a
+[DISPATCH] instance from outside [eon_engine] whose bus types line up with
+a [Pipeline.Make] you also built yourself. Until that signature gap is
+closed, treat [Transform_system.Make]/[Lifecycle_system.Make] as prepared
+for a future custom-pipeline capability, not one available today — use
+[Transform_system.Default]/[Lifecycle_system.Default] with
+[Pipeline.Default], as every example in this chapter does.
 
 {1 What stays in game code}
 
@@ -384,3 +372,10 @@ the domain logic:
 - {b Camera follow} — read [World_transform] of the target entity, adjust viewport
 - {b Spawning hierarchies} — create entities, set [Local_transform], emit [`Reparent]
 - {b Cascade destruction} — emit [`Destroy_entity] for each child, then the parent
+
+{1 Next}
+
+{{!page-rendering}Rendering} — [Color], [Render_commands], [Render_stream],
+[Render_stream_collector], [Render_system], [Rendering_backend]: command
+vocabulary, phase-ordered collection, multi-camera setup, backend wiring,
+and complete loop integration.

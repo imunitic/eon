@@ -1,0 +1,4 @@
+{:components
+ {:Tag {:value "goblin"}
+  :Velocity {:dx 0 :dy 0}
+  :Health {:current 30 :max 30 :regen_rate #eon/percent "2%"}}}

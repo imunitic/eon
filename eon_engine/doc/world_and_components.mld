@@ -1,0 +1,180 @@
+{0 World and components}
+
+{!Eon_engine.World} wraps {!Eon_ecs.World} with a phantom-typed capability
+handle and a typed component-descriptor API in place of raw strings.
+Examples below are from the companion
+{{:https://github.com/imunitic/eon/blob/main/eon_engine/examples/book/world_and_components_example.ml}[world_and_components_example.ml]}.
+
+{1 World capabilities}
+
+{!Eon_engine.World} carries a phantom type parameter — ['perm World.t] —
+that enforces read/write discipline at compile time:
+
+- [rw World.t] — full access; returned by [World.create] and held by the loop
+- [ro World.t] — read-only view; obtained via [World.readonly]; passed to [Parallel] system updates
+
+Write operations ([create_entity], [add_component], [set_component], …) are
+typed to accept only [rw World.t]. Read operations accept either:
+
+{[
+  let world : World.rw World.t = make_world () in
+  let player = World.create_entity world in
+
+  let ro : World.ro World.t = World.readonly world in
+  assert (World.is_alive ro player);
+
+  (* World.create_entity ro would be a type error — ro has no write ops.
+     Only rw handles reach this line: *)
+  let _second = World.create_entity world in
+  ()
+]}
+
+[readonly]/[as_ro] are zero-cost — only the phantom type changes, nothing
+is copied.
+
+{1 Component descriptors}
+
+Components are identified by a typed descriptor value rather than raw
+strings — the descriptor carries the value type as a phantom parameter,
+eliminating the [Obj.magic] a string-keyed API would otherwise need at the
+boundary:
+
+{[
+  let health : int Components.t = Eon_engine.component "Health"
+
+  let world = make_world () in
+  let _ = World.register world health in
+  let player = World.create_entity world in
+
+  World.add_component world player health 100;
+  match World.get_component world player health with
+  | Some hp -> assert (hp = 100)
+  | None -> assert false
+]}
+
+{1 Built-in components}
+
+{!Eon_engine.Components} ships typed component modules for common
+engine-level data:
+
+{table
+  {tr {th Module} {th Type} {th Description}}
+  {tr {td [Components.Local_transform]}  {td [{position; rotation; scale}]} {td Transform relative to parent (or world origin)}}
+  {tr {td [Components.World_transform]}  {td [{position; rotation; scale}]} {td Fully composed world-space transform — read-only}}
+  {tr {td [Components.Parent]}           {td [{entity : entity_id}]}        {td Parent entity reference; absence = root}}
+  {tr {td [Components.Children]}         {td [{entities : entity_id list}]}  {td Engine-maintained child entity list}}
+  {tr {td [Components.Velocity]}         {td [{dx: float; dy: float}]}       {td 2D velocity}}
+  {tr {td [Components.Sprite]}           {td [Sprite.t]}                     {td Rendering info}}
+  {tr {td [Components.Animation]}        {td [Animation.t]}                  {td Sprite animation}}
+  {tr {td [Components.Camera]}           {td [Camera.t]}                     {td Camera projection}}
+  {tr {td [Components.Collider]}         {td [Collider.t]}                   {td Collision shape}}
+  {tr {td [Components.Tag]}              {td [{value: string}]}              {td String marker}}
+}
+
+Register all of them at once with [Components.Engine_components.register_all world].
+Extend with game-specific components by including that module and adding
+your own descriptors:
+
+{[
+  module Game_components = struct
+    include Components.Engine_components
+
+    let mana : int Components.t = Eon_engine.component "Mana"
+
+    let register_all world =
+      Components.Engine_components.register_all world;
+      ignore (World.register world mana)
+  end
+
+  let world = World.create () in
+  Game_components.register_all world;
+  let player = World.create_entity world in
+  World.add_component world player Components.Local_transform.component
+    ({ position = Math.Vec2.zero; rotation = 0.0; scale = Math.Vec2.one }
+     : Components.Local_transform.t);
+  World.add_component world player Game_components.mana 50
+]}
+
+{1 Resources and services}
+
+{!Eon_engine.World.add_data}/[get_data]/[add_service]/[get_service] are the
+raw data and service plane inherited from [eon_ecs] — arbitrary values
+keyed by open polymorphic variants. That raw plane works, but every caller
+has to agree on a key by hand. {!Eon_engine.Resource} and
+{!Eon_engine.Service} are typed facades over exactly that plane, generated
+per-resource by a functor so the key never leaks outside the module that
+owns it:
+
+{table
+  {tr {th} {th Resource}   {th Service}}
+  {tr {td Cadence}         {td Written every frame or simulation tick}     {td Registered once at startup, never mutated by game systems}}
+  {tr {td Write function}  {td [store] — any [Exclusive] system, or the loop} {td [register] — startup code, before the loop starts}}
+  {tr {td Example}         {td {!Eon_engine.Time}, [Raw_input_frame], [Audio_command_buffer]} {td A physics-world handle, a network session, a Steam API}}
+}
+
+{[
+  (* Name the record type at the TOP LEVEL, not inline inside the functor
+     argument — Resource.Make's result makes Physics_state.t
+     transparently equal to it, but a record type declared only inside
+     an anonymous functor-argument struct isn't in scope for field-label
+     disambiguation afterwards. *)
+  type physics_state = { gravity : float; bodies : int }
+
+  module Physics_state = Resource.Make (struct
+    type t = physics_state
+    let key = Resource.key `Physics_state
+  end)
+
+  let world = make_world () in
+  Physics_state.store world { gravity = 9.8; bodies = 0 };   (* requires rw *)
+
+  let read_gravity (world : [> World.ro ] World.t) =          (* any 'perm *)
+    (Physics_state.fetch world).gravity
+  in
+  assert (read_gravity world = 9.8)
+]}
+
+{!Eon_engine.Time} is the concrete in-tree example: [type t = { delta;
+elapsed; frame }] satisfying [Resource.S], with [write] doing the
+fetch-or-zero/increment/store dance once per frame so systems never see a
+missing resource after the first tick. See
+[docs/design/resource_service_design.md] (ecs-032) for the full design
+rationale, including why the key type is [Obj.t] internally and why that's
+still type-safe at every call site.
+
+{1 Namespace: cross-world access}
+
+{!Eon_engine.Namespace} is a flat directory of named worlds — useful when
+one system legitimately needs to reach a resource or service that lives in
+a {i different} world than the one it was handed (a server's per-zone
+worlds reaching a shared global world, for instance). It composes directly
+with [Resource.fetch]/[Service.fetch]:
+
+{[
+  let global_world = make_world () in
+  Physics_state.store global_world { gravity = 9.8; bodies = 0 };
+
+  let ns = Namespace.create () in
+  Namespace.attach ns "global" global_world;
+
+  (* Some other system, holding a different world entirely, reaches the
+     global world's resource through the namespace: *)
+  let gravity = (Physics_state.fetch (Namespace.named "global" ns)).gravity in
+  assert (gravity = 9.8);
+
+  match Namespace.named "does_not_exist" ns with
+  | _ -> assert false
+  | exception Namespace.Unknown_namespace _ -> ()
+]}
+
+[Namespace.t] is a plain value — create it, populate it at startup
+(typically via [attach] for every world that should be reachable), and
+keep it wherever makes sense for your architecture (a module-level value,
+stored as a service, captured in a closure). The engine doesn't prescribe
+where it lives.
+
+{1 Next}
+
+{{!page-queries_and_systems}Queries and systems} — the query builder that
+reads the components introduced here, and how systems declare their
+[Parallel]/[Exclusive] world-access pattern.

@@ -1,0 +1,7 @@
+{:extends "goblin_base"
+ :components
+ {:Health {:current 60 :max 60 :regen_rate #eon/percent "5%"}}
+ :children
+ [{:components
+   {:Tag {:value "banner"}
+    :Sprite {:texture_id "banner.png" :layer 1 :flip_x false :flip_y false}}}]}

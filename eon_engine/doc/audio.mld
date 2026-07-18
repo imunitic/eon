@@ -1,7 +1,7 @@
 {0 Audio}
 
 The engine ships no audio components and no audio systems — {!Eon_engine.Audio_backend}
-completes the {{!page-index}[Platform.S]} trifecta (alongside [Input_backend] and
+completes the {{!page-platform_and_loop}[Platform.S]} trifecta (alongside [Input_backend] and
 [Rendering_backend]), and {!Eon_engine.Audio_command_buffer} is the shared,
 game-owned accumulator any system can append to. What sound to play, when, and
 from which game system, is entirely a game-layer decision.
@@ -77,16 +77,17 @@ open Eon_engine
 
 (* combat system detects a hit *)
 let on_hit world =
-  let buf = Audio_command_buffer.fetch world in
+  let buf = Audio_command_buffer.fetch (World.readonly world) in
   Audio_command_buffer.add buf
-    (Play_sound { id = "hit_01"; instance_id = None;
-                  volume = 0.9; pitch = 1.0; pan = 0.0; loop = false })
+    (Audio_command.Play_sound
+       { id = "hit_01"; instance_id = None;
+         volume = 0.9; pitch = 1.0; pan = 0.0; loop = false })
 
 (* spatial audio system updates a looping emitter each frame *)
 let update_emitter world iid ~volume ~pan =
-  let buf = Audio_command_buffer.fetch world in
-  Audio_command_buffer.add buf (Set_volume (iid, volume));
-  Audio_command_buffer.add buf (Set_pan    (iid, pan))
+  let buf = Audio_command_buffer.fetch (World.readonly world) in
+  Audio_command_buffer.add buf (Audio_command.Set_volume (iid, volume));
+  Audio_command_buffer.add buf (Audio_command.Set_pan    (iid, pan))
 ]}
 
 {1 Frame flow}
@@ -102,7 +103,7 @@ let update_emitter world iid ~volume ~pan =
 
 The buffer is cleared {i after} [submit], not before [tick] — the loop always
 submits exactly what accumulated during the current frame. See
-{{!page-index}[Loop.Make]} for the full per-frame sequence this fits into.
+{{!page-platform_and_loop}[Loop.Make]} for the full per-frame sequence this fits into.
 
 {2 Voice budget prioritization}
 
@@ -143,43 +144,77 @@ always sends the same [Play_sound]/[Play_music] commands regardless.
 {1 Worked example: spatial audio}
 
 A game that wants distance-attenuated looping sounds defines its own
-[Sound_emitter]/[Sound_listener] components (not shipped by the engine) and a
-system that queries them each frame:
+[Sound_emitter] component (not shipped by the engine) plus a [Sound_listener]
+{{!page-world_and_components}Resource} (world-scoped, one-per-world state —
+not a per-entity component) and a system that queries emitters each frame.
+[Query.Default] (not bare [Query]) is the pre-instantiated query instance;
+[View.get] needs a first-class module; [Eon_ecs.Entity_id] has no
+[to_string] — build an id from [index]/[generation] instead; [Resource.fetch]
+returns the value directly, not an option — unlike the raw [World.get_data]
+this replaces:
 
 {[
 open Eon_engine
 
-let emitter_instance_id view =
-  "emitter:" ^ Entity_id.to_string (View.entity view)
+module Sound_emitter = struct
+  type t = {
+    sound_id : string;
+    range    : float;
+    volume   : float;
+    playing  : bool;
+  }
+  let component : t Components.t = Eon_engine.component "Sound_emitter"
+  let name = Components.name component
+end
 
-let update world _dt =
+type sound_listener = { position : Math.Vec2.t }
+
+module Sound_listener = Resource.Make (struct
+  type t = sound_listener
+  let key = Resource.key `Sound_listener
+end)
+
+let emitter_instance_id view =
+  let e = View.entity view in
+  Printf.sprintf "emitter:%d:%d" (Eon_ecs.Entity_id.index e) (Eon_ecs.Entity_id.generation e)
+
+let update (world : World.ro World.t) _dt =
   let buf      = Audio_command_buffer.fetch world in
-  let listener = World.get_data world Sound_listener.key in
-  Query.from world
-  |> Query.having Sound_emitter.name
-  |> Query.iter (fun view ->
+  let listener = Sound_listener.fetch world in
+  Query.Default.from world
+  |> Query.Default.having Sound_emitter.name
+  |> Query.Default.iter (fun view ->
        let emitter = View.get view (module Sound_emitter) in
-       let pos     = View.get view (module Local_transform) in
+       let pos     = View.get view (module Components.Local_transform) in
        let iid     = emitter_instance_id view in
-       let dist    = Vec2.distance listener.position pos.position in
+       let dist    = Math.Vec2.distance listener.position pos.position in
        if dist > emitter.range then begin
          if emitter.playing then
-           Audio_command_buffer.add buf (Stop_sound iid)
+           Audio_command_buffer.add buf (Audio_command.Stop_sound iid)
        end else begin
          let vol = emitter.volume *. (1.0 -. (dist /. emitter.range)) in
          if not emitter.playing then
            Audio_command_buffer.add buf
-             (Play_sound { id = emitter.sound_id; instance_id = Some iid;
-                           volume = vol; pitch = 1.0; pan = 0.0; loop = true })
+             (Audio_command.Play_sound
+                { id = emitter.sound_id; instance_id = Some iid;
+                  volume = vol; pitch = 1.0; pan = 0.0; loop = true })
          else
-           Audio_command_buffer.add buf (Set_volume (iid, vol))
+           Audio_command_buffer.add buf (Audio_command.Set_volume (iid, vol))
        end)
 ]}
 
-See {{!page-index}the parallel/exclusive systems section} for whether this
-should be a [Parallel] system (it only reads [Sound_emitter]/[Local_transform]
-and appends to a buffer, not the world) or run as part of an [Exclusive] one.
+This reads [Sound_emitter]/[Local_transform] and a resource, and only
+appends to a buffer — it never writes the world — so it belongs in a
+[Parallel] system's [update], per
+{{!page-queries_and_systems}Queries and systems}.
 
 For the full design rationale (why audio differs from rendering/input, backend
 selection, and what NOT to do) see [docs/design/audio_system_design.md] in the
 repository.
+
+{1 Next}
+
+{{!page-prefab}Prefab loading} — [Prefab.Make], [Prefab_edn],
+[Prefab_edn_defaults]: using the built-in EDN loader, writing a custom
+[Component_deserializer], [:extends]/[:children] conventions, and building a
+non-EDN instantiation from scratch.
