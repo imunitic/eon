@@ -115,6 +115,14 @@ users who don't need `Time` use this and never touch `eon_ecs` directly.
 
 ### `Eon_engine.Progress.Make_with_time`
 
+`T.write` runs as a pre-tick step, before `Base.tick` dispatches anything —
+so it always executes exactly once per `Progress.tick` call, regardless of
+which `mode` (`Variable`/`Fixed`/`Hybrid`) is selected or how many times
+that mode's accumulator loop calls `run` internally. See
+[thread_safety_design.md §5.1](thread_safety_design.md) (and its
+`loop_flow.excalidraw` diagram) for the full breakdown of what `Progress.tick`
+dispatches and when — this wrapper sits entirely outside that branching.
+
 ```ocaml
 (* eon_engine *)
 module Progress = struct

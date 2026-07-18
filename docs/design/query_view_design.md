@@ -117,6 +117,46 @@ Implementation is `Query.count`'s intersection body
 callback — pick smallest base set, iterate, keep entities present in all others,
 call `f (eid_of world id)`.
 
+![Query iteration, smallest-set-first](images/query_iteration.png)
+
+([editable source](diagrams/query_iteration.excalidraw))
+
+The worked example: three sparse sets of very different sizes —
+`Position` (6 entities), `Velocity` (2), `Health` (4) — where `Velocity` is
+smallest and becomes the iteration base (`smallest` in
+[query.ml:7](../../eon_ecs/query.ml) picks it by comparing
+`Sparse_set.size`, same logic `iter2`/`iter3`/`iter4` and `count` already
+use). Only the base set's 2 entities get walked at all; each is then checked
+for membership in the other sets:
+
+```ocaml
+(* eon_ecs/query.ml — smallest-set-first, generalized to N names *)
+let iter_entities world names f =
+  (* ... resolve each name to a Sparse_set, or raise if unregistered ... *)
+  match smallest sets with
+  | None -> ()
+  | Some base ->
+    Sparse_set.iter (fun id _ ->
+      let eid = eid_of world id in
+      if List.for_all (fun s -> Sparse_set.contains s eid) other_sets then
+        f eid)
+      base
+```
+
+Base-set entity `2` is present in both `Position` and `Health` → included.
+Base-set entity `5` is present in `Position` but **absent from `Health`** →
+excluded. This is why the result of an `iter`/`iter_entities` call can be
+smaller than the base set — membership in the base set only guarantees a
+candidate, not a match. Engine-layer usage via `Query`:
+
+```ocaml
+Query.from world
+|> Query.having_all [Position.name; Velocity.name; Health.name]
+|> Query.iter (fun view ->
+     let pos = View.get view (module Position) in
+     ...)
+```
+
 ### Semantics follow eon_ecs principles, not a new rule
 
 `iter_entities` does **not** invent a "missing component ⇒ empty result" rule.
@@ -173,20 +213,22 @@ The filter-building half of the builder is unchanged. Only the terminators
 change.
 
 ```ocaml
-module Make (B : Query_backend.S) : sig
-  type query
+module Make (B : Query_backend.S with type 'perm world = 'perm World.t) : sig
+  type 'perm query
+  (* ['perm] tracks the world capability from [from] — queries accept both
+     [ro] and [rw] worlds since query execution is always read-only. *)
 
-  val from : B.world -> query
+  val from : 'perm B.world -> 'perm query
 
   (* -- filters (string-keyed) -- *)
-  val having         : string -> query -> query
-  val having_all     : string list -> query -> query
-  val not_having     : string -> query -> query
-  val not_having_any : string list -> query -> query
+  val having         : string -> 'perm query -> 'perm query
+  val having_all     : string list -> 'perm query -> 'perm query
+  val not_having     : string -> 'perm query -> 'perm query
+  val not_having_any : string list -> 'perm query -> 'perm query
 
   (* -- execution -- *)
-  val iter  : (View.t -> unit) -> query -> unit
-  val count : query -> int
+  val iter  : (View.t -> unit) -> 'perm query -> unit
+  val count : 'perm query -> int
 end
 ```
 
@@ -210,17 +252,20 @@ iterator:
 
 ```ocaml
 module type S = sig
-  type world
+  type 'perm world
+  (* Parameterised by capability, not a fixed world type — decouples the
+     backend from [Eon_ecs.World.t]. Both [ro] and [rw] worlds satisfy
+     backends since query operations are reads only. *)
 
   val iter_entities :
-    world ->
+    'perm world ->
     required:string list ->
     excludes:string list ->
     (Eon_ecs.Entity_id.t -> unit) ->
     unit
 
   val count :
-    world ->
+    'perm world ->
     required:string list ->
     excludes:string list ->
     int

@@ -12,8 +12,8 @@
       |> Q.having Velocity.name
       |> Q.not_having Frozen.name
       |> Q.iter (fun view ->
-           let pos = View.get view Position.component in
-           let vel = View.get view Velocity.component in
+           let pos = View.get view (module Position) in
+           let vel = View.get view (module Velocity) in
            ...)
     ]}
 *)

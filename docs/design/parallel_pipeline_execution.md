@@ -33,10 +33,12 @@ replacing it:
   internally. The user's closures receive `World.ro World.t` / `World.rw World.t`
   typed views; the wrapper stores `update_kind` alongside the embedded core. The
   returned type is the engine system type — a new record, not `Core_system.t`.
-- **`Eon_engine.Pipeline.Make(System)(Executor)`** is the single pipeline for
-  engine systems. `Executor.Sequential` gives sequential execution; `Executor.Domain_pool`
-  gives parallel execution. Same system definitions work with both — swap the
-  executor, not the system code.
+- **`Eon_engine.Pipeline.Make(System)(Executor)(Buses)`** is the single
+  pipeline for engine systems. `Executor.Sequential` gives sequential
+  execution; `Executor.Domain_pool` gives parallel execution. Same system
+  definitions work with both — swap the executor, not the system code.
+  `Buses` bundles `signals`/`events`/`commands`/`unsubscribe_all` — pass
+  `Eon_engine.Buses.Default` unless wiring a custom transport.
 
 The only `eon_ecs` change is extracting `topo_sort` into a public
 `Eon_ecs.Dependency_graph` primitive (§2 below). No changes to `Eon_ecs.System.S`,
@@ -48,7 +50,7 @@ eon_engine (new modules — extends, does not replace)
   Eon_engine.Bus / Single_bus / Double_bus     ← mutex-on-emit bus implementations
   Eon_engine.Executor.S / Sequential           ← threading-substrate seam
   Eon_engine.System.make                       ← wraps Eon_ecs.System.make + World.ro/rw
-  Eon_engine.Pipeline.Make(System)(Executor)   ← parallel dispatch; satisfies Pipeline.S
+  Eon_engine.Pipeline.Make(System)(Executor)(Buses)  ← parallel dispatch; satisfies Pipeline.S
   Eon_engine.Loop_buses                        ← BUSES module for engine bus collect/drain
 
 eon_ecs (one additive change only)
@@ -342,7 +344,6 @@ expect `World.rw World.t`:
 ```ocaml
 (* eon_engine/system.ml — inside Make(Core_system) *)
 type ('s, 'e, 'c) t = {
-  register    : Eon_ecs.World.t -> unit;
   update_kind : update_kind;
   kind        : kind;
   on_signal   : World.rw World.t -> 's -> unit;
@@ -351,11 +352,18 @@ type ('s, 'e, 'c) t = {
 }
 ```
 
+There is no `register` field at all — unlike `Eon_ecs.System.t`, which has a
+real optional `?register:(World.t -> unit)` hook invoked once by
+`Pipeline.register_all`, the engine-layer `DISPATCH` has no `register` value
+in its signature. Component pre-registration happens at world setup time via
+`World.register`, not per-system.
+
 `update_ro` and `update_rw` dispatch from `update_kind` directly. `attach`
-(called by `register_all`) takes bus instances directly from `Buses.Default` and
-wires the stored handlers as subscribers — the same pattern as
-`Eon_ecs.System.attach`. `register` is a no-op placeholder; component
-pre-registration happens at world setup time via `World.register`, not per-system.
+(called by the pipeline's `register_all`) receives bus instances as its
+`~signals`/`~events`/`~commands` arguments — sourced from whatever `Buses`
+module `Pipeline.Make` was applied to (typically `Eon_engine.Buses.Default`)
+— and wires the stored handlers as subscribers, the same pattern as
+`Eon_ecs.System.attach`.
 The `.mli` exports `module type S` (§5.2) with an abstract `type t` — the record
 fields are not visible to callers.
 
@@ -466,7 +474,7 @@ The default `kind` is obtained from `Core_system.variable` so that
 ```ocaml
 module System   = Eon_engine.System.Default
 (* Sequential execution — swap Domain_pool.Make for parallelism, no system changes *)
-module Pipeline = Eon_engine.Pipeline.Make(System)(Eon_engine.Executor.Sequential)
+module Pipeline = Eon_engine.Pipeline.Make(System)(Eon_engine.Executor.Sequential)(Eon_engine.Buses.Default)
 
 (* Parallel system — read-only update, writes via on_command *)
 let physics =
@@ -729,9 +737,10 @@ whether dispatch is sequential or parallel:
 ```
 Eon_engine.System.Default.make → ('s, 'e, 'c) Eon_engine.System.Default.t
   │
-  └──→ Eon_engine.Pipeline.Make(System)(Executor)
+  └──→ Eon_engine.Pipeline.Make(System)(Executor)(Buses)
          Executor.Sequential        ← sequential dispatch
          Executor.Domain_pool.Make  ← parallel dispatch
+         Buses.Default (or a custom transport)
          World.readonly called once at start of run
 ```
 

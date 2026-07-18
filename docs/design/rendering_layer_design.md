@@ -153,14 +153,14 @@ val collect       : ('phase, 'command) t -> World.ro World.t -> 'command Render_
    type never breaks existing collectors. *)
 let collect_main_camera (world : World.ro World.t) graph =
   Query.from world
-  |> Query.having Components.Position.name
+  |> Query.having Components.Local_transform.name
   |> Query.having Components.Camera.name
   |> Query.having Components.Main_camera.name
   |> Query.iter (fun view ->
-       let pos    = View.get view (module Components.Position) in
-       let camera = View.get view (module Components.Camera) in
+       let transform = View.get view (module Components.Local_transform) in
+       let camera    = View.get view (module Components.Camera) in
        Render_stream.add_world graph (`Set_camera {
-         position = (pos.x, pos.y);
+         position = (transform.position.x, transform.position.y);
          zoom     = Some camera.zoom;
          rotation = camera.rotation;
          target   = None;
@@ -170,15 +170,15 @@ let collect_main_camera (world : World.ro World.t) graph =
 (* Sprite collector *)
 let collect_sprites (world : World.ro World.t) graph =
   Query.from world
-  |> Query.having Components.Position.name
+  |> Query.having Components.Local_transform.name
   |> Query.having Components.Sprite.name
   |> Query.iter (fun view ->
-       let pos    = View.get view (module Components.Position) in
-       let sprite = View.get view (module Components.Sprite) in
+       let transform = View.get view (module Components.Local_transform) in
+       let sprite    = View.get view (module Components.Sprite) in
        Render_stream.add_world graph (`Draw_texture {
          texture_id = sprite.texture_id;
          source     = sprite.source_rect;
-         dest       = Math.Rect.create pos.x pos.y sprite.w sprite.h;
+         dest       = Math.Rect.create transform.position.x transform.position.y sprite.w sprite.h;
          rotation   = None; origin = None; tint = None;
          layer      = sprite.layer;
        }))
@@ -344,6 +344,36 @@ let step ~progress ~world ~last_time ~now ~should_continue =
     List.iter (fun e -> Printf.eprintf "[renderer] %s\n" e) result.errors;
   (world, now, should_continue world)
 ```
+
+![Platform.S — the Loop's compile-time seam](images/platform_seam.png)
+
+([editable source](diagrams/platform_seam.excalidraw))
+
+`Loop.Make` closes over a `Platform : Platform.S` module at the functor
+boundary — the trifecta (`Input_backend`, `Audio_backend`,
+`Rendering_backend`) is a single compile-time seam, not three independent
+parameters. Two instances are relevant:
+
+- **`Platform.Headless`** — null input, audio, and rendering backends
+  (`Rendering_backend.Null` discards every command). Substituted at exactly
+  this slot for servers, CI, and scripted simulation.
+- **A real platform** (e.g. a Raylib-backed module satisfying `Platform.S`)
+  — the window/input/audio/rendering backends a client binary uses.
+
+This is the client/server split point for the listen-server multiplayer
+model in
+[grimdawn-style-multiplayer-distributed-buses.md](grimdawn-style-multiplayer-distributed-buses.md):
+a server binary instantiates `Loop.Make` with `Platform.Headless` and never
+reaches the rendering layer at all; a client binary instantiates the same
+`Loop.Make` with a real platform. All simulation code — systems, pipeline,
+progress, buses — is identical between the two; only this one functor
+argument differs.
+
+`Loop.run` calls `init` on all three backends before the loop starts, and
+their `shutdown` counterparts, **in reverse order**, after it returns
+(`eon_engine/loop.mli`): `Input_backend.init` → `Audio_backend.init` →
+`Rendering_backend.init`, then at shutdown `Rendering_backend.shutdown` →
+`Audio_backend.shutdown` → `Input_backend.shutdown`.
 
 ## 9. UI Rendering
 

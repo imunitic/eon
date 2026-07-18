@@ -2,12 +2,14 @@
 
 ## Status
 
-**IMPLEMENTED** (ecs-016/017/019). Earlier revisions of this document described
-an archetype cache (Bitset, Archetype_index, Archetype_backend) and a
-`World.Make` functor parameterised over a `TRACKING` signature. Both were dropped
-as premature optimisations. This document covers what was implemented:
-the `World.S` signature, the per-world `Id_counter`, and the
-`Sparse_set_backend.Make(W : World.S)` functor.
+**IMPLEMENTED** (ecs-016/017/019, capability model added ecs-023/025/026).
+Earlier revisions of this document described an archetype cache (Bitset,
+Archetype_index, Archetype_backend) and a `World.Make` functor parameterised
+over a `TRACKING` signature. Both were dropped as premature optimisations.
+This document covers what was implemented: the `World.S` signature, the
+`ro`/`rw` phantom-type capability model that later replaced the standalone
+`World_cap` module (ecs-023 "getting rid of it"), the per-world `Id_counter`,
+and the `Sparse_set_backend.Make(W : World.S)` functor.
 
 The `Archetype_backend` sections of `eon_engine_query_design.md` are superseded
 by this document. The rest of that document (query builder, `Sparse_set_backend`,
@@ -37,56 +39,128 @@ the concrete `World` module without changing any existing code.
 
 ---
 
-## 1. `World.S` — Uniform World Signature
+## 1. `World.S` — Uniform World Signature, and the `ro`/`rw` Capability Model
 
 File: `eon_engine/world.mli`
 
+`World` is capability-tagged: the handle is `'perm t`, where `'perm` is a
+**phantom type** — it never appears in the record's actual fields, it only
+constrains which operations the type-checker will accept:
+
+```ocaml
+type ro = [ `R ]
+type rw = [ `R | `W ]
+
+type 'perm t
+```
+
+`create` hands out full read-write access; `readonly`/`as_ro` are one-way,
+zero-cost downgrades (no `rw t` can be recovered from an `ro t`):
+
+```ocaml
+val create   : unit -> rw t
+val readonly : rw t -> ro t
+val as_ro    : 'perm t -> ro t
+```
+
+`World.S` is the **read-only** backend signature — the one query backends and
+`Sparse_set_backend.Make` depend on, since any `'perm t` (`ro` or `rw`) is
+accepted:
+
 ```ocaml
 module type S = sig
-  type t
+  type 'perm t
 
-  val create               : unit -> t
+  val get_component  : 'perm t -> entity_id -> 'a Component_descriptor.t -> 'a option
+  val is_alive       : 'perm t -> entity_id -> bool
+  val is_registered  : 'perm t -> 'a Component_descriptor.t -> bool
+  val count_entities : 'perm t -> int
+  val get_data       : 'perm t -> [> ] -> 'a option
+  val count_data     : 'perm t -> int
+  val get_service    : 'perm t -> [> ] -> 'a option
+  val list_services  : 'perm t -> int list
 
-  val create_entity        : t -> Entity_id.t
-  val add_component        : t -> Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
-  val set_component        : t -> Entity_id.t -> 'a Component_descriptor.t -> 'a -> unit
-  val get_component        : t -> Entity_id.t -> 'a Component_descriptor.t -> 'a option
-  val remove_component     : t -> Entity_id.t -> 'a Component_descriptor.t -> unit
-  val remove_all_components: t -> Entity_id.t -> unit
-  val destroy_entity       : t -> Entity_id.t -> unit
-  val register             : t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
-  val is_registered        : t -> 'a Component_descriptor.t -> bool
-  val count_entities       : t -> int
-  val is_alive             : t -> Entity_id.t -> bool
-
-  (** Data and service plane (ecs-019) *)
-  val add_data    : t -> ([> ] as 'k) -> 'a -> unit
-  val set_data    : t -> ([> ] as 'k) -> 'a -> unit
-  val get_data    : t -> ([> ] as 'k) -> 'a option
-  val count_data  : t -> int
-  val add_service : t -> ([> ] as 'k) -> 'a -> unit
-  val get_service : t -> ([> ] as 'k) -> 'a option
-  val list_services : t -> int list
-
-  (** Backend query primitives — not for game code. *)
-
-  val iter_entities : t -> string list -> (Entity_id.t -> unit) -> unit
+  val iter_entities : 'perm t -> string list -> (entity_id -> unit) -> unit
   (** Iterate every alive entity that has all of the named components, using the
-      smallest sparse set as the iteration base. Raises if any name was never
-      registered — consistent with [get_component] / [add_component]. *)
+      smallest sparse set as the iteration base. Raises [Invalid_argument] if any
+      name was never registered. *)
 
-  val has_component : t -> Entity_id.t -> string -> bool
+  val has_component : 'perm t -> entity_id -> string -> bool
   (** Return [true] if the entity currently holds the named component.
-      Returns [false] if the component is not registered or is absent on the
-      entity. Used by backends to apply excludes post-filters by string name. *)
+      Returns [false] if the component is not registered or is absent on the entity. *)
 end
+```
+
+The same read operations are also exposed as top-level `World.get_component`,
+`World.is_alive`, etc. — `'perm t -> ...`, so they work on either capability
+level. **Write operations require `rw t` specifically** — they're not part of
+the read-only `S` signature at all:
+
+```ocaml
+val create_entity        : rw t -> entity_id
+val destroy_entity       : rw t -> entity_id -> unit
+val add_component        : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+val set_component        : rw t -> entity_id -> 'a Component_descriptor.t -> 'a -> unit
+val remove_component     : rw t -> entity_id -> 'a Component_descriptor.t -> unit
+val remove_all_components: rw t -> entity_id -> unit
+val register              : rw t -> 'a Component_descriptor.t -> Component_descriptor.registration_result
+
+val add_data    : rw t -> [> ] -> 'a -> unit
+val set_data    : rw t -> [> ] -> 'a -> unit
+val add_service : rw t -> [> ] -> 'a -> unit
 ```
 
 `World.S` has no reference to `Eon_ecs.World.t`. Backends depend only on this
 signature; they work with `W.t` throughout and call `W.iter_entities` /
-`W.has_component` for query operations. Any module that satisfies `World.S`
-can back a backend — including `Eon_ecs.World` itself (where `iter_entities` is
-the native implementation and `has_component` is a direct presence check).
+`W.has_component` for query operations. This is also exactly the mechanism
+`Eon_engine.System`'s `Parallel`/`Exclusive` dispatch relies on: a `Parallel`
+system's `update` receives `World.ro World.t` and can run concurrently
+(read-only, no aliasing hazard); an `Exclusive` system's `update`, and every
+`on_signal`/`on_event`/`on_command` handler regardless of kind, receives
+`World.rw World.t` and runs sequentially. See `thread_safety_design.md` for
+the full parallel-dispatch rationale.
+
+### 1.1 Component lifecycle
+
+Two tiers: a one-time **world-level registration** step, then a repeatable
+**per-entity presence** cycle. Both are enforced by `Eon_ecs.World`
+(`eon_ecs/world.mli`), which `Eon_engine.World` wraps directly.
+
+![Component lifecycle](images/component_lifecycle.png)
+
+([editable source](diagrams/component_lifecycle.excalidraw))
+
+```ocaml
+(* World-level, once, before any add_component for this name: *)
+val register_component : t -> name:string -> id:int -> 'a Component.component
+
+(* Per-entity, any number of times after registration: *)
+val add_component    : t -> Entity_id.t -> name:string -> 'a -> unit
+(** Raises if the component name is not registered. *)
+
+val set_component    : t -> Entity_id.t -> name:string -> 'a -> unit
+(** Raises if the component name is not registered. Promotes to an add if the
+    entity doesn't currently hold the component. *)
+
+val get_component    : t -> Entity_id.t -> name:string -> 'a option
+(** [None] if the entity doesn't have the component. Raises if the component
+    name is not registered — this is a *different* condition from "absent,"
+    and the exception must never be used as a presence check. *)
+
+val remove_component  : t -> Entity_id.t -> name:string -> unit
+(** Raises if the component name is not registered. *)
+
+val remove_all_components : t -> Entity_id.t -> unit
+(** No raise regardless of what the entity currently holds — called by
+    [destroy_entity], safe without any manual cleanup. *)
+```
+
+The recurring contract across `add`/`set`/`get`/`remove_component`: **raises
+on an unregistered name, never on absence.** A registered-but-absent
+component is a normal, expected state (`get_component` returns `None`); an
+unregistered name is a programmer error (missing `register_component` call).
+Confusing the two — e.g. wrapping `get_component` in a `try ... with _ ->
+None` to sidestep both cases uniformly — hides the second, real bug.
 
 ---
 
@@ -95,14 +169,21 @@ the native implementation and `has_component` is a direct presence check).
 File: `eon_engine/world.ml`
 
 ```ocaml
-type t = {
-  core              : Eon_ecs.World.t;
-  mutable next_id   : int [@atomic];   (* per-world dense component id allocator *)
+type ro = [ `R ]
+type rw = [ `R | `W ]
+
+type 'perm t = {
+  core            : Eon_ecs.World.t;
+  mutable next_id : int [@atomic];   (* per-world dense component id allocator *)
 }
 
 let create () =
-  { core    = Eon_ecs.World.create ();
-    next_id = 0 }
+  { core = Eon_ecs.World.create (); next_id = 0 }
+
+(* Zero-cost capability downgrade: 'perm never appears in the record fields,
+   so this is a pure type-level cast, not a runtime conversion. *)
+external readonly : rw t -> ro t = "%identity"
+external as_ro     : 'perm t -> ro t = "%identity"
 
 let register world comp =
   let name = Component_descriptor.name comp in
@@ -114,7 +195,7 @@ let register world comp =
     Component_descriptor.Registered
   end
 
-(* Structural mutations *)
+(* Structural mutations — all take rw t at the .mli boundary *)
 let add_component world entity comp value =
   Eon_ecs.World.add_component world.core entity
     ~name:(Component_descriptor.name comp) value
@@ -134,7 +215,7 @@ let set_component world entity comp value =
   Eon_ecs.World.set_component world.core entity
     ~name:(Component_descriptor.name comp) value
 
-(* Backend query primitives *)
+(* Backend query primitives — take 'perm t, work on either capability *)
 let iter_entities world names f =
   Eon_ecs.World.iter_entities world.core names f
 
@@ -145,6 +226,11 @@ let has_component world entity name =
 
 (* ... remaining delegations (get_component, create_entity, etc.) ... *)
 ```
+
+The capability split is enforced entirely by the `.mli` — at the `.ml` level
+every function still just takes the same underlying `'perm t` record; nothing
+at runtime distinguishes an `ro t` from an `rw t`. `readonly`/`as_ro` compile
+to `%identity`, i.e. genuinely zero cost, not merely "cheap."
 
 `next_id` uses the OCaml 5.4 atomic record field syntax — the `[@atomic]`
 attribute goes **after the type**: `mutable next_id : int [@atomic]`. This

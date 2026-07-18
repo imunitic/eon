@@ -2,7 +2,8 @@
 
 ## Status
 
-**IMPLEMENTED** (ecs-030).
+**IMPLEMENTED** (ecs-030; collision detection with contact data added ecs-037,
+see §6.1).
 
 ---
 
@@ -236,6 +237,48 @@ end
 
 Cheaper than `Rect` for radial checks (distance-squared vs AABB overlap).
 Natural for explosion radii, aggro ranges, and pick-up areas.
+
+---
+
+## 6.1 Collision detection with contact data (ecs-037)
+
+`intersects`/`intersects_rect` (above) are cheap bool-only checks — good for
+triggers and culling. `Rect` and `Circle` also carry shape-vs-shape
+**detection with contact data**, returning a shared `Manifold.t`:
+
+```ocaml
+module Manifold : sig
+  type t = {
+    normal : Vec2.t;  (* unit vector, first shape -> second shape *)
+    depth  : float;   (* penetration depth along [normal], always >= 0 *)
+  }
+end
+
+module Rect : sig
+  (* ... *)
+  val collide : t -> t -> Manifold.t option
+end
+
+module Circle : sig
+  (* ... *)
+  val collide      : t -> t -> Manifold.t option
+  val collide_rect : t -> Rect.t -> Manifold.t option
+end
+```
+
+Circle-Circle, Circle-Box, and Box-Box are covered; Capsule pairs are
+deferred. `Manifold.t` is a single shared type across all three pairs, not
+per-shape-pair. This is **detection only** — no resolution, stepping, or
+physics simulation; no `Collision_system` either — developers wire detection
+into their own systems, matching the data-only `Collider` philosophy.
+Rotational response (torque, contact points) is a permanent non-goal — that's
+a physics-engine (Box2D/Chipmunk2D) concern.
+
+**[collision_detection_functions.md](collision_detection_functions.md) is the
+detailed source of truth** for this surface — full algorithm write-up,
+degenerate cases (same-center circles, circle-center-inside-box), and the
+worked design rationale. This section is a summary and pointer, not a
+duplicate.
 
 ---
 

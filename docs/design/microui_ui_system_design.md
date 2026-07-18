@@ -2,11 +2,11 @@
 
 ## Status
 
-**Exploratory.** Depends on the rendering layer (`rendering_layer_design.md`) being implemented first — `Render_graph`, `Render_graph_collector`, `Render_system`, and `Rendering_backend` must exist before any of this applies.
+**Exploratory.** Depends on the rendering layer (`rendering_layer_design.md`) being implemented first — `Render_stream`, `Render_stream_collector`, `Render_system`, and `Rendering_backend` must exist before any of this applies.
 
 ## 1. Overview
 
-UI rendering is not a platform seam. It belongs in the Render_graph command
+UI rendering is not a platform seam. It belongs in the Render_stream command
 language — surfaced during the input system design (ecs-027) when the PLATFORM
 boundary was being defined.
 
@@ -15,8 +15,8 @@ The design has four layers:
 ```
 Game code  →  Microui API  (pure OCaml widget logic — no drawing, no C FFI)
                 ↓ produces typed command list
-             Render_graph UI commands  (`Ui_rect | `Ui_text | `Ui_clip | ...)
-                ↓ emitted by UI collector into Render_graph (UI phase)
+             Render_stream UI commands  (`Ui_rect | `Ui_text | `Ui_clip | ...)
+                ↓ emitted by UI collector into Render_stream (UI phase)
              Renderer backend  (Raylib: DrawRectangle / DrawText / BeginScissorMode
                                 SDL:    SDL_RenderFillRect / TTF_RenderText / ...)
 ```
@@ -26,12 +26,12 @@ This approach has three key properties:
 - **Pure OCaml microui is fully testable** — no backend, no window; just verify
   the command list it produces.
 - **Any backend gets full UI by implementing ~6 primitive commands.**
-- **Z-ordering is free** — UI commands go into `Render_graph.add_screen`; they
+- **Z-ordering is free** — UI commands go into `Render_stream.add_screen`; they
   are always drawn after all world-space commands, outside the camera transform.
 
 ## 2. UI Primitive Command Vocabulary
 
-The Render_graph command language is extended with a fixed, minimal set of UI
+The Render_stream command language is extended with a fixed, minimal set of UI
 drawing primitives, borrowing the core insight from microui: a tiny vocabulary
 is sufficient to build any UI. `rect`, `text`, `texture`, and `clip` cover
 everything (buttons, panels, scroll areas, inventory grids, health bars,
@@ -73,16 +73,16 @@ sprite and mesh commands. Porting to a new platform means implementing these
 The widget layer is a pure OCaml microui implementation — the C microui
 architecture translated directly. C microui already separates widget logic from
 rendering via a command buffer; the OCaml version makes that command buffer
-typed open variants for the Render_graph instead of a C union. No C FFI in the
+typed open variants for the Render_stream instead of a C union. No C FFI in the
 widget layer.
 
 The UI collector is a regular `World.ro` ECS system. It reads
 `Raw_input_frame` from the world (mouse position, clicks — already there from
 the input system), feeds it to the microui context, runs the widget logic, and
-emits the resulting command list into the Render_graph:
+emits the resulting command list into the Render_stream:
 
 ```ocaml
-(* UI collector — World.ro, parallel, registered in Render_graph_collector *)
+(* UI collector — World.ro, parallel, registered in Render_stream_collector *)
 let update world _dt =
   let ctx   = World.get_data world Ui_context in
   let input = World.get_data world `Raw_input_frame in
@@ -91,9 +91,9 @@ let update world _dt =
   (* game UI code *)
   if Microui.button ctx "Attack" then Signals.emit world `Attack_pressed;
   Microui.end_frame ctx;
-  (* flush into Render_graph *)
+  (* flush into Render_stream *)
   Microui.iter_commands ctx (fun cmd ->
-    Render_graph.add_screen graph (microui_to_render_cmd cmd))
+    Render_stream.add_screen graph (microui_to_render_cmd cmd))
 ```
 
 Input flows naturally: the UI collector reads `Raw_input_frame` already in the
@@ -102,12 +102,12 @@ path is needed.
 
 ## 4. Trade-off with Immediate Mode Toolkits (raygui)
 
-raygui is incompatible with the Render_graph primitive model. It is an immediate
+raygui is incompatible with the Render_stream primitive model. It is an immediate
 mode widget library that calls raylib drawing functions directly —
 `GuiButton(rect, "label")` draws immediately and returns whether it was clicked.
-It does not emit a command buffer; it bypasses the Render_graph entirely.
+It does not emit a command buffer; it bypasses the Render_stream entirely.
 
-Choosing the Render_graph primitive vocabulary means giving up raygui's widget
+Choosing the Render_stream primitive vocabulary means giving up raygui's widget
 set at the game UI layer. For shipping game UI this is the right call — custom
 health bars, skill icons, and inventory panels all reduce naturally to
 `rect + text + texture + clip`.
@@ -116,7 +116,7 @@ For rapid prototyping and debug tooling where raygui shines, an escape hatch is
 available:
 
 ```ocaml
-`Platform_native of (unit -> unit)   (* raw callback — bypasses Render_graph *)
+`Platform_native of (unit -> unit)   (* raw callback — bypasses Render_stream *)
 ```
 
 Debug UI and dev tools call raygui (or any platform-native toolkit) directly
@@ -128,7 +128,7 @@ hatch is explicitly non-portable and must never appear in shipping game code.
 This work is deferred until after the core rendering layer is complete. The
 dependency order is:
 
-1. `rendering_layer_design.md` (Render_graph, Render_graph_collector, Render_system, Rendering_backend) — prerequisite
+1. `rendering_layer_design.md` (Render_stream, Render_stream_collector, Render_system, Rendering_backend) — prerequisite
 2. Define UI primitive commands as an extension of the base command set
 3. Implement pure OCaml microui context and widget logic
 4. Implement UI collector (reads `Raw_input_frame`, emits UI commands)

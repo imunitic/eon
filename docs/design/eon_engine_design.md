@@ -230,17 +230,17 @@ The following were delivered in prior tasks and are now part of the engine:
 - **Data/service plane** (`World.add_data`, `World.add_service`, etc.) — ecs-019.
 - **`iter_entities` in `eon_ecs`** + `Query.count` contract fix + `View` — ecs-020.
 
-## 4.1 Next: Parallel Pipeline (ecs-021)
+## 4.1 Parallel Pipeline (ecs-021, ecs-022, ecs-023/025/026)
 
-The next major task is the parallel execution layer. See
+The parallel execution layer described here is **implemented**. See
 [parallel_pipeline_execution.md](parallel_pipeline_execution.md) for the full
 spec. The engine **builds upon** `eon_ecs` — wraps core modules rather than
-replacing them. Summary of what ecs-021 delivers:
+replacing them. Summary of what shipped:
 
 - `Eon_ecs.Dependency_graph` — extracted topo-sort primitive (the **only** `eon_ecs` change)
 - `Eon_engine.Bus` / `Single_bus` / `Double_bus` — standalone mutex-aware buses
-- `Eon_engine.World` — `'perm t` phantom types (`ro`/`rw`) now live here directly (ecs-023)
-- `Eon_engine.Executor` — threading-substrate seam; `Sequential` ships first
+- `Eon_engine.World` — `'perm t` phantom types (`ro`/`rw`) live directly on `World.t`, not a separate wrapper module (ecs-023 folded the earlier standalone `World_cap` into `World` itself)
+- `Eon_engine.Executor` — threading-substrate seam; both `Sequential` (default) and `Domain_pool` (parallel, OCaml 5 domains) are implemented
 - `Eon_engine.System.Make(Core_system)` — wraps any `Eon_ecs.System.S` with `World.ro`/`World.rw` (functor; `Default = Make(Eon_ecs.System.Default)`)
 - `Eon_engine.Pipeline.Make(System)(Executor)` — parallel dispatch via Executor, reuses `Eon_ecs.Dependency_graph`; output satisfies `Eon_ecs.Pipeline.S`
 - `Eon_engine.Loop_buses` — `BUSES` module closed over `Buses.Default.*` instances at module init; `collect`/`drain` are `unit -> unit` (no world argument, no service lookup)
@@ -257,25 +257,28 @@ embed the core type, delegate to it, add capabilities on top.
 
 **eon_engine/**:
 - `eon_engine.mli`, `eon_engine.ml`: Public API
-- `world.mli`, `world.ml`: `World.S` signature + concrete `World` module
-- `world_cap.mli`, `world_cap.ml`: Phantom capability wrapper *(ecs-021)*
+- `world.mli`, `world.ml`: `World.S` signature + concrete `'perm World.t` module (capability model, `ro`/`rw`, folded in from the earlier standalone `World_cap`)
 - `query_backend.mli`: `Query_backend.S` signature
 - `query.mli`, `query.ml`: `Query.Make` builder functor
 - `view.mli`, `view.ml`: `View.t` typed cursor for component reads
 - `sparse_set_backend.mli`, `sparse_set_backend.ml`: Default query backend
-- `bus.mli`, `bus.ml`: `Bus.S` signature *(ecs-021)*
-- `single_bus.mli`, `single_bus.ml`: Mutex-aware same-frame bus *(ecs-021)*
-- `double_bus.mli`, `double_bus.ml`: Mutex-aware next-frame bus *(ecs-021)*
-- `executor.mli`, `executor.ml`: `Executor.S` + `Sequential` *(ecs-021)*
-- `system.mli`, `system.ml`: `System` reactive type *(ecs-021)*
-- `pipeline.mli`, `pipeline.ml`: `Pipeline.Make` functor *(ecs-021)*
-- `backend.mli`, `backend.ml`: Extension API (`to_raw`)
+- `bus.mli`, `bus.ml`: `Bus.S` signature
+- `single_bus.mli`, `single_bus.ml`: Mutex-aware same-frame bus
+- `double_bus.mli`, `double_bus.ml`: Mutex-aware next-frame bus
+- `executor.mli`, `executor.ml`: `Executor.S` + `Sequential` + `Domain_pool`
+- `system.mli`, `system.ml`: `System` reactive type
+- `pipeline.mli`, `pipeline.ml`: `Pipeline.Make` functor
 - `components.mli`, `components.ml`: Component registration API
 - `component.mli`, `component.ml`: `Component.S` module signature
 - `component_descriptor.mli`, `component_descriptor.ml`: Descriptor implementation
-- `components/*.ml`, `components/*.mli`: Built-in component implementations (9 components)
+- `components/*.ml`, `components/*.mli`: Built-in component implementations
 
-Files marked *(ecs-021)* are planned, not yet implemented.
+This list covers the parallel-pipeline-era files only (ecs-021/022/023 and
+the capability merge); `eon_engine/` has grown substantially since with the
+audio, input, transform, math/collision, resource/service, and prefab
+subsystems — see their own `docs/design/*.md` entries in
+[index.md](index.md) rather than expecting this section to be a complete
+file manifest.
 
 ### 5.2 Build Configuration
 

@@ -340,7 +340,7 @@ World.set_data world Raw_input_frame  ← stored as world resource
 collect: Signals → Events → Commands
 Progress.tick                          (game systems run here, Raw_input_frame already in world)
 drain:   Signals → Commands → Events
-Platform.Renderer.render world ~dt
+Platform.Rendering_backend.render stream ~dt
 ```
 
 Input is not a bus operation — it has no subscribers and no drain phase. The
@@ -395,73 +395,77 @@ Progress.tick
 drain (buses)
 ```
 
-### 8.3 `eon_engine` Loop and the PLATFORM signature
+### 8.3 `eon_engine` Loop and the `Platform.S` signature
 
-Rather than taking `Renderer` and `Input_backend` as separate functor parameters,
-`eon_engine` Loop bundles all platform seams into a single `PLATFORM` module:
+Rather than taking a renderer and `Input_backend` as separate functor
+parameters, `eon_engine` Loop bundles all platform seams into a single
+`Platform.S` module (`eon_engine/platform.mli`):
 
 ```ocaml
-module type PLATFORM = sig
-  type t                              (* phantom tag — [`Raylib] | [`Sdl] | [`Headless] *)
-  module Renderer      : Renderer.S
-  module Input_backend : Input_backend.S
-  (* Audio_backend joins here when the audio system is designed and implemented *)
+module type S = sig
+  type t
+  module Input_backend     : Input_backend.S
+  module Audio_backend     : Audio_backend.S
+  module Rendering_backend : Rendering_backend.S
 end
 ```
 
-`Loop.Make` then takes one platform parameter:
+`Loop.Make` then takes the platform as one of its parameters, alongside the
+clock, progress controller, and buses (`eon_engine/loop.mli`):
 
 ```ocaml
 module Make
-    (Clock    : Clock.S)
-    (Progress : Progress_adapter.S)
-    (Platform : PLATFORM)
-    (Buses    : Loop_buses.S)
-  : S
+    (_ : Eon_ecs.Loop.CLOCK)
+    (Progress : sig
+       type 'phase t
+       type world = World.rw World.t
+       val tick : 'phase t -> world:world -> dt:float -> world
+     end)
+    (_ : Platform.S)
+    (_ : Eon_ecs.Loop.BUSES)
+  : sig ... end
 ```
 
 **Type safety** — mixing a Raylib renderer with an SDL input backend is a compile
-error because they come from different `PLATFORM` modules with different phantom
-`t` types. You cannot accidentally build an incoherent platform stack.
+error because they come from different `Platform.S` modules with different
+phantom `t` types. You cannot accidentally build an incoherent platform stack.
 
 **Completeness guarantee** — implementing a new platform port means satisfying
-`PLATFORM`. If `Input_backend` is missing, the compiler says so immediately. As
-new platform seams are added to the signature (audio, windowing), every existing
-platform gets a compile error until the new piece is implemented. The signature is
-a compiler-enforced porting checklist — you cannot ship an incomplete port.
+`Platform.S`. If `Input_backend` is missing, the compiler says so immediately. As
+new platform seams are added to the signature, every existing platform gets a
+compile error until the new piece is implemented. The signature is a
+compiler-enforced porting checklist — you cannot ship an incomplete port.
 
 Concrete platforms:
 
 ```ocaml
-module Raylib : PLATFORM = struct
+module Raylib_platform : Platform.S = struct
   type t = [ `Raylib ]
-  module Renderer      = Raylib_renderer
-  module Input_backend = Raylib_input
+  module Rendering_backend = Raylib_renderer
+  module Input_backend     = Raylib_input
+  module Audio_backend     = Raylib_audio
 end
 
-module Sdl : PLATFORM = struct
+module Sdl_platform : Platform.S = struct
   type t = [ `Sdl ]
-  module Renderer      = Sdl_renderer
-  module Input_backend = Sdl_input
+  module Rendering_backend = Sdl_renderer
+  module Input_backend     = Sdl_input
+  module Audio_backend     = Sdl_audio
 end
 ```
 
-The headless platform bundles all no-ops — one module, CI runs without a window:
+`Platform.Headless` (shipped in `platform.mli`) bundles all no-ops — one
+module, CI runs without a window; see
+[rendering_layer_design.md §8](rendering_layer_design.md) and the
+`platform_seam.excalidraw` diagram for the full client/server substitution
+picture.
 
-```ocaml
-module Headless : PLATFORM = struct
-  type t = [ `Headless ]
-  module Renderer      = Noop_renderer
-  module Input_backend = Input_backend.Null
-end
-```
+### 8.4 UI is not a platform seam — it is a `Render_stream` concern
 
-### 8.4 UI is not a platform seam — it is a RenderGraph concern
-
-UI rendering does not belong in the `PLATFORM` signature. The PLATFORM trifecta
-is Renderer, Input, Audio — nothing else. UI rendering is handled through the
-RenderGraph command language via a microui-inspired primitive vocabulary and a
-pure OCaml widget collector system.
+UI rendering does not belong in the `Platform.S` signature. The platform
+trifecta is Rendering, Input, Audio — nothing else. UI rendering is handled
+through the `Render_stream` command language via a microui-inspired primitive
+vocabulary and a pure OCaml widget collector system.
 
 See [rendering_layer_design.md §11](rendering_layer_design.md) for the full
 design: UI primitive commands, the pure OCaml microui collector, the four-layer
@@ -525,6 +529,6 @@ has no dependency on external libraries.
 | World resource | `Raw_input_frame` written directly by loop | No processed frame, no engine-defined derived state |
 | Frame order | Raw frame written before collect, outside pipeline | Input is not a bus operation |
 | `eon_ecs` Loop RENDERER | **Removed** | Adding INPUT_BACKEND alongside would accumulate platform concerns in core; `eon_ecs` loop is `collect → tick → drain` only |
-| Platform seams | Owned entirely by `eon_engine` via `PLATFORM` sig | Games wanting full control write their own loop around `eon_ecs` |
-| PLATFORM signature | Bundles Renderer + Input_backend (+ future seams) | Type-safe (can't mix platforms); compiler-enforced porting checklist |
+| Platform seams | Owned entirely by `eon_engine` via `Platform.S` sig | Games wanting full control write their own loop around `eon_ecs` |
+| `Platform.S` signature | Bundles `Rendering_backend` + `Input_backend` + `Audio_backend` | Type-safe (can't mix platforms); compiler-enforced porting checklist |
 | Modifier keys | In `Key_set` like any key + convenience `modifiers` field | Backend computes it; game systems read `frame.modifiers.shift` without scanning full key set |
