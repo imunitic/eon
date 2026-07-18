@@ -14,8 +14,8 @@ module type S = sig
 
   (** Register a callback invoked on message delivery.
 
-      Subscribers are called in reverse registration order
-      (most recently registered first). *)
+      Subscribers are called in registration order (the first subscriber
+      registered runs first). *)
   val on      : 'msg t -> ('msg -> unit) -> unit
 
   (** Remove all registered subscribers.

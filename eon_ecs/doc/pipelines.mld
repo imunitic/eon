@@ -1,0 +1,91 @@
+{0 Pipelines}
+
+{!Eon_ecs.Pipeline.Default} groups systems into named {b phases} and
+orders the phases relative to each other. It's the layer that turns a pile
+of individually-callable systems (previous chapter) into one coherent tick.
+Examples below are from the companion
+{{:https://github.com/imunitic/eon/blob/main/eon_ecs/examples/book/pipelines_example.ml}[pipelines_example.ml]}.
+
+{1 Phases and ordering}
+
+Phases are polymorphic variants — any value works. Ordering is declared
+between {b phases}, not individual systems: every system in an earlier
+phase runs before any system in a later one.
+
+{[
+  module Pipeline = Eon_ecs.Pipeline.Default
+
+  let build_pipeline spawned =
+    Pipeline.create ()
+    |> Pipeline.add_phase `Input
+    |> Pipeline.add_phase `Gameplay
+    |> Pipeline.before ~earlier:`Input ~later:`Gameplay
+    |> Pipeline.add_system `Input    (input_system spawned)
+    |> Pipeline.add_system `Gameplay (movement_system ())
+]}
+
+[Pipeline.before]/[after] say the same thing from either direction — pick
+whichever reads more naturally at the call site. {b Never add phases or
+ordering edges after the pipeline starts running.} The topological sort is
+cached and only re-runs when a phase or edge is added — adding a system
+does not invalidate the cache, so a phase/edge added after the first tick
+silently has no effect on ordering.
+
+{1 register_all: what it automates}
+
+The previous chapter showed [System.register] and [System.attach] called
+by hand, one system at a time. [Pipeline.register_all] does both, for
+{b every system in the pipeline}, in topological phase order, in one call:
+
+{[
+  let world    = make_world () in
+  let pipeline = build_pipeline (ref []) in
+
+  let e = World.create_entity world in
+  World.add_component world e ~name:Position.name { Position.x = 0.0; y = 0.0 };
+  World.add_component world e ~name:Velocity.name { Velocity.dx = 1.0; dy = 0.0 };
+
+  Pipeline.register_all pipeline world;
+
+  let world = Pipeline.run pipeline world 1.0 in
+  match World.get_component world e ~name:Position.name with
+  | Some (p : Position.t) -> assert (p.x = 1.0)
+  | None -> assert false
+]}
+
+[Pipeline.run] executes every system's [update] in topological phase
+order, ignoring [kind] — it's what {!Eon_ecs.Progress} calls internally,
+usually you'll drive a pipeline through a [Progress] controller (next
+chapter) rather than calling [run] directly.
+
+{1 register_all is not idempotent}
+
+Calling [register_all] a second time without resetting first raises — the
+pipeline refuses to silently double-attach every handler:
+
+{[
+  let world    = make_world () in
+  let pipeline = build_pipeline (ref []) in
+  Pipeline.register_all pipeline world;
+  match Pipeline.register_all pipeline world with
+  | () -> assert false
+  | exception Invalid_argument _ -> ()
+]}
+
+{1 reset: the scene-transition pattern}
+
+[Pipeline.reset] clears every bus subscriber and lets [register_all] run
+again. The intended shape is: tear down a scene, rebuild the pipeline (or
+reuse the same one), [reset], then [register_all] for the next scene:
+
+{[
+  Pipeline.register_all pipeline world;
+  Pipeline.reset pipeline;
+  Pipeline.register_all pipeline world   (* no longer raises *)
+]}
+
+{1 Next}
+
+{{!page-progress_and_loop}Progress and Loop} — the last piece: what
+actually drives a pipeline's [run] over time, at what [dt], how many times
+per frame, and how the whole thing becomes a running program via [Loop].

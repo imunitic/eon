@@ -1,0 +1,108 @@
+{0 Buses}
+
+Buses carry typed messages between systems without either side knowing
+about the other's private state. The default stack exposes three —
+{!Eon_ecs.Signals}, {!Eon_ecs.Events}, {!Eon_ecs.Commands} — all satisfying
+the same {!Eon_ecs.Bus.S} signature, differing only in {b when} an emitted
+message becomes visible to subscribers. Examples below are from the
+companion
+{{:https://github.com/imunitic/eon/blob/main/eon_ecs/examples/book/buses_example.ml}[buses_example.ml]}.
+
+{1 The shared shape}
+
+{[
+  type 'msg t
+  val create  : unit -> 'msg t
+  val on      : 'msg t -> ('msg -> unit) -> unit
+  val clear   : 'msg t -> unit
+  val emit    : 'msg t -> 'msg -> unit
+  val collect : 'msg t -> unit
+  val drain   : 'msg t -> unit
+]}
+
+[emit] only enqueues — nothing fires until [collect] or [drain] runs. The
+buffering policy decides which of those, and when, actually delivers.
+
+{1 Signals and Commands — same-frame delivery}
+
+{!Eon_ecs.Signals} and {!Eon_ecs.Commands} are both backed by
+{!Eon_ecs.Bus.Single} — [drain] and [collect] behave identically, and
+whatever was [emit]ted since the last drain fires on the {b same} drain
+call:
+
+{[
+  let bus    = Signals.create () in
+  let fired  = ref false in
+  Signals.on bus (fun `Damage_taken -> fired := true);
+
+  Signals.emit bus `Damage_taken;
+  assert (not !fired);   (* not delivered yet — emit only enqueues *)
+  Signals.drain bus;
+  assert !fired           (* delivered: drain ran in the same "frame" as emit *)
+]}
+
+The two are the same implementation under different names — the split is
+purely a naming convention for intent. Use {b Signals} for fan-out
+notifications where any number of systems may react (a hit landed, a level
+loaded). Use {b Commands} when a system already knows exactly what mutation
+to apply and is just describing it:
+
+{[
+  let bus   = Commands.create () in
+  let total = ref 0 in
+  Commands.on bus (fun (`Add_gold n) -> total := !total + n);
+
+  Commands.emit bus (`Add_gold 10);
+  Commands.emit bus (`Add_gold 5);
+  Commands.drain bus;
+  assert (!total = 15)
+]}
+
+{1 Events — next-frame delivery}
+
+{!Eon_ecs.Events} is backed by {!Eon_ecs.Bus.Double}: [emit] writes into a
+{b next} queue rather than the one about to be drained. [drain] delivers
+whatever is in [current], then swaps [next] into [current]. An event
+emitted during frame [N] is not visible until frame [N+1]'s drain:
+
+{[
+  let bus   = Events.create () in
+  let fired = ref false in
+  Events.on bus (fun `Level_up -> fired := true);
+
+  Events.emit bus `Level_up;
+  Events.drain bus;
+  assert (not !fired);    (* frame N's drain: current was still empty *)
+
+  Events.drain bus;
+  assert !fired             (* frame N+1's drain: next -> current swap landed *)
+]}
+
+Use Events when a reaction genuinely needs to see "yesterday's" state — the
+double-buffer swap is what makes that deferral deterministic instead of
+depending on registration order within the same frame.
+
+{1 Subscriber order}
+
+Multiple handlers on the same bus fire in {b registration order} — the
+first subscriber registered runs first:
+
+{[
+  let bus   = Signals.create () in
+  let order = ref [] in
+  Signals.on bus (fun `Ping -> order := !order @ [ 1 ]);   (* registered first *)
+  Signals.on bus (fun `Ping -> order := !order @ [ 2 ]);   (* registered second *)
+  Signals.emit bus `Ping;
+  Signals.drain bus;
+  assert (!order = [ 1; 2 ])   (* handler 1 (registered first) ran first *)
+]}
+
+In the default pipeline wiring, a system's handler registration order
+tracks its position in the phase graph, so this also governs the order
+handlers dispatch relative to each other across systems, not just within
+one [on] call site.
+
+{1 Next}
+
+{{!page-systems}Systems} — how [update] and the [on_signal]/[on_event]/
+[on_command] handlers seen above actually get wired to a pipeline.

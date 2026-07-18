@@ -1,0 +1,85 @@
+{0 Queries}
+
+{!Eon_ecs.Query} iterates entities that own a chosen intersection of
+components. It never walks the whole world — it always starts from the
+smallest of the requested sparse sets, so a query over a rare component is
+cheap regardless of how many total entities exist. Examples below are from
+the companion
+{{:https://github.com/imunitic/eon/blob/main/eon_ecs/examples/book/queries_example.ml}[queries_example.ml]},
+reusing the {{!page-world_and_components}[Position]/[Velocity]/[Health]}
+component modules from the previous chapter.
+
+{1 iter1 through iter4}
+
+Fixed-arity iterators — pick the one matching how many components your
+system needs simultaneously:
+
+{[
+  Query.iter1 world Position.name (fun _entity (_pos : Position.t) -> ())
+]}
+
+{[
+  (* iter2: entities that have BOTH named components *)
+  Query.iter2 world Position.name Velocity.name
+    (fun entity (pos : Position.t) (vel : Velocity.t) ->
+       ignore (entity, pos.x +. vel.dx, pos.y +. vel.dy))
+]}
+
+An entity missing even one of the requested components is silently
+excluded — a [Position]-only entity never reaches an [iter2] callback that
+also asks for [Velocity]. [iter3] and [iter4] follow the same shape for
+three and four components. There is no [iter5] — past four components, use
+{!Eon_ecs.Query.iter_entities} (below) with a name list instead.
+
+{1 Smallest-set-first}
+
+[Query.count] and [Query.iter_entities] generalize past a fixed arity by
+taking a component-name list, and they share the same core algorithm:
+{b pick the smallest of the requested sparse sets as the iteration base},
+then check the remaining names as a membership filter. The base set's size
+— not the total entity count in the world — drives the cost:
+
+{[
+  (* 6 entities have Position; only 1 has Health. Health becomes the base:
+     Query.count walks that ONE entity and checks it against Position,
+     never scanning the other 5 Position-only entities. *)
+  let world = make_world () in
+  for i = 1 to 6 do
+    let e = World.create_entity world in
+    World.add_component world e ~name:Position.name { Position.x = float_of_int i; y = 0.0 };
+    if i = 3 then
+      World.add_component world e ~name:Health.name { Health.current = 100; max = 100 }
+  done;
+  assert (Query.count world [ Position.name; Health.name ] = 1)
+]}
+
+This is exactly why a query over a rare component (a boss marker, a
+one-off status effect) stays cheap even in a world with thousands of common
+components — the rare component's own sparse set is small, and it's always
+what gets picked as the base.
+
+{1 A subtlety: two different exceptions for the same mistake}
+
+Both [Query.count] and [Query.iter_entities] raise if any requested name
+was never registered:
+
+{[
+  match Query.count world [ "Never_registered" ] with
+  | _ -> assert false
+  | exception Invalid_argument _ -> ()
+]}
+
+Note the exception type: {b [Invalid_argument]}. This is worth calling out
+explicitly because it's easy to assume it matches
+{{!page-world_and_components}[World.get_component]}'s behavior from the
+previous chapter — but [World.get_component]/[add_component]/
+[set_component]/[remove_component] raise {b [Failure]} for the identical
+underlying mistake (an unregistered component name). Both exceptions mean
+the same thing — a missing {!Eon_ecs.World.register_component} call — but
+if you're writing a [try ... with] around ECS calls that might touch either
+surface, catch both, not just one.
+
+{1 Next}
+
+{{!page-buses}Buses} — [Signals], [Events], and [Commands]: how systems
+talk to each other without querying each other's private state directly.

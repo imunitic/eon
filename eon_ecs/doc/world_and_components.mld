@@ -1,0 +1,172 @@
+{0 World and components}
+
+{!Eon_ecs.World} is the central mutable state every other piece of
+[eon_ecs] operates on. It owns three things: entities and their lifecycle,
+component registration and per-entity attachment, and a second, entity-less
+plane of storage for data and services. This chapter covers all three, using
+real component modules from the companion example
+({{:https://github.com/imunitic/eon/blob/main/eon_ecs/examples/book/world_example.ml}[world_example.ml]}).
+
+{1 Entities}
+
+An entity is an opaque {!Eon_ecs.Entity_id.t} — a slot index plus a
+generation counter, so a stale handle from a destroyed entity can never
+silently alias a new one that reused the same slot:
+
+{[
+  let world  = Eon_ecs.World.create () in
+  let player = Eon_ecs.World.create_entity world in
+  Eon_ecs.World.destroy_entity world player
+]}
+
+{1 Components: register, then attach}
+
+Components have two distinct lifecycle tiers. {b Registration} is
+world-level and happens once, before any entity can carry the component —
+{!Eon_ecs.World.register_component} takes a name and a numeric id. {b
+Attachment} is per-entity and repeatable — {!Eon_ecs.World.add_component},
+[set_component], [get_component], and [remove_component] all key off the
+same registered name.
+
+The companion example defines its components as real modules, each
+carrying its own type, name, and id, rather than scattering string literals
+and bare tuples through the example bodies:
+
+{[
+  module Position = struct
+    type t = { x : float; y : float }
+
+    let name = "Position"
+    let id = 0
+
+    let register world = ignore (Eon_ecs.World.register_component world ~name ~id)
+  end
+
+  module Health = struct
+    type t = { current : int; max : int }
+
+    let name = "Health"
+    let id = 2
+
+    let register world = ignore (Eon_ecs.World.register_component world ~name ~id)
+  end
+]}
+
+Registering both, once, when a world is created:
+
+{[
+  let make_world () =
+    let world = Eon_ecs.World.create () in
+    Position.register world;
+    Health.register world;
+    world
+]}
+
+{1 The lifecycle: add, get, set, remove}
+
+{[
+  open Eon_ecs
+
+  let world  = make_world () in
+  let player = World.create_entity world in
+  World.add_component world player ~name:Position.name { Position.x = 0.0; y = 0.0 };
+  World.add_component world player ~name:Health.name { Health.current = 100; max = 100 };
+
+  (* get_component: Some if the entity currently holds the component. *)
+  match World.get_component world player ~name:Health.name with
+  | Some (h : Health.t) -> assert (h.current = 100)
+  | None -> assert false
+]}
+
+[set_component] overwrites the value in place — and it {b promotes to an
+add} if the entity didn't already have the component, so it's always safe
+to call even on first attachment:
+
+{[
+  World.set_component world player ~name:Health.name { Health.current = 80; max = 100 }
+]}
+
+{2 Absent vs. never registered — a critical distinction}
+
+A component that's registered but never attached to a given entity is a
+completely normal state — [get_component] just returns [None]:
+
+{[
+  let enemy = World.create_entity world in
+  match World.get_component world enemy ~name:Health.name with
+  | None   -> ()          (* expected: enemy never got a Health component *)
+  | Some _ -> assert false
+]}
+
+A component name that was {b never registered at all} is a different
+condition entirely — every one of [add_component]/[set_component]/
+[get_component]/[remove_component] raises [Failure] in that case:
+
+{[
+  match World.get_component world enemy ~name:"Never_registered" with
+  | _ -> assert false
+  | exception Failure _ -> ()   (* programmer error: forgot to register *)
+]}
+
+{b Never use that exception as a presence check.} It signals a bug (a
+missing [register_component] call), not "this entity doesn't have the
+component" — that's what the [None] case above is for. Conflating the two
+by wrapping calls in a blanket [try ... with _ -> None] hides real
+registration bugs behind a result that looks like ordinary absence.
+
+{1 Removal and destruction}
+
+[remove_component] detaches a single component without touching the rest
+of the entity:
+
+{[
+  World.remove_component world player ~name:Position.name;
+  match World.get_component world player ~name:Position.name with
+  | None   -> ()
+  | Some _ -> assert false
+]}
+
+[destroy_entity] detaches {b every} remaining component in one call — no
+manual per-component cleanup needed before destroying an entity:
+
+{[
+  World.destroy_entity world player;
+  World.destroy_entity world enemy
+]}
+
+{1 Data and service stores}
+
+Alongside entities and components, {!Eon_ecs.World} carries a second,
+entity-less plane of storage — arbitrary values keyed by open polymorphic
+variants, for data that doesn't belong to any one entity (a frame counter, a
+shared RNG, a physics-world handle):
+
+{[
+  let world = World.create () in
+
+  (* Data — read/write, expected to change (e.g. once per frame) *)
+  World.add_data world `Frame_count 0;
+  World.set_data world `Frame_count 1;
+  (match World.get_data world `Frame_count with
+   | Some n -> assert (n = 1)
+   | None   -> assert false);
+
+  (* Services — registered once, treated as read-mostly thereafter *)
+  World.add_service world `Rng (Random.State.make_self_init ());
+  match World.get_service world `Rng with
+  | Some (_ : Random.State.t) -> ()
+  | None -> assert false
+]}
+
+[Data] vs. [Service] is a naming convention for intent, not an enforced
+distinction — both are backed by the same internal store. This raw plane is
+deliberately thin and string-free (open polymorphic variants, not string
+keys); [eon_engine] builds a typed, per-resource functor facade on top of
+the equivalent plane in its own [World] — see its docs if you're working at
+that layer.
+
+{1 Next}
+
+{{!page-queries}Queries} — how to iterate every entity that owns a given
+set of components, and why the smallest one always wins as the iteration
+base.

@@ -1,0 +1,142 @@
+{0 Progress and Loop}
+
+The last piece: {!Eon_ecs.Progress} decides {b how many times, and with
+what [dt]}, a pipeline's systems actually run; {!Eon_ecs.Loop} turns that
+into a real running program, driven by a wall clock. Examples below are
+from the companion
+{{:https://github.com/imunitic/eon/blob/main/eon_ecs/examples/book/progress_and_loop_example.ml}[progress_and_loop_example.ml]}.
+
+{1 Three modes}
+
+{[
+  type mode =
+    | Variable
+    | Fixed of float
+    | Hybrid of float
+]}
+
+{2 Variable — once per tick, whatever dt is}
+
+{[
+  module Progress = Eon_ecs.Progress.Default
+
+  let pipeline =
+    Pipeline.create ()
+    |> Pipeline.add_phase `Gameplay
+    |> Pipeline.add_system `Gameplay (counting_system variable_count `Variable)
+  in
+  Pipeline.register_all pipeline world;
+  let progress = Progress.create ~mode:Progress.Variable pipeline in
+
+  let world = Progress.tick progress ~world ~dt:0.5 in
+  match World.get_data world variable_count with
+  | Some n -> assert (n = 1)   (* exactly once, regardless of dt *)
+  | None -> assert false
+]}
+
+{2 Fixed — an accumulator, 0 to N times per tick}
+
+[Fixed step] systems run at a deterministic step size. [dt] accumulates
+across calls to [Progress.tick]; the system runs once per full [step]
+worth of accumulated time — 0, 1, or many times in a single
+[Progress.tick] call, depending on how much time has built up:
+
+{[
+  (* step = 0.1, one tick at dt = 0.25 -> 0.25 / 0.1 = 2 full steps,
+     with 0.05 left over accumulated for the NEXT tick. *)
+  let progress = Progress.create ~mode:(Progress.Fixed 0.1) pipeline in
+  let world = Progress.tick progress ~world ~dt:0.25 in
+  match World.get_data world fixed_count with
+  | Some n -> assert (n = 2)
+  | None -> assert false
+]}
+
+This is the classic fixed-timestep catch-up loop — it's what makes
+physics-style systems deterministic regardless of the real frame rate.
+
+{2 Hybrid — both, independently}
+
+[Hybrid step] runs the [Fixed]-style accumulator loop for [`Fixed] systems
+{b and} one [`Variable] run per tick, in the same pipeline. Each system
+sees the cadence appropriate to its own [kind] — a pipeline can mix both:
+
+{[
+  let progress = Progress.create ~mode:(Progress.Hybrid 0.1) pipeline in
+  let world = Progress.tick progress ~world ~dt:0.25 in
+  (match World.get_data world variable_count with
+   | Some n -> assert (n = 1)   (* once, regardless of dt — same as Variable *)
+   | None -> assert false);
+  match World.get_data world fixed_count with
+  | Some n -> assert (n = 2)    (* accumulator catch-up — same as Fixed *)
+  | None -> assert false
+]}
+
+{1 Loop: frame order and running for real}
+
+{!Eon_ecs.Loop.Default} wraps a clock, a progress controller, and bus
+orchestration into a real running loop. The frame order is fixed and does
+not change based on mode:
+
+{[
+  1. collect  -- Signals, then Events, then Commands
+  2. Progress.tick
+  3. drain    -- Signals, then Commands, then Events
+]}
+
+There is no renderer slot — rendering is a game-layer concern, handled as
+an ordinary [`Variable] system in a phase ordered after simulation, exactly
+like every other system in this book.
+
+{2 step vs. run}
+
+[Loop.step] executes exactly one frame — collect, tick, drain — and
+returns the updated world, the timestamp, and whether [should_continue]
+says to keep going. [Loop.run] repeatedly calls [step] until
+[should_continue] returns [false], checked {b after} each tick against the
+resulting world — so "run until N frames have happened" is just a
+predicate reading world state:
+
+{[
+  module Loop = Eon_ecs.Loop.Default
+
+  let count_of world =
+    match World.get_data world variable_count with
+    | Some n -> n
+    | None -> 0
+  in
+  let final_world =
+    Loop.run
+      ~progress
+      ~world
+      ~should_continue:(fun world -> count_of world < 5)
+      ()
+  in
+  assert (count_of final_world = 5)
+]}
+
+Use [step] directly for manual frame control — e.g. driving the loop from
+inside an external framework's own event loop rather than owning the loop
+yourself.
+
+{1 Clock}
+
+{!Eon_ecs.Clock.Mtime} is the real wall-clock source [Loop.Default] uses.
+Its signature is one function:
+
+{[
+  module type S = sig
+    val now : unit -> float
+  end
+]}
+
+Swap in a deterministic fake clock (return a fixed or manually-advanced
+value from [now]) for tests that need reproducible timing instead of real
+wall-clock jitter.
+
+{1 The book, end to end}
+
+That's every module {!Eon_ecs} exports: {{!page-world_and_components}World
+and components}, {{!page-queries}Queries}, {{!page-buses}Buses},
+{{!page-systems}Systems}, {{!page-pipelines}Pipelines}, and Progress/Loop
+here. For the full generated interface, see the {{!page-index}API
+reference}.
