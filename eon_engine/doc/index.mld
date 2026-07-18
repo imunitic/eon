@@ -380,6 +380,50 @@ collect/drain semantics are identical to [eon_ecs]:
   {tr {td [Commands]} {td Same-frame delivery, intended for mutations}}
 }
 
+{2 Resources and services}
+
+Under the World capabilities section above, {!Eon_engine.World.add_data} /
+[get_data] / [add_service] / [get_service] are the raw data and service plane
+inherited from [eon_ecs] — arbitrary values keyed by open polymorphic
+variants. That raw plane works, but every caller has to agree on a key and an
+[Obj.magic]-adjacent cast falls out of the polymorphic-variant typing if
+you're not careful. {!Eon_engine.Resource} and {!Eon_engine.Service} are
+typed facades over exactly that plane, generated per-resource by a functor so
+the key never leaks outside the module that owns it:
+
+{table
+  {tr {th} {th Resource}   {th Service}}
+  {tr {td Cadence}         {td Written every frame or simulation tick}     {td Registered once at startup, never mutated by game systems}}
+  {tr {td Write function}  {td [store] — any [Exclusive] system, or the loop} {td [register] — startup code, before the loop starts}}
+  {tr {td Example}         {td {!Eon_engine.Time}, [Raw_input_frame], [Audio_command_buffer]} {td A physics-world handle, a network session, a Steam API}}
+}
+
+{[
+  open Eon_engine
+
+  (* Define a resource: wrap a fresh polymorphic-variant tag as the key *)
+  module Physics_state = Resource.Make (struct
+    type t = { gravity : float; bodies : int }
+    let key = Resource.key `Physics_state
+  end)
+
+  (* Write it — requires World.rw t *)
+  let init_physics (world : World.rw World.t) =
+    Physics_state.store world { gravity = 9.8; bodies = 0 }
+
+  (* Read it — any 'perm World.t, so Parallel systems can too *)
+  let read_gravity (world : [> World.ro] World.t) =
+    (Physics_state.fetch world).gravity
+]}
+
+{!Eon_engine.Time} is the concrete in-tree example: [type t = { delta;
+elapsed; frame }] satisfying [Resource.S], with [write] doing the
+fetch-or-zero/increment/store dance once per frame so systems never see a
+missing resource after the first tick. See
+[docs/design/resource_service_design.md] (ecs-032) for the full design
+rationale, including why the key type is [Obj.t] internally and why that's
+still type-safe at every call site.
+
 {2 Input}
 
 The engine's input job is minimal: poll the platform backend once per frame
@@ -487,6 +531,7 @@ their [shutdown] counterparts after it returns.
 - {{!page-rendering}Rendering} — [Color], [Render_commands], [Render_stream], [Render_stream_collector], [Render_system], [Rendering_backend]: command vocabulary, phase-ordered collection, multi-camera setup, backend wiring, and complete loop integration.
 - {{!page-transform_and_lifecycle}Transform hierarchy and entity lifecycle} — [Local_transform], [World_transform], [Parent], [Children], [Transform_system], [Lifecycle_system], [Transform_hierarchy]: DFS world-transform propagation, reparenting, entity destruction, registration order, and cascade patterns.
 - {{!page-prefab}Prefab loading} — [Prefab.Make], [Prefab_edn], [Prefab_edn_defaults]: using the built-in EDN loader, writing a custom [Component_deserializer], [:extends]/[:children] conventions, and building a non-EDN instantiation from scratch.
+- {{!page-audio}Audio} — [Audio_backend], [Audio_command], [Audio_command_buffer]: the command vocabulary, the shared per-frame buffer any system can append to, voice budget prioritization, and a worked spatial-audio example.
 
 {1 API reference}
 

@@ -12,9 +12,9 @@ This note captures a practical documentation strategy for Eon ECS, aimed at prod
 
 ### 1. Public `.mli` files are the source of truth
 
-- Use `eon_ecs/eon_ecs.mli` as the canonical package surface.
+- Use `eon_ecs/src/eon_ecs.mli` as the canonical package surface.
 - Use public submodule `.mli` files for detailed behavior and invariants.
-- Anything not exported from `eon_ecs/eon_ecs.mli` is internal and can be documented more lightly.
+- Anything not exported from `eon_ecs/src/eon_ecs.mli` is internal and can be documented more lightly.
 
 ### 2. `README.md` and `docs/*.md` for narrative guides
 
@@ -90,7 +90,7 @@ Keep examples short and focused on one concept each.
 
 ## Maintenance Rules
 
-1. Any public API change in `eon_ecs/eon_ecs.mli` should include documentation updates in the same change.
+1. Any public API change in `eon_ecs/src/eon_ecs.mli` should include documentation updates in the same change.
 2. Any behavior change to ECS invariants must update:
    - relevant `.mli` docs
    - `README.md` examples

@@ -84,6 +84,38 @@ Important: {!Eon_ecs.World.get_component} returns [None] if the entity doesn't
 have the component, but {b raises} if the component name was never registered.
 Do not use the exception for control flow.
 
+{2 Data and service stores}
+
+Alongside entities and components, {!Eon_ecs.World} carries a second plane of
+storage — arbitrary values keyed by open polymorphic variants, for data that
+doesn't belong to any one entity (a physics-world handle, frame-level time
+data, a network session):
+
+{[
+  let world = Eon_ecs.World.create () in
+
+  (* Data — read/write, expected to change (e.g. once per frame) *)
+  Eon_ecs.World.add_data world `Frame_count 0;
+  Eon_ecs.World.set_data world `Frame_count 1;   (* overwrite *)
+  let n = Eon_ecs.World.get_data world `Frame_count in
+  assert (n = Some 1);
+
+  (* Services — registered once, treated as read-mostly thereafter *)
+  Eon_ecs.World.add_service world `Rng (Random.State.make_self_init ());
+  let rng = Eon_ecs.World.get_service world `Rng in
+  ignore rng
+]}
+
+[Data] vs. [Service] is purely a naming convention for intent — both are
+backed by the same internal store, and nothing stops a service key from being
+overwritten. This raw, string-free plane is deliberately thin: [World]
+exposes it directly via [add_service] / [get_service] / [remove_service] /
+[add_data] / [set_data] / [get_data] / [remove_data] / [iter_data] /
+[count_data]. [eon_engine] builds a typed, per-resource functor facade on top
+([Resource.Make] / [Service.Make]) so callers don't have to agree on a raw
+key by hand — see the {b Resources and services} section of the [eon_engine]
+docs.
+
 {2 Components}
 
 Components are plain OCaml values. Register a type with

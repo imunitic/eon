@@ -127,8 +127,8 @@ writing any parsing code. Two consequences:
   depends on `eon_edn`, never the reverse. Same layering discipline as
   `eon_ecs` → `eon_engine` (see `project_eon_ecs_boundary` memory).
 - Based on `eon_edn_parser.md` (algebraic-effects design, in `docs/design/`
-  as the canonical spec for this project) rather than the
-  Angstrom-combinator sketch in `docs/eon_engine/edn_parser.md`. Status:
+  as the canonical spec for this project) rather than an earlier
+  Angstrom-combinator sketch (since removed from the repo). Status:
   **ACCEPTED** — every module (`edn_effects`, `edn_parser`,
   `edn_middleware`) has been compiled and run against OCaml 5.5.0, design
   settled, ready to build.

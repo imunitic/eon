@@ -1,0 +1,185 @@
+{0 Audio}
+
+The engine ships no audio components and no audio systems — {!Eon_engine.Audio_backend}
+completes the {{!page-index}[Platform.S]} trifecta (alongside [Input_backend] and
+[Rendering_backend]), and {!Eon_engine.Audio_command_buffer} is the shared,
+game-owned accumulator any system can append to. What sound to play, when, and
+from which game system, is entirely a game-layer decision.
+
+{1 Audio_backend — the platform seam}
+
+{[
+module type S = sig
+  val init     : unit -> unit
+  val submit   : Audio_command.t list -> unit
+  val shutdown : unit -> unit
+end
+]}
+
+One function does the real work: [submit]. [init]/[shutdown] bracket the loop's
+lifetime — [init] pre-loads sound files into backend-internal handles, [shutdown]
+releases them. [Audio_backend.Null] discards every command; it's what
+[Platform.Headless] uses for CI and tests.
+
+{1 Audio_command — the vocabulary}
+
+{[
+open Eon_engine
+
+type t =
+  | Play_sound of {
+      id          : string;
+      instance_id : string option;
+      volume      : float;
+      pitch       : float;
+      pan         : float;
+      loop        : bool;
+    }
+  | Stop_sound        of string
+  | Set_volume        of string * float
+  | Set_pitch         of string * float
+  | Set_pan           of string * float
+  | Play_music        of { id : string; volume : float; loop : bool }
+  | Stop_music
+  | Set_music_volume  of float
+  | Crossfade_music   of { id : string; duration : float }
+  | Set_master_volume of float
+  | Pause_all
+  | Resume_all
+  | Stop_all
+]}
+
+[instance_id] is what makes a sound addressable after it starts — set it for
+anything you'll want to [Stop_sound]/[Set_volume]/[Set_pan] later (a looping
+spatial emitter); leave it [None] for fire-and-forget one-shots (a hit sound, a
+UI click) where the backend owns the voice lifetime.
+
+{1 Audio_command_buffer — the shared accumulator}
+
+{[
+type t
+
+val create  : unit -> t
+val clear   : t -> unit
+val add     : t -> Audio_command.t -> unit
+val to_list : t -> Audio_command.t list
+
+val fetch     : [> World.ro] World.t -> t   (** raises [Not_found] if unstored *)
+val fetch_opt : [> World.ro] World.t -> t option
+val store     : World.rw World.t -> t -> unit
+]}
+
+There is no dedicated engine-level audio system — any system that detects a
+trigger fetches the buffer and appends:
+
+{[
+open Eon_engine
+
+(* combat system detects a hit *)
+let on_hit world =
+  let buf = Audio_command_buffer.fetch world in
+  Audio_command_buffer.add buf
+    (Play_sound { id = "hit_01"; instance_id = None;
+                  volume = 0.9; pitch = 1.0; pan = 0.0; loop = false })
+
+(* spatial audio system updates a looping emitter each frame *)
+let update_emitter world iid ~volume ~pan =
+  let buf = Audio_command_buffer.fetch world in
+  Audio_command_buffer.add buf (Set_volume (iid, volume));
+  Audio_command_buffer.add buf (Set_pan    (iid, pan))
+]}
+
+{1 Frame flow}
+
+{[
+  collect — Signals -> Events -> Commands
+  tick    — Progress.tick; any system calls Audio_command_buffer.add
+  drain   — Signals -> Commands -> Events
+  loop    — Platform.Rendering_backend.render stream ~dt
+            Platform.Audio_backend.submit (Audio_command_buffer.to_list buf)
+            Audio_command_buffer.clear buf
+]}
+
+The buffer is cleared {i after} [submit], not before [tick] — the loop always
+submits exactly what accumulated during the current frame. See
+{{!page-index}[Loop.Make]} for the full per-frame sequence this fits into.
+
+{2 Voice budget prioritization}
+
+Backends have a finite voice budget (typically 32-64 simultaneous sounds). If a
+game needs to cull low-priority requests before they reach the backend, a
+dedicated system can run after all audio-producing systems, read the buffer via
+[to_list], drop or reorder entries, and replace the buffer contents before the
+loop calls [submit] — the shared buffer means this system sees every request
+for the frame in one place.
+
+{1 Triggering sounds: three patterns}
+
+{table
+  {tr {th Trigger} {th Example} {th Where the append happens}}
+  {tr {td Event-driven}     {td Skill SFX, death sound, UI click} {td A signal handler or a system reacting to an event}}
+  {tr {td Polled / spatial} {td Monster growl, ambient fire}      {td A system querying position each frame}}
+  {tr {td Global state}     {td Music track change}               {td A system reading a music resource}}
+}
+
+One-shot audio triggers are local-only and never cross the network, the same
+rule as input Signals — a remote client receives the game-state event that
+caused the sound ([Enemy_died], [Skill_used]) and appends its own local sound
+independently. Audio is never replicated; only game state is.
+
+{1 Sound effects vs. music}
+
+{table
+  {tr {th} {th Sound effects} {th Music}}
+  {tr {td Length}   {td Short (< 5s)}                    {td Long (minutes)}}
+  {tr {td Memory}   {td Loaded fully into RAM as PCM}     {td Streamed from disk, decoded in chunks}}
+  {tr {td Voices}   {td Regular voice slot}               {td Separate streaming voice}}
+  {tr {td Format}   {td WAV preferred (no decode cost)}   {td OGG preferred (compression)}}
+}
+
+The backend handles the streaming/decoding difference internally — the engine
+always sends the same [Play_sound]/[Play_music] commands regardless.
+
+{1 Worked example: spatial audio}
+
+A game that wants distance-attenuated looping sounds defines its own
+[Sound_emitter]/[Sound_listener] components (not shipped by the engine) and a
+system that queries them each frame:
+
+{[
+open Eon_engine
+
+let emitter_instance_id view =
+  "emitter:" ^ Entity_id.to_string (View.entity view)
+
+let update world _dt =
+  let buf      = Audio_command_buffer.fetch world in
+  let listener = World.get_data world Sound_listener.key in
+  Query.from world
+  |> Query.having Sound_emitter.name
+  |> Query.iter (fun view ->
+       let emitter = View.get view (module Sound_emitter) in
+       let pos     = View.get view (module Local_transform) in
+       let iid     = emitter_instance_id view in
+       let dist    = Vec2.distance listener.position pos.position in
+       if dist > emitter.range then begin
+         if emitter.playing then
+           Audio_command_buffer.add buf (Stop_sound iid)
+       end else begin
+         let vol = emitter.volume *. (1.0 -. (dist /. emitter.range)) in
+         if not emitter.playing then
+           Audio_command_buffer.add buf
+             (Play_sound { id = emitter.sound_id; instance_id = Some iid;
+                           volume = vol; pitch = 1.0; pan = 0.0; loop = true })
+         else
+           Audio_command_buffer.add buf (Set_volume (iid, vol))
+       end)
+]}
+
+See {{!page-index}the parallel/exclusive systems section} for whether this
+should be a [Parallel] system (it only reads [Sound_emitter]/[Local_transform]
+and appends to a buffer, not the world) or run as part of an [Exclusive] one.
+
+For the full design rationale (why audio differs from rendering/input, backend
+selection, and what NOT to do) see [docs/design/audio_system_design.md] in the
+repository.
