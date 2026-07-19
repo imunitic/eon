@@ -347,8 +347,22 @@ module Rendering_backend : module type of Rendering_backend
 module Render_stream_collector : module type of Render_stream_collector
 
 (** ECS system that populates and stores a [Render_stream] each frame.
-    [Make(B)] produces a system typed for [B.command]. *)
-module Render_system : module type of Render_system
+    [Make(B)] produces a system typed for [B.command], wired for
+    [Pipeline.Default]. Use [Make_with_system] when running a custom
+    pipeline built via [System.Make] / [Pipeline.Make]. *)
+module Render_system : sig
+  module Make_with_system (B : Rendering_backend.S) (Sys : System.DISPATCH) : sig
+    val make :
+      render_stream_collector:('phase, B.command) Render_stream_collector.t ->
+      (unit, unit, unit) Sys.t
+  end
+
+  module Make (B : Rendering_backend.S) : sig
+    val make :
+      render_stream_collector:('phase, B.command) Render_stream_collector.t ->
+      (unit, unit, unit) System.Default.t
+  end
+end
 
 (** {2 Transform & Lifecycle} *)
 

@@ -223,27 +223,9 @@ let multi_camera_collector_example () =
 
 (* Render_system: clears + repopulates the stream each tick, stores it in
    the world data plane. Register this system's phase after gameplay.
+   Render_system.Make(B).make wires directly into Pipeline.Default. *)
+module Null_render_system = Render_system.Make (Rendering_backend.Null)
 
-   NOTE: Render_system.Make(B).make's result cannot actually be passed to
-   Pipeline.Default.add_system today — confirmed by direct experiment.
-   eon_engine.mli declares [module Render_system : module type of
-   Render_system], a raw signature copy of the private src/render_system.mli.
-   That file's own Make(B).make return type is written as
-   [(unit, unit, unit) System.Default.t] using ITS OWN in-scope (private)
-   System module — copying the signature verbatim does not repoint that
-   reference at the PUBLIC Eon_engine.System.Default, so the value comes out
-   typed as (unit, unit, unit) Eon_engine__System.Default.t, an abstract type
-   distinct from the (unit, unit, unit) Eon_engine.System.Default.t that
-   Pipeline.Default.add_system expects. Transform_system/Lifecycle_system
-   (previous chapter) don't have this problem because eon_engine.mli gives
-   them a hand-written signature that references the public System module
-   directly, instead of `module type of`-copying their private one.
-
-   Until Render_system gets the same hand-written treatment, drive it the
-   same way as "Bypassing Render_system" below: call the collector and
-   Render_stream.store directly from an Exclusive system, replicating what
-   Render_system does internally (clear, collect, store) rather than going
-   through Render_system.Make itself. *)
 let render_system_example () =
   let render_collector =
     Render_stream_collector.create ()
@@ -253,11 +235,7 @@ let render_system_example () =
     |> Render_stream_collector.add_collector `World  collect_sprites
   in
   let render_system =
-    System.Default.make
-      (Exclusive (fun world _dt ->
-        let stream = Render_stream.create () in
-        Render_stream_collector.collect render_collector (World.readonly world) stream;
-        Render_stream.store world stream))
+    Null_render_system.make ~render_stream_collector:render_collector
   in
 
   let world = make_world () in

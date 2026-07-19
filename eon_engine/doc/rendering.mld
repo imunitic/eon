@@ -272,39 +272,19 @@ calling [begin_mode_2d] / [end_mode_2d] around the commands between each
 
 {1 Render system}
 
-{!Eon_engine.Render_system.Make} is documented to produce a standard ECS
-system that clears the [Render_stream] at the start of each tick, calls
+{!Eon_engine.Render_system.Make} produces a standard ECS system that clears
+the [Render_stream] at the start of each tick, calls
 [Render_stream_collector.collect] to repopulate it, and stores the stream
-reference in the world data plane. It never calls the backend.
-
-{b [Render_system.Make(B).make]'s result cannot actually be passed to
-[Pipeline.Default.add_system] today} — confirmed by direct experiment.
-[eon_engine.mli] declares [module Render_system : module type of
-Render_system], a raw signature copy of the private
-[src/render/render_system.mli]. That file's own [Make(B).make]'s return
-type is written as [(unit, unit, unit) System.Default.t] using {i its own}
-in-scope private [System] module — copying the signature verbatim does not
-repoint that reference at the public [Eon_engine.System.Default], so the
-value comes out typed as an abstract [Eon_engine__System.Default.t],
-distinct from the [Eon_engine.System.Default.t] that
-[Pipeline.Default.add_system] expects.
-{{!page-queries_and_systems}Transform_system and Lifecycle_system} don't
-have this problem because [eon_engine.mli] gives them a hand-written
-signature that references the public [System] module directly, instead of
-[module type of]-copying their private one — until [Render_system] gets the
-same treatment, drive it manually: call the collector and
-[Render_stream.store] directly from an [Exclusive] system, replicating what
-[Render_system] does internally:
+reference in the world data plane. It never calls the backend. Add it to
+whichever pipeline phase runs last:
 
 {[
   open Eon_engine
 
+  module My_render_system = Render_system.Make (Rendering_backend.Null)
+
   let render_system =
-    System.Default.make
-      (Exclusive (fun world _dt ->
-        let stream = Render_stream.create () in
-        Render_stream_collector.collect render_collector (World.readonly world) stream;
-        Render_stream.store world stream))
+    My_render_system.make ~render_stream_collector:render_collector
 
   let pipeline =
     Pipeline.Default.create ()
@@ -312,10 +292,10 @@ same treatment, drive it manually: call the collector and
     |> Pipeline.Default.add_system `Render render_system
 ]}
 
-Unqualified [Exclusive] resolves via type-directed disambiguation from
-[System.Default.make]'s expected argument type, the same as
-{{!page-queries_and_systems}the previous chapter}'s inline-closure systems —
-the qualified [System.Exclusive] form does not.
+Use {!Eon_engine.Render_system.Make_with_system} instead of [Make] when
+running a custom pipeline built via [System.Make]/[Pipeline.Make] — its
+second argument is the custom [DISPATCH] module rather than the implicit
+[System.Default].
 
 {2 Bypassing Render_system entirely}
 
@@ -494,15 +474,11 @@ was defined earlier in this chapter:
     |> Render_stream_collector.add_collector `World  collect_sprites
     |> Render_stream_collector.add_collector `Screen collect_hud
 
-  (* 2. Build the render system — manually, per "Render system" above;
-     Render_system.Make(B).make cannot be passed to
-     Pipeline.Default.add_system today *)
+  (* 2. Build the render system *)
+  module My_render_system = Render_system.Make (Rendering_backend.Null)
+
   let render_system =
-    System.Default.make
-      (Exclusive (fun world _dt ->
-        let stream = Render_stream.create () in
-        Render_stream_collector.collect render_collector (World.readonly world) stream;
-        Render_stream.store world stream))
+    My_render_system.make ~render_stream_collector:render_collector
 
   (* 3. Build the pipeline *)
   let pipeline =
