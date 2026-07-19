@@ -23,6 +23,9 @@ PACKAGE_CMAP=(Blues Greens Purples)             # matplotlib colormap per packag
 # module's tests don't follow the default test_<module>.ml convention (e.g.
 # several modules sharing one composite test file).
 TEST_OVERRIDES="
+eon_ecs:single_bus:bus
+eon_ecs:double_bus:bus
+eon_engine:color:render_modules
 eon_engine:component:api_structure
 eon_engine:component_descriptor:api_structure
 eon_engine:single_bus:api_structure
@@ -40,6 +43,17 @@ eon_engine:namespace:resource_service
 eon_engine:audio_command:audio
 eon_engine:audio_command_buffer:audio
 eon_engine:raw_input_frame:input
+eon_engine:input_backend:input
+eon_engine:animation:components
+eon_engine:camera:components
+eon_engine:children:components
+eon_engine:collider:components
+eon_engine:local_transform:components
+eon_engine:parent:components
+eon_engine:sprite:components
+eon_engine:tag:components
+eon_engine:velocity:components
+eon_engine:world_transform:components
 eon_engine:render_commands:render_modules
 eon_engine:render_stream_collector:render_modules
 eon_engine:render_system:render_modules

@@ -52,6 +52,20 @@ let test_scripted_exhausted () =
   Alcotest.(check bool) "exhausted → empty" true
     (Key.Set.is_empty r.keys_pressed)
 
+let test_scripted_set_frames_replaces_not_appends () =
+  Input_backend.Scripted.set_frames [ scripted_frame Key.A; scripted_frame Key.B ];
+  let r1 = Input_backend.Scripted.collect () in
+  Alcotest.(check bool) "first frame is A" true (Key.Set.mem Key.A r1.keys_pressed);
+  (* [B] is still queued at this point — replacing now must discard it, not
+     queue [C] behind it. *)
+  Input_backend.Scripted.set_frames [ scripted_frame Key.C ];
+  let r2 = Input_backend.Scripted.collect () in
+  Alcotest.(check bool) "replaced sequence yields C, not the discarded B" true
+    (Key.Set.mem Key.C r2.keys_pressed);
+  let r3 = Input_backend.Scripted.collect () in
+  Alcotest.(check bool) "replaced sequence is exhausted after its one frame" true
+    (Key.Set.is_empty r3.keys_pressed)
+
 let test_scripted_shutdown_clears () =
   Input_backend.Scripted.set_frames [scripted_frame Key.Space];
   Input_backend.Scripted.shutdown ();
@@ -124,6 +138,8 @@ let tests = [
   "Raw_input_frame.empty — gamepad", `Quick, test_empty_gamepad;
   "Scripted — frame sequence",       `Quick, test_scripted_sequence;
   "Scripted — exhausted returns empty", `Quick, test_scripted_exhausted;
+  "Scripted — set_frames replaces rather than appends", `Quick,
+    test_scripted_set_frames_replaces_not_appends;
   "Scripted — shutdown clears frames",  `Quick, test_scripted_shutdown_clears;
   "Loop.step — writes frame to world",  `Quick, test_loop_writes_input_to_world;
   "Loop.step — updates frame each tick", `Quick, test_loop_updates_each_tick;

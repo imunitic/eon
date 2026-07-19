@@ -9,9 +9,11 @@ let () =
       "Sparse Set (QCheck)", Test_prop_sparse_set.tests;
       "Entity ID", Test_entity_id.tests;
       "Component Registry", Test_component_registry.tests;
+      "Component", Test_component.tests;
       "Resource Store", Test_resource_store.tests;
       "Buses", Test_bus.tests;
       "Buses (QCheck)", Test_prop_bus.tests;
+      "Buses.Make/Default", Test_buses.tests;
       "Systems", Test_system.tests;
       "Dependency_graph", Test_dependency_graph.tests;
       "Pipeline", Test_pipeline.tests;
@@ -24,4 +26,5 @@ let () =
       "Loop (QCheck)", Test_prop_loop.tests;
       "World", Test_world.tests;
       "World (QCheck)", Test_prop_world.tests;
+      "Clock", Test_clock.tests;
     ]
