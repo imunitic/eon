@@ -6,6 +6,15 @@ just EDN syntax in, a generic {!Eon_edn.Edn_effects.value} tree out.
 Extension (custom [#tag] handling, validation, logging) is entirely a
 middleware concern, layered on top of the reader without touching it.
 
+This page is the front of a short book: read the {b Guides} below in
+order for a start-to-finish walkthrough of every public feature, with
+real, compiled code examples throughout (the source for every example
+lives in
+{{:https://github.com/imunitic/eon/tree/main/eon_edn/examples/book}[eon_edn/examples/book/]},
+compiled as part of the normal build — {i not} illustrative pseudocode).
+If you already know what you're looking for, jump straight to the
+{b API reference} at the bottom instead.
+
 {1 Quick start}
 
 {[
@@ -21,197 +30,17 @@ middleware concern, layered on top of the reader without touching it.
 {!Eon_edn.Edn_parser.run} drives the reader over an input string and
 returns the parsed {!Eon_edn.Edn_effects.value}. This is enough for plain
 EDN — primitives, strings, symbols, keywords, lists [()], vectors [[]],
-and maps [{}]. Tagged values ([#tag ...]) and metadata ([^meta ...])
-need one more step — see {!section:tags} below.
+and maps [{}]. Tagged values ([#tag ...]) and metadata ([^meta ...]) need
+one more step — see {{!page-middleware}Middleware}.
 
-{1 Core concepts}
+{1 Guides}
 
-{2 The value type}
-
-{!Eon_edn.Edn_effects.value} is the whole AST — a plain, closed variant,
-no abstract types to work around:
-
-{[
-  type value =
-    | VNil
-    | VBool of bool
-    | VNumber of float
-    | VString of string
-    | VList of value list
-    | VVector of value list
-    | VMap of (value * value) list
-    | VSymbol of string
-    | VKeyword of string
-    | VTagged of string * value
-    | VMeta of value * value
-]}
-
-Pattern-match on it directly — there's no accessor API to learn.
-
-{2 The reader}
-
-{!Eon_edn.Edn_parser.value} is the grammar entry point;
-{!Eon_edn.Edn_parser.run} supplies the low-level effects
-({!Eon_edn.Edn_effects.Peek}/{!Eon_edn.Edn_effects.Read}/{!Eon_edn.Edn_effects.Fail})
-that drive it over a string. [run] deliberately does {b not} handle
-{!Eon_edn.Edn_effects.Tag} or {!Eon_edn.Edn_effects.Meta} — parsing a
-document containing [#tag ...] or [^meta ...] via [run] alone raises an
-unhandled-effect error. That's intentional: tag/meta resolution is a
-separate, composable concern (see below), not baked into the reader.
-
-{2:tags Tags and middleware}
-
-A tagged value ([#eon/vec2 [1 2]]) performs
-{!Eon_edn.Edn_effects.Tag} with [(tag_name, value)]. Drive the parser
-with {!Eon_edn.Edn_middleware.run_with_middleware} instead of plain
-[run] to resolve it:
-
-{[
-  let v =
-    Eon_edn.Edn_middleware.run_with_middleware
-      (fun () -> Eon_edn.Edn_parser.value ())
-      {|#uuid "abc"|}
-  (* v = VTagged ("uuid", VString "abc") — no handler registered for "uuid",
-     so it falls back to wrapping the tag name and value as-is *)
-]}
-
-Register a handler to transform the tagged value instead of leaving it
-wrapped:
-
-{[
-  let () =
-    Eon_edn.Edn_middleware.register_tag_handler "uuid" (fun _ v ->
-        match v with
-        | Eon_edn.Edn_effects.VString s ->
-            Eon_edn.Edn_effects.VTagged ("uuid", VString (String.uppercase_ascii s))
-        | v -> v)
-
-  let v =
-    Eon_edn.Edn_middleware.run_with_middleware
-      (fun () -> Eon_edn.Edn_parser.value ())
-      {|#uuid "abc"|}
-  (* v = VTagged ("uuid", VString "ABC") *)
-]}
-
-{2 Composing middleware}
-
-{!Eon_edn.Edn_middleware.run_with_middleware}'s [?handlers] takes a
-{!Eon_edn.Edn_middleware.handler} list. Each handler can fully resolve a
-tag or forward it ([None]) to the next one — either another handler in
-the list, or {!Eon_edn.Edn_middleware.default_handler} (the registry
-lookup above), which always sits outermost. Two ready-made handlers:
-
-- {!Eon_edn.Edn_middleware.log_tags} — logs every tag, then forwards.
-- {!Eon_edn.Edn_middleware.strict_tags} — rejects any tag not in an
-  allow-list; allowed tags forward.
-
-{[
-  let v =
-    Eon_edn.Edn_middleware.run_with_middleware
-      ~handlers:Eon_edn.Edn_middleware.[ log_tags; strict_tags [ "uuid" ] ]
-      (fun () -> Eon_edn.Edn_parser.value ())
-      {|#uuid "abc"|}
-  in
-  ignore v
-]}
-
-Refusal order runs from the {b last} element of [handlers] (nearest the
-reader, first crack at each effect) to the {b first} (nearest
-{!Eon_edn.Edn_middleware.default_handler}, last crack among the
-middleware) — in the example above, [strict_tags] is asked before
-[log_tags]. Writing a custom handler follows the same shape: match on
-{!Eon_edn.Edn_effects.Tag}, return [Some] to terminate the effect or
-[None] to forward it.
-
-{1 Worked example: loading a config file into a typed record}
-
-Everything above stops at {!Eon_edn.Edn_effects.value} — a generic tree.
-Getting from there to a real OCaml type (a config record, a component, a
-save file) isn't part of [eon-edn] itself; it's a few lines of ordinary
-pattern matching that you write once per type. If you're used to
-schema-driven or reflection-based (de)serialization from other
-languages, this is the part with no equivalent — there's no annotation,
-no code generation, no reflection. You write a small function, it's
-plain code, you can step through it in a debugger like anything else.
-
-Say you want this EDN file:
-
-{[
-  {:name "My Game"
-   :width 1920
-   :height 1080
-   :fullscreen false
-   :volume 0.8}
-]}
-
-to become this type:
-
-{[
-  type config = {
-    name : string;
-    width : int;
-    height : int;
-    fullscreen : bool;
-    volume : float;
-  }
-]}
-
-First, small helpers — one to look up a keyword in a map, one per
-scalar shape you expect. Both fail loudly (raise) rather than silently
-defaulting, so a config file with a missing or wrong-typed field is
-caught at load time, not three functions later as a mysterious [0]:
-
-{[
-  open Eon_edn.Edn_effects
-
-  let field kvs name =
-    match List.assoc_opt (VKeyword name) kvs with
-    | Some v -> v
-    | None -> failwith (Printf.sprintf "config: missing field %S" name)
-
-  let as_string = function VString s -> s | _ -> failwith "config: expected a string"
-  let as_int = function VNumber n -> int_of_float n | _ -> failwith "config: expected a number"
-  let as_bool = function VBool b -> b | _ -> failwith "config: expected a boolean"
-  let as_float = function VNumber n -> n | _ -> failwith "config: expected a number"
-]}
-
-Then the conversion itself — this is the part that's genuinely "yours":
-
-{[
-  let config_of_value = function
-    | VMap kvs ->
-        { name = as_string (field kvs "name")
-        ; width = as_int (field kvs "width")
-        ; height = as_int (field kvs "height")
-        ; fullscreen = as_bool (field kvs "fullscreen")
-        ; volume = as_float (field kvs "volume")
-        }
-    | _ -> failwith "config: expected a top-level map"
-]}
-
-And finally, reading it from an actual file — {!Eon_edn.Edn_parser.run}
-only needs the file's contents as a string, so this is just an ordinary
-[In_channel] read followed by the conversion above:
-
-{[
-  let load_config path =
-    let contents = In_channel.with_open_bin path In_channel.input_all in
-    Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value contents
-    |> config_of_value
-]}
-
-{[
-  let cfg = load_config "game.edn" in
-  Printf.printf "%s: %dx%d\n" cfg.name cfg.width cfg.height
-]}
-
-That's the whole pattern, and it's the same shape regardless of how
-complex the type gets: one small [as_*]/[field] toolkit, one
-[_of_value] function per type, composed by hand for nested types (a
-config with a sub-record just calls another [_of_value] function on the
-sub-map). No macro, no deriving, no build-time codegen step — the
-tradeoff for that is exactly this: you write the glue, but the glue is
-short, obvious, and entirely under your control.
+- {{!page-reading}The value type and the reader} — {!Eon_edn.Edn_effects.value},
+  {!Eon_edn.Edn_parser}: the AST, the grammar entry point, and why
+  [#tag]/[^meta] deliberately raise when driven via [run] alone.
+- {{!page-middleware}Middleware} — {!Eon_edn.Edn_middleware}: resolving
+  tags, registering handlers, composing [log_tags]/[strict_tags], and a
+  worked example converting a parsed value into a typed OCaml record.
 
 {1 API reference}
 

@@ -1,0 +1,76 @@
+{0 The value type and the reader}
+
+Everything in [eon-edn] revolves around one type,
+{!Eon_edn.Edn_effects.value}, and one function that produces it,
+{!Eon_edn.Edn_parser.value}. This chapter covers both, using the companion
+example
+({{:https://github.com/imunitic/eon/blob/main/eon_edn/examples/book/reading_example.ml}[reading_example.ml]}).
+
+{1 The value type}
+
+{!Eon_edn.Edn_effects.value} is the whole AST — a plain, closed variant, no
+abstract types to work around:
+
+{[
+  type value =
+    | VNil
+    | VBool of bool
+    | VNumber of float
+    | VString of string
+    | VList of value list
+    | VVector of value list
+    | VMap of (value * value) list
+    | VSymbol of string
+    | VKeyword of string
+    | VTagged of string * value
+    | VMeta of value * value
+]}
+
+Pattern-match on it directly — there's no accessor API to learn. A keyword
+like [:name] parses to [VKeyword "name"]; the leading [:] is stripped, not
+part of the string.
+
+{1 The reader}
+
+{!Eon_edn.Edn_parser.value} is the grammar entry point;
+{!Eon_edn.Edn_parser.run} supplies the low-level effects
+({!Eon_edn.Edn_effects.Peek}/{!Eon_edn.Edn_effects.Read}/
+{!Eon_edn.Edn_effects.Fail}) that drive it over a string:
+
+{[
+  let v =
+    Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value
+      {|{:name "Crab" :position [1 2] :alive true}|}
+  in
+  match v with
+  | Eon_edn.Edn_effects.VMap _ -> print_endline "parsed a map"
+  | _ -> assert false
+]}
+
+This is enough for plain EDN — primitives, strings, symbols, keywords,
+lists [()], vectors [[]], and maps [{}]:
+
+{[
+  match Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value {|(1 2 3)|} with
+  | Eon_edn.Edn_effects.VList [ VNumber 1.; VNumber 2.; VNumber 3. ] -> ()
+  | _ -> assert false
+]}
+
+[run] deliberately does {b not} handle {!Eon_edn.Edn_effects.Tag} or
+{!Eon_edn.Edn_effects.Meta} — parsing a document containing [#tag ...] or
+[^meta ...] via [run] alone raises an unhandled-effect error:
+
+{[
+  match Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value {|#uuid "abc"|} with
+  | _ -> assert false
+  | exception _ -> ()
+]}
+
+That's intentional: tag/meta resolution is a separate, composable concern,
+not baked into the reader — see the next chapter.
+
+{1 Next}
+
+{{!page-middleware}Middleware} — resolving [#tag ...]/[^meta ...] values
+via {!Eon_edn.Edn_middleware}, and a worked example converting a parsed
+[value] into a typed OCaml record.

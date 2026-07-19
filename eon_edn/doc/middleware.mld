@@ -1,0 +1,278 @@
+{0 Tags, middleware, and converting to typed OCaml}
+
+The previous chapter left [#tag ...] and [^meta ...] values unhandled by
+design. This chapter covers resolving them via
+{!Eon_edn.Edn_middleware}, then walks through converting a parsed
+{!Eon_edn.Edn_effects.value} into a typed OCaml record — using the
+companion example
+({{:https://github.com/imunitic/eon/blob/main/eon_edn/examples/book/middleware_example.ml}[middleware_example.ml]}).
+
+{1 Tags and middleware}
+
+A tagged value ([#eon/vec2 [1 2]]) performs {!Eon_edn.Edn_effects.Tag}
+with [(tag_name, value)]. Drive the parser with
+{!Eon_edn.Edn_middleware.run_with_middleware} instead of plain [run] to
+resolve it:
+
+{[
+  let v =
+    Eon_edn.Edn_middleware.run_with_middleware
+      (fun () -> Eon_edn.Edn_parser.value ())
+      {|#uuid "abc"|}
+  in
+  match v with
+  | Eon_edn.Edn_effects.VTagged ("uuid", VString "abc") -> ()
+  | _ -> assert false
+  (* no handler registered for "uuid", so it falls back to wrapping the
+     tag name and value as-is *)
+]}
+
+Register a handler to transform the tagged value instead of leaving it
+wrapped:
+
+{[
+  let () =
+    Eon_edn.Edn_middleware.register_tag_handler "uuid" (fun _ v ->
+        match v with
+        | Eon_edn.Edn_effects.VString s ->
+            Eon_edn.Edn_effects.VTagged ("uuid", VString (String.uppercase_ascii s))
+        | v -> v)
+
+  let v =
+    Eon_edn.Edn_middleware.run_with_middleware
+      (fun () -> Eon_edn.Edn_parser.value ())
+      {|#uuid "abc"|}
+  in
+  match v with
+  | Eon_edn.Edn_effects.VTagged ("uuid", VString "ABC") -> ()
+  | _ -> assert false
+]}
+
+{!Eon_edn.Edn_middleware.register_tag_handler} writes into a process-global
+registry — once registered, every later parse in the same process sees the
+transformed tag, not just the call site that registered it.
+
+{1 Composing middleware}
+
+{!Eon_edn.Edn_middleware.run_with_middleware}'s [?handlers] takes a
+{!Eon_edn.Edn_middleware.handler} list. Each handler can fully resolve a
+tag or forward it ([None]) to the next one — either another handler in the
+list, or {!Eon_edn.Edn_middleware.default_handler} (the registry lookup
+above), which always sits outermost. Two ready-made handlers:
+
+- {!Eon_edn.Edn_middleware.log_tags} — logs every tag, then forwards.
+- {!Eon_edn.Edn_middleware.strict_tags} — rejects any tag not in an
+  allow-list; allowed tags forward.
+
+{[
+  let v =
+    Eon_edn.Edn_middleware.run_with_middleware
+      ~handlers:Eon_edn.Edn_middleware.[ log_tags; strict_tags [ "uuid" ] ]
+      (fun () -> Eon_edn.Edn_parser.value ())
+      {|#uuid "abc"|}
+  in
+  ignore v
+]}
+
+Refusal order runs from the {b last} element of [handlers] (nearest the
+reader, first crack at each effect) to the {b first} (nearest
+{!Eon_edn.Edn_middleware.default_handler}, last crack among the
+middleware) — in the example above, [strict_tags] is asked before
+[log_tags]. Writing a custom handler follows the same shape: match on
+{!Eon_edn.Edn_effects.Tag}, return [Some] to terminate the effect or
+[None] to forward it.
+
+{1 Worked example: loading a config file into a typed record}
+
+Everything above stops at {!Eon_edn.Edn_effects.value} — a generic tree.
+Getting from there to a real OCaml type (a config record, a component, a
+save file) isn't part of [eon-edn] itself; it's a few lines of ordinary
+pattern matching that you write once per type. If you're used to
+schema-driven or reflection-based (de)serialization from other languages,
+this is the part with no equivalent — there's no annotation, no code
+generation, no reflection. You write a small function, it's plain code,
+you can step through it in a debugger like anything else.
+
+Say you want this EDN file:
+
+{[
+  {:name "My Game"
+   :width 1920
+   :height 1080
+   :fullscreen false
+   :volume 0.8}
+]}
+
+to become this type:
+
+{[
+  type config = {
+    name : string;
+    width : int;
+    height : int;
+    fullscreen : bool;
+    volume : float;
+  }
+]}
+
+First, small helpers — one to look up a keyword in a map, one per scalar
+shape you expect. Both fail loudly (raise) rather than silently
+defaulting, so a config file with a missing or wrong-typed field is caught
+at load time, not three functions later as a mysterious [0]:
+
+{[
+  open Eon_edn.Edn_effects
+
+  let field kvs name =
+    match List.assoc_opt (VKeyword name) kvs with
+    | Some v -> v
+    | None -> failwith (Printf.sprintf "config: missing field %S" name)
+
+  let as_string = function VString s -> s | _ -> failwith "config: expected a string"
+  let as_int = function VNumber n -> int_of_float n | _ -> failwith "config: expected a number"
+  let as_bool = function VBool b -> b | _ -> failwith "config: expected a boolean"
+  let as_float = function VNumber n -> n | _ -> failwith "config: expected a number"
+]}
+
+Then the conversion itself — this is the part that's genuinely "yours":
+
+{[
+  let config_of_value = function
+    | VMap kvs ->
+        { name = as_string (field kvs "name")
+        ; width = as_int (field kvs "width")
+        ; height = as_int (field kvs "height")
+        ; fullscreen = as_bool (field kvs "fullscreen")
+        ; volume = as_float (field kvs "volume")
+        }
+    | _ -> failwith "config: expected a top-level map"
+]}
+
+And finally, reading it from an actual file — {!Eon_edn.Edn_parser.run}
+only needs the file's contents as a string, so this is just an ordinary
+[In_channel] read followed by the conversion above:
+
+{[
+  let load_config path =
+    let contents = In_channel.with_open_bin path In_channel.input_all in
+    Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value contents
+    |> config_of_value
+]}
+
+{[
+  let cfg = load_config "game.edn" in
+  Printf.printf "%s: %dx%d\n" cfg.name cfg.width cfg.height
+]}
+
+That's the whole pattern, and it's the same shape regardless of how
+complex the type gets: one small [as_*]/[field] toolkit, one [_of_value]
+function per type, composed by hand for nested types (a config with a
+sub-record just calls another [_of_value] function on the sub-map). No
+macro, no deriving, no build-time codegen step — the tradeoff for that is
+exactly this: you write the glue, but the glue is short, obvious, and
+entirely under your control.
+
+{1 A more realistic example: nested maps, vectors of maps, and mixed types}
+
+The config above is the easy case — one flat map, one scalar per field.
+Most real EDN documents aren't that shape: a save file or a level
+description mixes scalars, [VVector]s of strings, and [VVector]s of
+{i nested} maps, several levels deep. None of that requires new machinery
+— the same [as_*]/[field] toolkit and one [_of_value] function per type
+compose exactly the way they did above, just with more of them wired
+together.
+
+Say you want to load a small level file:
+
+{[
+  {:level "Forest Ruins"
+   :entities [{:name "Player"
+               :position [3.5 -1.2]
+               :tags ["hero" "controllable"]
+               :inventory [{:item "Sword" :damage 12 :equipped true}
+                           {:item "Potion" :damage 0 :equipped false} ] }
+              {:name "Goblin"
+               :position [10.0 4.0]
+               :tags []
+               :inventory [] } ] }
+]}
+
+Three nesting levels: a top-level map with an [:entities] field holding a
+vector of entity maps, each entity holding both a position vector of two
+numbers {i and} an inventory vector of item maps. The target types mirror
+that shape directly:
+
+{[
+  type item = { item_name : string; damage : int; equipped : bool }
+
+  type entity = {
+    entity_name : string;
+    position : float * float;
+    tags : string list;
+    inventory : item list;
+  }
+
+  type level = { level_name : string; entities : entity list }
+]}
+
+One new helper beyond [field]/[as_string]/[as_int]/[as_bool] from before:
+unwrap a [VVector], then map a per-element converter over its contents.
+[as_string_list] is just that helper specialised to strings:
+
+{[
+  let as_vector = function
+    | VVector l -> l
+    | _ -> failwith "level: expected a vector"
+
+  let as_string_list v = List.map as_string (as_vector v)
+]}
+
+Each [_of_value] function only ever looks one level deep — [entity_of_value]
+doesn't know or care how [item_of_value] works, it just calls it once per
+element of the inventory vector. A 2-element position vector gets its own
+tiny converter rather than being folded into a generic "vector of numbers"
+helper, since a position specifically wants a pair, not a list:
+
+{[
+  let item_of_value = function
+    | VMap kvs ->
+        { item_name = as_string (field kvs "item")
+        ; damage = as_int (field kvs "damage")
+        ; equipped = as_bool (field kvs "equipped")
+        }
+    | _ -> failwith "item: expected a map"
+
+  let position_of_value = function
+    | VVector [ VNumber x; VNumber y ] -> (x, y)
+    | _ -> failwith "entity: expected a 2-element position vector"
+
+  let entity_of_value = function
+    | VMap kvs ->
+        { entity_name = as_string (field kvs "name")
+        ; position = position_of_value (field kvs "position")
+        ; tags = as_string_list (field kvs "tags")
+        ; inventory = List.map item_of_value (as_vector (field kvs "inventory"))
+        }
+    | _ -> failwith "entity: expected a map"
+
+  let level_of_value = function
+    | VMap kvs ->
+        { level_name = as_string (field kvs "level")
+        ; entities = List.map entity_of_value (as_vector (field kvs "entities"))
+        }
+    | _ -> failwith "level: expected a top-level map"
+]}
+
+[level_of_value] reads top-down but {i executes} bottom-up: parsing the
+example file above calls [item_of_value] twice (once per inventory entry),
+[entity_of_value] twice (once per entity), and [level_of_value] once — each
+failure still fails loudly and locally (a malformed item raises from
+[item_of_value] itself, not from some generic catch-all three frames up).
+This is the whole answer to "what about nested/mixed real-world data": no
+new API, just more instances of the same [_of_value] pattern, called from
+each other in the shape of the data.
+
+{1 Next}
+
+This is the last chapter — see the {{!page-index}index}'s API reference
+for the full module listing.

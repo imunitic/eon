@@ -1,0 +1,16 @@
+; Book examples for eon_edn/doc/*.mld. Compiled as a library (not one
+; executable per file) — these exist to be read and to typecheck, not to
+; run standalone. Every module here should have a matching {[ ... ]}
+; block transcribed into a chapter.
+(library
+ (name eon_edn_book_examples)
+ (modules :standard \ run_book_examples)
+ (libraries eon_edn))
+
+; One-off runner that links every example module above and forces
+; their self-checking `let () = ...` blocks to execute — not part of
+; the book, just the verification pass for it. See run_book_examples.ml.
+(executable
+ (name run_book_examples)
+ (modules run_book_examples)
+ (libraries eon_edn_book_examples))
