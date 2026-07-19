@@ -140,9 +140,45 @@ let prop_strict_tags =
       in
       resolved = List.mem tag allowed)
 
+(* --- Property 4: refusal order — the *last* element of [handlers] is
+   closest to the reader and gets first crack, for arbitrary chain length,
+   not just the docs' one hand-picked 2-handler example
+   ([log_tags; strict_tags [...]]). [prop_strict_tags] above already covers
+   a single handler's own accept/reject behavior; a chain of homogeneous
+   [strict_tags] handlers can't actually distinguish order from an AND
+   across their allow-lists (all must allow for anything to resolve,
+   regardless of order) — so this needs handlers that are individually
+   distinguishable when they resolve. Each [label_handler idx] always
+   resolves a tag to [VString (string_of idx)], never forwarding; a chain
+   of them must always resolve to the *last* index, since propagation
+   never reaches anything before it. *)
+
+let label_handler idx : handler = fun next ->
+  let open Effect.Deep in
+  let effc : type a. a Effect.t -> ((a, _) continuation -> _) option =
+    fun eff -> match eff with
+      | Tag (_, _) -> Some (fun k -> continue k (VString (string_of_int idx)))
+      | _ -> None
+  in
+  match_with next () { retc = (fun v -> v); exnc = (fun e -> raise e); effc }
+
+let prop_refusal_order_is_last_element_first =
+  QCheck.Test.make ~name:"the last element of handlers is nearest the reader and resolves first"
+    ~count:200
+    (QCheck.make ~print:string_of_int QCheck.Gen.(int_range 1 8))
+    (fun n ->
+      let resolved =
+        run_with_middleware
+          ~handlers:(List.init n label_handler)
+          (fun () -> Eon_edn.Edn_parser.value ())
+          {|#anytag 1|}
+      in
+      resolved = VString (string_of_int (n - 1)))
+
 let tests =
   [
     QCheck_alcotest.to_alcotest prop_round_trip;
     QCheck_alcotest.to_alcotest prop_middleware_forwarding;
     QCheck_alcotest.to_alcotest prop_strict_tags;
+    QCheck_alcotest.to_alcotest prop_refusal_order_is_last_element_first;
   ]

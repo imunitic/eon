@@ -15,6 +15,7 @@ let () =
     ("World", Test_world.tests);
     ("Pipeline", Test_pipeline.tests);
     ("Executor", Test_executor.tests);
+    ("Executor (QCheck)", Test_prop_executor.tests);
     ("Input", Test_input.tests);
     ("Audio", Test_audio.tests);
     ("Math", Test_math.tests);
@@ -24,6 +25,7 @@ let () =
     ("Render stream properties", Test_prop_render_stream.tests);
     ("Render modules", Test_render_modules.tests);
     ("Transform system", Test_transform_system.tests);
+    ("Transform system (QCheck)", Test_prop_transform_system.tests);
     ("Lifecycle system", Test_lifecycle_system.tests);
     ("Transform hierarchy", Test_transform_hierarchy.tests);
     ("Time", Test_time.tests);
