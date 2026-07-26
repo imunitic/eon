@@ -2,7 +2,7 @@
 
 ## Status
 
-**Exploratory.** No implementation is planned for the current game. This document records architectural thinking for future reference and establishes one forward-looking constraint on event design (§6).
+**Exploratory.** No implementation is planned for the current game. This document records architectural thinking for future reference and establishes one forward-looking constraint on event design (§6). Confirmed explicitly (2026-07-26, `docs/eon_game/game_loot_crafting.md`): no player trading, no multiplayer in v1 — this doc is purely speculative groundwork, not a planned feature.
 
 ## 1. Motivation and Scope
 
