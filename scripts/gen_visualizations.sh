@@ -138,7 +138,6 @@ digraph eon_ecs_dependencies {
   ecs_clock -> mtime [color="#e65100"]
 }
 EOF
-dot -Tpng -o "$IMAGES/dep_eon_ecs.png" "$TMP/dep_ecs.dot"
 
 # ─── 1b. eon_engine internal dependency graph ─────────────────────────────────
 
@@ -298,7 +297,6 @@ digraph eon_engine_dependencies {
   }
 }
 EOF
-dot -Tpng -o "$IMAGES/dep_eon_engine.png" "$TMP/dep_engine.dot"
 
 # ─── 1c. eon_edn internal dependency graph ────────────────────────────────────
 
@@ -330,7 +328,6 @@ digraph eon_edn_dependencies {
   }
 }
 EOF
-dot -Tpng -o "$IMAGES/dep_eon_edn.png" "$TMP/dep_edn.dot"
 
 # ─── 1d. Cross-package dependency graph ───────────────────────────────────────
 
@@ -411,6 +408,25 @@ digraph cross_package_dependencies {
   eng_prefab_edn_def -> edn_effects
 }
 EOF
+
+# The four heredocs above are the hand-curated fallback -- always written
+# first, so a failure below leaves them exactly as they were. If
+# gen_dependency_graphs.py succeeds, it overwrites dep_ecs.dot/dep_engine.dot/
+# dep_edn.dot/dep_cross.dot in place with mechanically-derived content from
+# real tree-sitter tags data (see designs/ecs -- Mechanically-derived
+# dependency graphs.md in the second-brain vault). Optional, fail-soft:
+# missing synapse-tags.sh/tree-sitter, or any other failure, just means the
+# hand-curated versions above are what gets rendered, same as before this
+# existed.
+if python3 "$ROOT/scripts/gen_dependency_graphs.py" "$TMP" "$ROOT" 2>/dev/null; then
+  echo "  (dependency graphs: mechanically generated from tree-sitter tags)"
+else
+  echo "  (dependency graphs: tree-sitter unavailable, using hand-curated fallback)"
+fi
+
+dot -Tpng -o "$IMAGES/dep_eon_ecs.png" "$TMP/dep_ecs.dot"
+dot -Tpng -o "$IMAGES/dep_eon_engine.png" "$TMP/dep_engine.dot"
+dot -Tpng -o "$IMAGES/dep_eon_edn.png" "$TMP/dep_edn.dot"
 dot -Tpng -o "$IMAGES/dep_cross_package.png" "$TMP/dep_cross.dot"
 
 # ─── 2. Functor instantiation graph ──────────────────────────────────────────
