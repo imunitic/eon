@@ -10,6 +10,7 @@ module type S = sig
   val create : ?capacity:int -> unit -> 'a t
   val capacity : 'a t -> int
   val size : 'a t -> int
+  val version : 'a t -> int
   val grow : 'a t -> unit
   val contains : 'a t -> key -> bool
   val get : 'a t -> key -> 'a option
@@ -28,6 +29,7 @@ module Make (Key : INDEXED_KEY) : S with type key = Key.t = struct
       mutable dense  : int array;
       mutable values : 'a array;
       mutable count  : int;
+      mutable version : int;
     }
 
   let create ?(capacity = 128) () =
@@ -36,10 +38,12 @@ module Make (Key : INDEXED_KEY) : S with type key = Key.t = struct
       dense  = Array.make capacity (-1);
       values = Array.make capacity (Obj.magic ());
       count  = 0;
+      version = 0;
     }
 
   let capacity set = Array.length set.dense
   let size set = set.count
+  let version set = set.version
 
   let grow set =
     let old_cap = capacity set in
@@ -94,7 +98,8 @@ module Make (Key : INDEXED_KEY) : S with type key = Key.t = struct
       set.sparse.(idx) <- dense_idx;
       set.dense.(dense_idx) <- idx;
       set.values.(dense_idx) <- value;
-      set.count <- dense_idx + 1
+      set.count <- dense_idx + 1;
+      set.version <- set.version + 1
     )
 
   let set_value set key value =
@@ -117,7 +122,8 @@ module Make (Key : INDEXED_KEY) : S with type key = Key.t = struct
         set.values.(dense_idx) <- set.values.(last);
         set.sparse.(last_key) <- dense_idx;
         set.sparse.(idx) <- -1;
-        set.count <- last
+        set.count <- last;
+        set.version <- set.version + 1
       )
 
   let iter f set =
@@ -133,6 +139,7 @@ type 'a t = 'a Entity.t
 let create = Entity.create
 let capacity = Entity.capacity
 let size = Entity.size
+let version = Entity.version
 let grow = Entity.grow
 let contains = Entity.contains
 let get = Entity.get

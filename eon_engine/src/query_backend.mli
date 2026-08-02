@@ -23,4 +23,11 @@ module type S = sig
     required:string list ->
     excludes:string list ->
     int
+
+  val cache_signature : required:string list -> excludes:string list -> unit
+  (** Opt this exact (required, excludes) signature into caching. No-op on a
+      backend that does not implement caching. *)
+
+  val uncache_signature : required:string list -> excludes:string list -> unit
+  (** Undo {!cache_signature}. No-op if the signature was never cached. *)
 end

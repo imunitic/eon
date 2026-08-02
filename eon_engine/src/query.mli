@@ -52,4 +52,14 @@ module Make (B : Query_backend.S with type 'perm world = 'perm World.t) : sig
 
   val count : 'perm query -> int
   (** Count matching entities without a callback. *)
+
+  (** {2 Caching} *)
+
+  val cache_signature : required:string list -> excludes:string list -> unit
+  (** Opt this exact (required, excludes) signature into caching on the
+      underlying backend. No-op on a backend that does not implement
+      caching (e.g. {!Sparse_set_backend}). *)
+
+  val uncache_signature : required:string list -> excludes:string list -> unit
+  (** Undo {!cache_signature}. No-op if the signature was never cached. *)
 end

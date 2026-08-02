@@ -20,6 +20,7 @@ module type S = sig
   val list_services    : 'perm t -> int list
   val iter_entities    : 'perm t -> string list -> (entity_id -> unit) -> unit
   val has_component    : 'perm t -> entity_id -> string -> bool
+  val component_generation : 'perm t -> string -> int
 end
 
 (* ================================================================ *)
@@ -110,3 +111,6 @@ let has_component world entity name =
   match Eon_ecs.World.find_component world.core ~name with
   | None -> false
   | Some _ -> Option.is_some (Eon_ecs.World.get_component world.core entity ~name)
+
+let component_generation world name =
+  Eon_ecs.World.component_generation world.core name

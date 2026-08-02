@@ -29,4 +29,7 @@ module Make (B : Query_backend.S with type 'perm world = 'perm World.t) = struct
     B.count query.world
       ~required:query.required
       ~excludes:query.excludes
+
+  let cache_signature = B.cache_signature
+  let uncache_signature = B.uncache_signature
 end

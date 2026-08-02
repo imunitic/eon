@@ -111,6 +111,40 @@ let test_services () =
   check bool "contains Audio" true (List.mem (hash_key `Audio) services);
   check bool "contains Input" true (List.mem (hash_key `Input) services)
 
+let test_component_generation_bumps_on_membership_change () =
+  let world = World.create () in
+  register_default_components world;
+  let e1 = World.create_entity world in
+  let e2 = World.create_entity world in
+  let v0 = World.component_generation world "Position" in
+  World.add_component world e1 ~name:"Position" (1, 1);
+  let v1 = World.component_generation world "Position" in
+  check bool "version bumped on add" true (v1 > v0);
+
+  (* set_component on an already-present component changes a value, not
+     membership -- must not bump. *)
+  World.set_component world e1 ~name:"Position" (2, 2);
+  check int "version unchanged on set_component" v1
+    (World.component_generation world "Position");
+
+  (* Same-tick swap: remove one entity's component, add a different
+     entity's, in the same "tick" -- a length/count-based staleness proxy
+     would see the count return to its prior value and wrongly think
+     nothing changed. The generation counter must still bump on both
+     operations. *)
+  World.remove_component world e1 ~name:"Position";
+  let v2 = World.component_generation world "Position" in
+  check bool "version bumped on remove" true (v2 > v1);
+  World.add_component world e2 ~name:"Position" (3, 3);
+  let v3 = World.component_generation world "Position" in
+  check bool "version bumped again on same-tick swap re-add" true (v3 > v2)
+
+let test_component_generation_raises_on_unregistered () =
+  let world = World.create () in
+  check_raises "unregistered component"
+    (Failure "Unknown component: Position")
+    (fun () -> ignore (World.component_generation world "Position"))
+
 let tests =
   [
     test_case "entity lifecycle" `Quick test_entity_lifecycle;
@@ -119,4 +153,8 @@ let tests =
     test_case "remove_all_components" `Quick test_remove_all_components;
     test_case "data store operations" `Quick test_data_store;
     test_case "service store operations" `Quick test_services;
+    test_case "component_generation bumps on membership change" `Quick
+      test_component_generation_bumps_on_membership_change;
+    test_case "component_generation raises on unregistered" `Quick
+      test_component_generation_raises_on_unregistered;
   ]

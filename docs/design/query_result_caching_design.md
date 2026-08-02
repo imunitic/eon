@@ -2,8 +2,14 @@
 
 ## Status
 
-**ACCEPTED.** Design settled; not yet built. Not a near-term task — a side
-interest, independent of the `eon_ecs` benchmark work it grew out of. Related:
+**IMPLEMENTED** (ecs-050, 2026-08-02). `component_generation` added to
+`eon_ecs`'s `Sparse_set`/`World` and forwarded through `Eon_engine.World.S`;
+`Query_backend.S` widened with `cache_signature`/`uncache_signature`
+(no-op in `Sparse_set_backend`); `Cached_backend.Make` implemented exactly
+as designed below, with unit tests (cache hit/miss, staleness on
+add/remove, the same-tick swap case) and a QCheck property test proving
+results never diverge from `Sparse_set_backend` across arbitrary
+add/remove/cache/uncache sequences. Related:
 [query_view_design.md](query_view_design.md) (the `Query_backend.S` this
 design extends), [world_module_design.md](world_module_design.md)
 §"Archetype cache dropped" (the storage-level idea this is deliberately

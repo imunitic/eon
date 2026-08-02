@@ -1,6 +1,6 @@
 # Eon project tasks
 BENCH_NAMES := "sparse_set entity_manager query query_large world loop cache_locality"
-ENGINE_BENCH_NAMES := "executor render_stream prefab"
+ENGINE_BENCH_NAMES := "executor render_stream prefab cached_backend"
 EDN_BENCH_NAMES := "edn_parser"
 
 # Build project
@@ -75,7 +75,7 @@ bench-compare name:
     done; \
     echo "Saved benchmark runs to $out_dir"
 
-# Run an engine benchmark by name: executor
+# Run an engine benchmark by name: executor | render_stream | prefab | cached_backend
 engine-bench name:
     case " {{ENGINE_BENCH_NAMES}} " in \
       *" {{name}} "*) ;; \

@@ -10,6 +10,8 @@ module Query_backend = Query_backend
 
 module Sparse_set_backend = Sparse_set_backend
 
+module Cached_backend = Cached_backend
+
 module Query : sig
   include module type of Query
 
@@ -55,6 +57,7 @@ module World : sig
 
   val iter_entities : 'perm t -> string list -> (entity_id -> unit) -> unit
   val has_component : 'perm t -> entity_id -> string -> bool
+  val component_generation : 'perm t -> string -> int
 
   (** {2 Write operations — require [rw] capability} *)
 

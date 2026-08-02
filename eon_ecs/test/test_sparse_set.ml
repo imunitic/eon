@@ -76,6 +76,26 @@ let test_set_value () =
   check (option int) "overwritten value" (Some 42) (Sparse_set.get set ent)
 
 
+let test_version_bumps_on_membership_change () =
+  let set = Sparse_set.create ~capacity:2 () in
+  let ent = e 0 in
+  check int "initial version" 0 (Sparse_set.version set);
+  Sparse_set.add set ent 1;
+  check int "version after insert" 1 (Sparse_set.version set);
+  Sparse_set.remove set ent;
+  check int "version after remove" 2 (Sparse_set.version set)
+
+let test_version_unchanged_on_value_update () =
+  let set = Sparse_set.create ~capacity:2 () in
+  let ent = e 0 in
+  Sparse_set.add set ent 1;
+  let v = Sparse_set.version set in
+  (* [add] on an already-present key updates the value, not membership. *)
+  Sparse_set.add set ent 2;
+  check int "version unchanged after add-update" v (Sparse_set.version set);
+  Sparse_set.set_value set ent 3;
+  check int "version unchanged after set_value" v (Sparse_set.version set)
+
 let tests =
   [
     test_case "create empty" `Quick test_create_empty;
@@ -86,4 +106,6 @@ let tests =
     test_case "grow" `Quick test_grow;
     test_case "iter" `Quick test_iter;
     test_case "set_value" `Quick test_set_value;
+    test_case "version bumps on membership change" `Quick test_version_bumps_on_membership_change;
+    test_case "version unchanged on value update" `Quick test_version_unchanged_on_value_update;
   ]

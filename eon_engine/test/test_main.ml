@@ -10,6 +10,8 @@ let () =
   Alcotest.run "Eon Engine Test Suite" [
     ("Components", Test_components.tests);
     ("Query", Test_query.tests);
+    ("Cached_backend", Test_cached_backend.tests);
+    ("Cached_backend (QCheck)", Test_prop_cached_backend.tests);
     ("View", Test_view.tests);
     ("API Structure", Test_api_structure.tests);
     ("World", Test_world.tests);

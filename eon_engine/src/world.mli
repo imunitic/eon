@@ -36,6 +36,11 @@ module type S = sig
   val has_component : 'perm t -> entity_id -> string -> bool
   (** Return [true] if the entity currently holds the named component.
       Returns [false] if the component is not registered or is absent on the entity. *)
+
+  val component_generation : 'perm t -> string -> int
+  (** Monotonically increasing counter for the named component's sparse set,
+      bumped on every add/remove that changes its membership. Raises if the
+      component name is not registered, consistent with [get_component]. *)
 end
 
 (* ================================================================ *)
@@ -70,6 +75,7 @@ val list_services : 'perm t -> int list
 
 val iter_entities : 'perm t -> string list -> (entity_id -> unit) -> unit
 val has_component : 'perm t -> entity_id -> string -> bool
+val component_generation : 'perm t -> string -> int
 
 (** {2 Write operations — require [rw] capability} *)
 

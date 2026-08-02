@@ -53,6 +53,11 @@ let remove_component world entity ~name =
   | None ->
      failwith ("Unknown component: " ^ name)
 
+let component_generation world name =
+  match Component_registry.find world.components ~name with
+  | Some comp -> Component.with_data_result (Component.Component comp) Sparse_set.version
+  | None -> failwith ("Unknown component: " ^ name)
+
 (* ----- Resource API ----- *)
 (* data-plane *)
 let add_data world key value =

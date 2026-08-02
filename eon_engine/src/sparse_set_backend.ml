@@ -10,6 +10,9 @@ module Make (W : World.S) : Query_backend.S with type 'perm world = 'perm W.t = 
     let n = ref 0 in
     iter_entities world ~required ~excludes (fun _ -> incr n);
     !n
+
+  let cache_signature ~required:_ ~excludes:_ = ()
+  let uncache_signature ~required:_ ~excludes:_ = ()
 end
 
 module Default = Make (World)

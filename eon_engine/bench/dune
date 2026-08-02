@@ -23,3 +23,11 @@
  (libraries bechamel unix eon-engine benchmark_helpers)
  (flags (:standard -warn-error -a))
  (package eon-engine))
+
+(executable
+ (name bench_cached_backend)
+ (public_name eon-engine-bench-cached-backend)
+ (modules bench_cached_backend)
+ (libraries bechamel unix eon-engine benchmark_helpers)
+ (flags (:standard -warn-error -a))
+ (package eon-engine))

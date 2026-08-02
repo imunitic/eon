@@ -92,3 +92,12 @@ val remove_component : t -> Entity_id.t -> name:string -> unit
 
 (** Detach every component from the entity, typically during destruction. *)
 val remove_all_components : t -> Entity_id.t -> unit
+
+(** Monotonically increasing counter for the named component's sparse set,
+    bumped on every add_component/remove_component that changes its
+    membership (not on set_component of an already-present component,
+    which changes a value but not membership).
+
+    Raises if the component name is not registered, consistent with
+    {!get_component}. *)
+val component_generation : t -> string -> int

@@ -14,6 +14,11 @@ module type S = sig
   val create : ?capacity:int -> unit -> 'a t
   val capacity : 'a t -> int
   val size : 'a t -> int
+  val version : 'a t -> int
+  (** Monotonically increasing counter, bumped on every [add]/[remove] that
+      changes membership (a new key inserted, or an existing key removed).
+      Does not change on [set_value] or on [add] of an already-present key
+      (a value-only update). *)
   val grow : 'a t -> unit
   val contains : 'a t -> key -> bool
   val get : 'a t -> key -> 'a option
@@ -35,6 +40,7 @@ type 'a t
 val create : ?capacity:int -> unit -> 'a t
 val capacity : 'a t -> int
 val size : 'a t -> int
+val version : 'a t -> int
 val grow : 'a t -> unit
 val contains : 'a t -> Entity_id.t -> bool
 val get : 'a t -> Entity_id.t -> 'a option

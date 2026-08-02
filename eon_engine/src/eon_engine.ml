@@ -9,6 +9,7 @@ module World = World
 module Components = Components
 module Query_backend = Query_backend
 module Sparse_set_backend = Sparse_set_backend
+module Cached_backend = Cached_backend
 
 module Query = struct
   include Query
