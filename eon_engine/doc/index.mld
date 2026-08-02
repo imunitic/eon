@@ -98,8 +98,9 @@ Eon Engine builds on top of [eon-ecs] and adds:
   {!Eon_engine.Resource}/{!Eon_engine.Service}, and {!Eon_engine.Namespace}
   for cross-world access.
 - {{!page-queries_and_systems}Queries and systems} — {!Eon_engine.Query},
-  [Parallel]/[Exclusive] systems (module-based and inline-closure styles),
-  reactive bus handlers, and {!Eon_engine.Executor}.
+  {!Eon_engine.Cached_backend} for opt-in per-signature query-result
+  caching, [Parallel]/[Exclusive] systems (module-based and inline-closure
+  styles), reactive bus handlers, and {!Eon_engine.Executor}.
 - {{!page-platform_and_loop}Platform and loop} — buses in their platform
   context, {!Eon_engine.Input_backend}, {!Eon_engine.Platform.S}, and
   {!Eon_engine.Loop.Make}'s per-frame orchestration.

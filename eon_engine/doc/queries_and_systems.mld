@@ -47,6 +47,74 @@ the intersection without a callback:
 Use [View.get] for components you required in the query (raises on absent —
 treat as programmer error). Use [View.get_opt] for optional components.
 
+{1 Cached queries}
+
+{!Eon_engine.Query_backend.S} has two more operations beyond
+[iter_entities]/[count]: [cache_signature]/[uncache_signature]. Both are
+no-ops on {!Eon_engine.Sparse_set_backend} (the backend {!Eon_engine.Query.Default}
+uses) — plain [Query.Default] never caches anything. {!Eon_engine.Cached_backend.Make}
+is an opt-in wrapper around another backend that gives them meaning: it
+serves [iter]/[count] for a {i registered} [(required, excludes)] signature
+from a cached match list instead of re-walking the wrapped backend on every
+call, and only refills when one of the signature's components has actually
+changed membership (via [World.component_generation] — bumped on
+[add_component]/[remove_component], never on a value-only [set_component]).
+A signature nobody called [cache_signature] on behaves exactly like the
+wrapped backend; caching is per-signature, never automatic for every query
+that flows through:
+
+{[
+  module Cached = Query.Make (Cached_backend.Make (World) (Sparse_set_backend.Default))
+
+  let () =
+    Cached.cache_signature
+      ~required:[ Components.Local_transform.name; Components.Velocity.name ]
+      ~excludes:[]
+
+  (* First call fills the cache: a full scan, same cost as Query.Default. *)
+  let filled =
+    Cached.from world
+    |> Cached.having Components.Local_transform.name
+    |> Cached.having Components.Velocity.name
+    |> Cached.count
+  in
+  assert (filled = 1);
+
+  (* Nothing changed Local_transform's or Velocity's generation since the
+     fill, so this call serves the cached match list directly. *)
+  let still_cached =
+    Cached.from world
+    |> Cached.having Components.Local_transform.name
+    |> Cached.having Components.Velocity.name
+    |> Cached.count
+  in
+  assert (still_cached = 1)
+]}
+
+{b Why this exists:} a multi-component query whose smallest involved set is
+still large in absolute terms but yields very few matches walks that whole
+set every call for a handful of results — the "sparse-set adversarial worst
+case" (a grand-strategy-style [having_all [Province; Infrastructure]] over a
+~1M-entity world, where [Infrastructure] alone is ~200k entities but only a
+dozen also carry [Province]). Measured on that shape: cached queries hold
+flat at ~125 ns/call regardless of scale, while uncached scales linearly
+with the smallest set's size (~5.8x faster at 100k entities, ~56x at 1M).
+Dense, well-overlapping queries gain nothing from caching (materializing and
+storing the match list costs something too) — reach for it only once a
+specific signature is confirmed pathological, e.g. via
+{{:https://github.com/imunitic/eon/blob/main/eon_engine/bench/bench_cached_backend.ml}[bench_cached_backend.ml]}.
+
+{b Not a self-tuning cache.} There is no adaptive hit/miss tracking that
+decides on its own what to cache — [cache_signature] is always an explicit,
+developer-opted-in call, the same "default-vs-explicit-composition" pattern
+[Query.Default]/[System.Default]/[Pipeline.Default] already use elsewhere.
+[Cached_backend.Make]'s two functor arguments mirror
+[Sparse_set_backend.Make]'s: [(W : World.S)] supplies [component_generation],
+[(B : Query_backend.S with type 'perm world = 'perm W.t)] is the backend
+being wrapped — not pinned to [Eon_ecs.World.t] or to
+[Sparse_set_backend.Default] specifically, so a custom [World.S]/backend
+pair remains eligible for caching too.
+
 {1 Parallel and exclusive systems}
 
 Engine systems declare their world-access pattern up front:

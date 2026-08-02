@@ -72,8 +72,8 @@ matters once code grows past a single file.
 
 - {{!page-world_and_components}World and components} — {!Eon_ecs.World},
   {!Eon_ecs.Entity_id}, {!Eon_ecs.Component}: registration, the add/set/
-  get/remove lifecycle, the raises-vs-[None] contract, and the data/service
-  stores.
+  get/remove lifecycle, the raises-vs-[None] contract, [component_generation],
+  and the data/service stores.
 - {{!page-queries}Queries} — {!Eon_ecs.Query}: [iter1] through [iter4],
   [count]/[iter_entities], and why smallest-set-first keeps rare-component
   queries cheap regardless of world size.

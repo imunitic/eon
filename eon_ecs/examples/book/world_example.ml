@@ -55,6 +55,35 @@ let unregistered_name_raises () =
   | _ -> assert false
   | exception Failure _ -> ()
 
+(* component_generation: a monotonically increasing counter per registered
+   component, bumped only when add_component/remove_component actually
+   changes that component's membership on some entity — never on a
+   value-only set_component of an already-present component. This is the
+   staleness signal Eon_engine.Cached_backend snapshots to know when a
+   cached query result needs a refill; eon_ecs itself has no consumer of
+   it beyond exposing the primitive. *)
+let component_generation_example () =
+  let world = make_world () in
+  let player = World.create_entity world in
+
+  let g0 = World.component_generation world Health.name in
+
+  (* add_component changes membership: generation bumps. *)
+  World.add_component world player ~name:Health.name { Health.current = 100; max = 100 };
+  let g1 = World.component_generation world Health.name in
+  assert (g1 > g0);
+
+  (* set_component on an already-present component changes only the
+     value, not membership: generation does NOT bump. *)
+  World.set_component world player ~name:Health.name { Health.current = 80; max = 100 };
+  let g2 = World.component_generation world Health.name in
+  assert (g2 = g1);
+
+  (* remove_component changes membership again: generation bumps. *)
+  World.remove_component world player ~name:Health.name;
+  let g3 = World.component_generation world Health.name in
+  assert (g3 > g2)
+
 (* The data and service stores: a second plane of World storage for
    values that don't belong to any one entity. *)
 let data_and_service_stores () =
@@ -74,4 +103,5 @@ let data_and_service_stores () =
 let () =
   entity_lifecycle ();
   unregistered_name_raises ();
+  component_generation_example ();
   data_and_service_stores ()

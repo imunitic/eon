@@ -47,6 +47,72 @@ let query_example () =
   in
   assert (without_velocity_count = 1)
 
+(* Cached queries: Cached_backend.Make(World)(Sparse_set_backend.Default)
+   wraps the default backend with an opt-in, per-signature result cache.
+   cache_signature only registers a (required, excludes) pair for caching —
+   it does not fill it; the first iter/count after registration always pays
+   a full scan (same cost as Query.Default) and snapshots each involved
+   component's World.component_generation. Later calls for the same
+   signature skip the scan and serve the cached match list directly, as
+   long as no generation has moved; the moment one has, exactly one call
+   pays a refill before the cache goes fresh again. A signature nobody
+   registered behaves identically to Query.Default — caching is per
+   signature, never blanket. *)
+module Cached = Query.Make (Cached_backend.Make (World) (Sparse_set_backend.Default))
+
+let cached_backend_example () =
+  let world = make_world () in
+  let mover = World.create_entity world in
+  World.add_component world mover Components.Local_transform.component
+    ({ position = Math.Vec2.zero; rotation = 0.0; scale = Math.Vec2.one }
+     : Components.Local_transform.t);
+  World.add_component world mover Components.Velocity.component
+    ({ dx = 1.0; dy = 0.0 } : Components.Velocity.t);
+
+  Cached.cache_signature
+    ~required:[ Components.Local_transform.name; Components.Velocity.name ]
+    ~excludes:[];
+
+  (* First call fills the cache: a full scan, same cost as Query.Default. *)
+  let filled =
+    Cached.from world
+    |> Cached.having Components.Local_transform.name
+    |> Cached.having Components.Velocity.name
+    |> Cached.count
+  in
+  assert (filled = 1);
+
+  (* Nothing changed Local_transform's or Velocity's generation since the
+     fill, so this call serves the cached match list directly. *)
+  let still_cached =
+    Cached.from world
+    |> Cached.having Components.Local_transform.name
+    |> Cached.having Components.Velocity.name
+    |> Cached.count
+  in
+  assert (still_cached = 1);
+
+  (* Adding Velocity to a second entity bumps Velocity's generation, so the
+     next call for this signature detects staleness and refills once. *)
+  let second = World.create_entity world in
+  World.add_component world second Components.Local_transform.component
+    ({ position = Math.Vec2.zero; rotation = 0.0; scale = Math.Vec2.one }
+     : Components.Local_transform.t);
+  World.add_component world second Components.Velocity.component
+    ({ dx = 0.0; dy = 1.0 } : Components.Velocity.t);
+
+  let refilled =
+    Cached.from world
+    |> Cached.having Components.Local_transform.name
+    |> Cached.having Components.Velocity.name
+    |> Cached.count
+  in
+  assert (refilled = 2);
+
+  Cached.uncache_signature
+    ~required:[ Components.Local_transform.name; Components.Velocity.name ]
+    ~excludes:[]
+
 (* Parallel system: update receives a ro world — it cannot write directly,
    so it computes new positions and emits a command; on_command applies the
    mutation with rw access when the command bus is drained. *)
@@ -276,6 +342,7 @@ let executor_example () =
 
 let () =
   query_example ();
+  cached_backend_example ();
   parallel_and_exclusive_example ();
   reactive_handlers_example ();
   inline_closure_example ();

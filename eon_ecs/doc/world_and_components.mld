@@ -134,6 +134,46 @@ manual per-component cleanup needed before destroying an entity:
   World.destroy_entity world enemy
 ]}
 
+{1 Component generation}
+
+{!Eon_ecs.World.component_generation} returns a monotonically increasing
+counter, one per registered component, bumped only when
+[add_component]/[remove_component] actually changes that component's
+membership on some entity — a value-only [set_component] on an
+already-present component leaves it untouched:
+
+{[
+  let g0 = World.component_generation world Health.name in
+
+  (* add_component changes membership: generation bumps. *)
+  World.add_component world player ~name:Health.name { Health.current = 100; max = 100 };
+  let g1 = World.component_generation world Health.name in
+  assert (g1 > g0);
+
+  (* set_component on an already-present component changes only the
+     value, not membership: generation does NOT bump. *)
+  World.set_component world player ~name:Health.name { Health.current = 80; max = 100 };
+  let g2 = World.component_generation world Health.name in
+  assert (g2 = g1);
+
+  (* remove_component changes membership again: generation bumps. *)
+  World.remove_component world player ~name:Health.name;
+  let g3 = World.component_generation world Health.name in
+  assert (g3 > g2)
+]}
+
+Like the rest of the component API, it raises if the name was never
+registered — consistent with [get_component]. [eon_ecs] itself has no
+internal consumer of this primitive; it exists as a public, additive
+building block. [eon_engine]'s [Cached_backend] is the motivating consumer
+— it snapshots a query signature's involved components' generations at
+fill time and compares them on every read to decide whether a cached
+result is still valid, without needing any mutation hook or callback from
+[World] itself. Sparse-set length is deliberately not used for this: a
+same-tick swap (remove one entity's component, add a different entity's)
+leaves length unchanged, which would make a length-keyed cache go stale
+silently.
+
 {1 Data and service stores}
 
 Alongside entities and components, {!Eon_ecs.World} carries a second,
