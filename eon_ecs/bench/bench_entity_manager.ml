@@ -89,6 +89,43 @@ let mk_entity_manager_destroy_random_subsets ~capacity ~destroy_fraction ~cycles
            done
          done))
 
+(* Spawn / random despawn: pre-creates all entities and a full deterministic
+   shuffle of the destroy order outside timing, then measures ONLY the
+   destroy pass -- unlike [mk_entity_manager_destroy_random_subsets], which
+   recreates a subset every cycle inside the timed closure.
+
+   Uses [Test.make_with_resource ... Test.multiple] rather than a plain
+   [stage]d closure: destroying every entity in [pool] is a one-shot
+   operation (a second pass over the same pool would double-destroy already-
+   freed slots), so each timed call needs its OWN freshly-allocated pool,
+   not a hoisted one reused across repeated calls. [Test.multiple] is
+   Bechamel's API for exactly that -- allocate a fresh resource per call
+   (population/shuffle excluded from the timed portion either way), rather
+   than [Test.uniq]'s one-resource-for-the-whole-test. *)
+let mk_entity_manager_despawn_only ~capacity =
+  if capacity <= 0 then invalid_arg "capacity must be > 0";
+  let name = Printf.sprintf "despawn-only-cap%d" capacity in
+  Test.make_with_resource ~name Test.multiple
+    ~allocate:(fun () ->
+        let mgr = Entity_manager.create capacity in
+        let pool =
+          Array.init capacity (fun _ -> Entity_manager.create_entity mgr)
+        in
+        let state = Random.State.make [| 0x5eed5; capacity |] in
+        (* Full Fisher-Yates shuffle, prepared outside timing. *)
+        for i = capacity - 1 downto 1 do
+          let j = Random.State.int state (i + 1) in
+          let tmp = pool.(i) in
+          pool.(i) <- pool.(j);
+          pool.(j) <- tmp
+        done;
+        mgr, pool)
+    ~free:(fun _ -> ())
+    (stage (fun (mgr, pool) ->
+         for i = 0 to capacity - 1 do
+           Entity_manager.destroy_entity mgr pool.(i)
+         done))
+
 let mk_entity_manager_tapered_churn ~capacity ~occupancy ~max_delta ~cycles =
   if occupancy <= 0.0 || occupancy > 1.0 then
     invalid_arg "occupancy must be in (0, 1]";
@@ -136,6 +173,49 @@ let mk_entity_manager_tapered_churn ~capacity ~occupancy ~max_delta ~cycles =
            done
          done))
 
+(* Random add/remove component churn: two independent deterministic
+   permutations of entity order (one for insertion, one for removal),
+   prepared outside timing -- each work item in the timed closure is one
+   add+remove cycle. Unlike [mk_world_attach_detach]'s sequential bulk
+   attach-all-then-detach-all, this exercises random-order access into the
+   component's sparse set on both sides.
+
+   Uses [Test.multiple] (see [mk_entity_manager_despawn_only]'s comment) --
+   adding, then removing, the component on every entity is a one-shot pass;
+   a second pass against the same world would re-add an already-present
+   component rather than exercise a fresh insert. *)
+let mk_world_random_add_remove ~entity_count =
+  if entity_count <= 0 then invalid_arg "entity_count must be > 0";
+  let name = Printf.sprintf "random-add-remove-entities%d" entity_count in
+  let shuffle state arr =
+    for i = Array.length arr - 1 downto 1 do
+      let j = Random.State.int state (i + 1) in
+      let tmp = arr.(i) in
+      arr.(i) <- arr.(j);
+      arr.(j) <- tmp
+    done
+  in
+  Test.make_with_resource ~name Test.multiple
+    ~allocate:(fun () ->
+        let world = World.create () in
+        ignore (World.register_component world ~name:"Position" ~id:0);
+        let entities =
+          Array.init entity_count (fun _ -> World.create_entity world)
+        in
+        let insert_order = Array.copy entities in
+        let remove_order = Array.copy entities in
+        shuffle (Random.State.make [| 0x1c5eed; entity_count |]) insert_order;
+        shuffle (Random.State.make [| 0x2e3ea7; entity_count |]) remove_order;
+        world, insert_order, remove_order)
+    ~free:(fun _ -> ())
+    (stage (fun (world, insert_order, remove_order) ->
+         for i = 0 to entity_count - 1 do
+           World.add_component world insert_order.(i) ~name:"Position" i
+         done;
+         for i = 0 to entity_count - 1 do
+           World.remove_component world remove_order.(i) ~name:"Position"
+         done))
+
 let mk_world_attach_detach ~entity_count ~component_count ~cycles =
   if entity_count <= 0 then invalid_arg "entity_count must be > 0";
   if component_count <= 0 then invalid_arg "component_count must be > 0";
@@ -171,6 +251,45 @@ let mk_world_attach_detach ~entity_count ~component_count ~cycles =
            done
          done))
 
+(* Bulk/single insert workload. eon_ecs has one creation path (create_entity
+   + add_component per component, no batch API), so this collapses bulk vs.
+   single insert into one shape -- [component_count = 1] models "single
+   insert", larger counts model "bulk" with more per-entity attach work.
+   Unlike [mk_world_attach_detach], this times ONLY entity creation +
+   component attachment: no detach/destroy in the timed closure, so it
+   isolates the pure insert cost.
+
+   Uses [Test.multiple] (see [mk_entity_manager_despawn_only]'s comment) so
+   every timed call inserts into a fresh, empty world -- reusing one
+   ever-growing world across repeated calls (Test.uniq) would make later
+   calls measure insertion into a progressively larger world, not a
+   comparable "insert cost" each time. *)
+let mk_world_bulk_insert ~entity_count ~component_count =
+  if entity_count <= 0 then invalid_arg "entity_count must be > 0";
+  if component_count <= 0 then invalid_arg "component_count must be > 0";
+  let name =
+    Printf.sprintf "bulk-insert-world-entities%d-comps%d" entity_count
+      component_count
+  in
+  Test.make_with_resource ~name Test.multiple
+    ~allocate:(fun () ->
+        let world = World.create () in
+        let components =
+          Array.init component_count (fun idx ->
+              let name = Printf.sprintf "C%d" idx in
+              ignore (World.register_component world ~name ~id:idx);
+              name)
+        in
+        world, components)
+    ~free:(fun _ -> ())
+    (stage (fun (world, components) ->
+         for i = 0 to entity_count - 1 do
+           let entity = World.create_entity world in
+           for j = 0 to component_count - 1 do
+             World.add_component world entity ~name:components.(j) (i + j)
+           done
+         done))
+
 let entity_manager_suite =
   Test.make_grouped ~name:"entity_manager"
     [ mk_entity_manager_add_remove 1_000
@@ -184,6 +303,16 @@ let entity_manager_suite =
     ; mk_entity_manager_reuse ~capacity:5_000 ~batch_size:1_000 ~cycles:5
     ; mk_entity_manager_reuse ~capacity:50_000 ~batch_size:10_000 ~cycles:5
     ; mk_world_attach_detach ~entity_count:5_000 ~component_count:4 ~cycles:5
+    ; mk_world_bulk_insert ~entity_count:10_000 ~component_count:1
+    ; mk_world_bulk_insert ~entity_count:10_000 ~component_count:4
+    ; mk_world_bulk_insert ~entity_count:100_000 ~component_count:4
+    ; mk_world_bulk_insert ~entity_count:1_000_000 ~component_count:4
+    ; mk_entity_manager_despawn_only ~capacity:10_000
+    ; mk_entity_manager_despawn_only ~capacity:100_000
+    ; mk_entity_manager_despawn_only ~capacity:1_000_000
+    ; mk_world_random_add_remove ~entity_count:10_000
+    ; mk_world_random_add_remove ~entity_count:100_000
+    ; mk_world_random_add_remove ~entity_count:1_000_000
     ]
 
 let instances =

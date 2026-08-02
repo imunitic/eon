@@ -3,6 +3,11 @@
  (modules benchmark_helpers)
  (libraries bechamel eon_ecs))
 
+(library
+ (name query_bench_defs)
+ (modules query_bench_defs)
+ (libraries bechamel eon_ecs benchmark_helpers))
+
 (executable
  (name bench_sparse_set)
  (public_name eon-ecs-bench-sparse-set)
@@ -23,7 +28,15 @@
  (name bench_query)
  (public_name eon-ecs-bench-query)
  (modules bench_query)
- (libraries bechamel unix eon_ecs benchmark_helpers)
+ (libraries bechamel unix eon_ecs benchmark_helpers query_bench_defs)
+ (flags (:standard -warn-error -a))
+ (package eon-ecs))
+
+(executable
+ (name bench_query_large)
+ (public_name eon-ecs-bench-query-large)
+ (modules bench_query_large)
+ (libraries bechamel unix eon_ecs benchmark_helpers query_bench_defs)
  (flags (:standard -warn-error -a))
  (package eon-ecs))
 
