@@ -75,6 +75,9 @@ jobs:
       - name: Run loop benchmark
         run: just bench loop
 
+      - name: Run cache-locality benchmark
+        run: just bench cache_locality
+
       - name: Run executor benchmark
         run: just engine-bench executor
 

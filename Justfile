@@ -1,5 +1,5 @@
 # Eon project tasks
-BENCH_NAMES := "sparse_set entity_manager query query_large world loop"
+BENCH_NAMES := "sparse_set entity_manager query query_large world loop cache_locality"
 ENGINE_BENCH_NAMES := "executor render_stream prefab"
 EDN_BENCH_NAMES := "edn_parser"
 
@@ -39,7 +39,7 @@ coverage-summary:
 test suite:
     opam exec -- dune test {{suite}}
 
-# Run a benchmark by name: sparse_set | entity_manager | query | query_large | world | loop
+# Run a benchmark by name: sparse_set | entity_manager | query | query_large | world | loop | cache_locality
 bench name:
     case " {{BENCH_NAMES}} " in \
       *" {{name}} "*) ;; \
