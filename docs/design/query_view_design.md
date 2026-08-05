@@ -119,7 +119,7 @@ call `f (eid_of world id)`.
 
 ![Query iteration, smallest-set-first](images/query_iteration.png)
 
-([editable source](diagrams/query_iteration.excalidraw))
+([editable source](diagrams/query_iteration.mmd))
 
 The worked example: three sparse sets of very different sizes —
 `Position` (6 entities), `Velocity` (2), `Health` (4) — where `Velocity` is

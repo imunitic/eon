@@ -1,0 +1,34 @@
+---
+title: Eon ECS — Component Lifecycle
+---
+%% World-level registration (one-time) vs per-entity presence (repeatable)
+flowchart TB
+    classDef state fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef error fill:#ffc9c9,stroke:#c2255c,color:#1e1e1e
+    classDef note fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    UNREG["Component name, e.g. Position<br/>(not yet registered)"]
+    REG["Registered<br/>(known to World)"]
+    ABSENT["Absent<br/>(registered, not on this entity)"]
+    PRESENT["Present<br/>(component attached to this entity)"]
+    RAISES["Unregistered component name:<br/>add / set / get / remove_component all raise"]
+
+    UNREG -->|"register_component<br/>must happen before any add_component"| REG
+    REG --> ABSENT
+
+    ABSENT -->|"add_component (or set_component)"| PRESENT
+    PRESENT -->|"remove_component (detach)"| ABSENT
+    ABSENT -.->|"get_component -> None"| ABSENT
+    PRESENT -.->|"get_component -> Some v"| PRESENT
+    PRESENT -.->|"set_component -> updates value"| PRESENT
+
+    PRESENT ==>|"destroy_entity<br/>remove_all_components (every registered component)"| ABSENT
+    ABSENT -.->|"-> Absent for every component, never raises"| ABSENT
+
+    UNREG -.->|"dashed red: unregistered name, raises"| RAISES
+
+    NOTE["Key contract: get_component raises only for an unregistered name — never for absence.<br/>Do not use the exception as a presence/control-flow check.<br/><br/>Arrow styles: solid = single-component operation, dashed red = unregistered name raises, thick = bulk effect (destroy_entity)"]
+
+    class UNREG,REG,ABSENT,PRESENT state
+    class RAISES error
+    class NOTE note

@@ -1,0 +1,35 @@
+---
+title: Eon ECS — Frame Order & Bus Timing
+---
+%% collect -> Progress.tick -> drain, across two frames
+flowchart TB
+    classDef frame fill:#f1f3f5,stroke:#868e96,color:#1e1e1e
+    classDef bus fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef tick fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef note fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    subgraph N["Frame N"]
+        direction TB
+        NC["collect (in order):<br/>Signals -> Events -> Commands"]
+        NT["Progress.tick"]
+        ND["drain (in order):<br/>Signals -> Commands -> Events"]
+        NC --> NT --> ND
+    end
+
+    subgraph N1["Frame N+1"]
+        direction TB
+        N1C["collect (in order):<br/>Signals -> Events -> Commands"]
+        N1T["Progress.tick"]
+        N1D["drain (in order):<br/>Signals -> Commands -> Events"]
+        N1C --> N1T --> N1D
+    end
+
+    N --> N1
+    ND -.->|"Double_bus (Events only):<br/>emitted now, dispatched in<br/>next frame's drain"| N1D
+
+    NOTE["Bus semantics<br/>Signals / Commands: drain = collect (same frame)<br/>Events (Double_bus): emit -> next queue, dispatched next frame's drain"]
+
+    class N,N1 frame
+    class NC,ND,N1C,N1D bus
+    class NT,N1T tick
+    class NOTE note

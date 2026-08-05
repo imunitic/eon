@@ -1,0 +1,52 @@
+---
+title: Eon Engine — Platform.S, the Loop's Compile-Time Seam
+---
+%% Input/Audio/Rendering trifecta closed over by Loop.Make; Headless swaps in at the same slot
+flowchart TB
+    classDef sig fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef impl fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef loop fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef frame fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef note fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    subgraph SIG["module type Platform.S ="]
+        direction TB
+        INPUT["Input_backend.S"]
+        AUDIO["Audio_backend.S"]
+        RENDER["Rendering_backend.S"]
+    end
+
+    HEADLESS["Platform.Headless<br/>null input / audio / rendering<br/>servers, CI, scripted tests"]
+    REAL["Real backend, e.g. Raylib_platform<br/>real window + input + audio + rendering"]
+
+    SIG -.->|"implements"| HEADLESS
+    SIG -.->|"implements"| REAL
+
+    LOOP["Loop.Make (Platform : Platform.S)"]
+    HEADLESS --> LOOP
+    REAL --> LOOP
+
+    subgraph FRAME["One frame inside Loop.Make"]
+        direction TB
+        COLLECT["Platform.Input_backend.collect ()"]
+        ECS["[eon_ecs] collect -> Progress.tick -> drain"]
+        SUBMIT["Platform.Audio_backend.submit (commands); clear buffer"]
+        RENDERSTEP["Platform.Rendering_backend.render stream ~dt"]
+        COLLECT --> ECS --> SUBMIT --> RENDERSTEP
+    end
+
+    LOOP --> FRAME
+
+    INIT["init (loop start)<br/>Input -> Audio -> Rendering"]
+    SHUTDOWN["shutdown (loop end)<br/>Rendering -> Audio -> Input (reverse)"]
+    LOOP --> INIT
+    LOOP --> SHUTDOWN
+
+    NOTE["Server binary substitutes Platform.Headless at this same slot -><br/>rendering layer is never reached. Same simulation code<br/>(systems, pipeline, progress, buses) as the client."]
+    HEADLESS -.-> NOTE
+
+    class INPUT,AUDIO,RENDER sig
+    class HEADLESS,REAL impl
+    class LOOP loop
+    class COLLECT,ECS,SUBMIT,RENDERSTEP,INIT,SHUTDOWN frame
+    class NOTE note

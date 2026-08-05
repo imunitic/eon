@@ -457,7 +457,7 @@ end
 `Platform.Headless` (shipped in `platform.mli`) bundles all no-ops — one
 module, CI runs without a window; see
 [rendering_layer_design.md §8](rendering_layer_design.md) and the
-`platform_seam.excalidraw` diagram for the full client/server substitution
+`platform_seam.mmd` diagram for the full client/server substitution
 picture.
 
 ### 8.4 UI is not a platform seam — it is a `Render_stream` concern

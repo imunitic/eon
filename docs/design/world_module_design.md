@@ -128,7 +128,7 @@ Two tiers: a one-time **world-level registration** step, then a repeatable
 
 ![Component lifecycle](images/component_lifecycle.png)
 
-([editable source](diagrams/component_lifecycle.excalidraw))
+([editable source](diagrams/component_lifecycle.mmd))
 
 ```ocaml
 (* World-level, once, before any add_component for this name: *)

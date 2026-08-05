@@ -347,7 +347,7 @@ let step ~progress ~world ~last_time ~now ~should_continue =
 
 ![Platform.S — the Loop's compile-time seam](images/platform_seam.png)
 
-([editable source](diagrams/platform_seam.excalidraw))
+([editable source](diagrams/platform_seam.mmd))
 
 `Loop.Make` closes over a `Platform : Platform.S` module at the functor
 boundary — the trifecta (`Input_backend`, `Audio_backend`,

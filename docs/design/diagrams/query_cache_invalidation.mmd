@@ -1,0 +1,36 @@
+---
+title: Eon Engine — Cached_backend Invalidation Flow
+---
+flowchart TB
+    classDef entry fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef decision fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef path fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef result fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef bump fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    REGISTER["Q.cache_signature<br/>~required ~excludes<br/>(adds entry to table)"]
+    CALL["Q.iter / Q.count<br/>(required, excludes)"]
+    LOOKUP{"signature in<br/>cache table?"}
+    DELEGATE["delegate to B<br/>(Sparse_set_backend) —<br/>behaviour unchanged"]
+    FRESH{"is_fresh?<br/>stored generation snapshot<br/>== component_generation<br/>for every name?"}
+    SERVECACHED["serve cached entity list<br/>(B.iter_entities skipped entirely)"]
+    REFILL["refill:<br/>call B.iter_entities once,<br/>store matches + new<br/>generation snapshot"]
+    SERVEFRESH["serve freshly filled list"]
+
+    REGISTER -.-> LOOKUP
+    CALL --> LOOKUP
+    LOOKUP -->|"NO"| DELEGATE
+    LOOKUP -->|"YES"| FRESH
+    FRESH -->|"YES"| SERVECACHED
+    FRESH -->|"NO"| REFILL --> SERVEFRESH
+
+    BUMP["add_component / remove_component<br/>bumps component_generation<br/>for that component name"]
+    NOBUMP["set_component (value-only) does NOT bump it"]
+    BUMP -.->|"invalidates"| FRESH
+
+    class REGISTER entry
+    class LOOKUP,FRESH decision
+    class DELEGATE path
+    class SERVECACHED,SERVEFRESH result
+    class REFILL path
+    class BUMP,NOBUMP bump

@@ -329,7 +329,7 @@ reusing anything currently exposed.
 
 ![Cached_backend invalidation flow](images/query_cache_invalidation.png)
 
-([editable source](diagrams/query_cache_invalidation.excalidraw))
+([editable source](diagrams/query_cache_invalidation.mmd))
 
 The design adds one new primitive, in two places — the source of truth in
 `eon_ecs`, forwarded through `eon_engine`'s own `World.S`:

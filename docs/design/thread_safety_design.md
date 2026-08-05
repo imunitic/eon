@@ -115,7 +115,7 @@ interleave within a frame, and the parallel `tick` window has no active writer.
 
 ![Frame order and bus timing](images/frame_order_bus_timing.png)
 
-([editable source](diagrams/frame_order_bus_timing.excalidraw))
+([editable source](diagrams/frame_order_bus_timing.mmd))
 
 `collect`/`drain` each dispatch three buses, in a *different* order on each
 side — `Signals → Events → Commands` on `collect`, `Signals → Commands →
@@ -165,7 +165,7 @@ type mode =
 
 ![Loop.Make tick, end to end](images/loop_flow.png)
 
-([editable source](diagrams/loop_flow.excalidraw))
+([editable source](diagrams/loop_flow.mmd))
 
 - **`Variable`** — `run(kind:`variable, dt:frame_dt)` exactly **once** per
   frame, with the real frame delta.
@@ -286,7 +286,7 @@ indirection and removing `World_cap` from all developer-facing signatures.
 
 ![Capability model: World.ro / World.rw](images/capability_model.png)
 
-([editable source](diagrams/capability_model.excalidraw))
+([editable source](diagrams/capability_model.mmd))
 
 `readonly`/`as_ro` are **one-way** — there is no `rw t` accessible from an
 `ro t`, by construction (no function in `world.mli` produces one). A system

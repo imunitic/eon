@@ -1,0 +1,43 @@
+---
+title: Eon ECS — Loop.Make Tick, End to End
+---
+%% Clock -> collect -> Progress.tick (mode-dependent) -> drain, then repeat
+flowchart TB
+    classDef step fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef tick fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef mode fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef dispatch fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef note fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    CLOCK["Clock.now () -> dt = now - last_time"]
+    COLLECT["collect<br/>(Signals, Events, Commands)"]
+    TICK["Progress.tick"]
+    DRAIN["drain<br/>(Signals, Commands, Events)"]
+    REPEAT["-> repeat while should_continue"]
+
+    CLOCK --> COLLECT --> TICK --> DRAIN --> REPEAT -.-> CLOCK
+
+    subgraph MODE["mode : Variable | Fixed of float | Hybrid of float"]
+        direction TB
+        VAR["Variable<br/>run(kind:`variable, dt:frame dt)<br/>ONCE per frame"]
+        FIXED["Fixed step<br/>while acc >= step:<br/>  run(kind:`fixed, dt:step); acc -= step<br/>0..N times per frame (catch-up)"]
+        HYBRID["Hybrid<br/>Fixed-style loop for `fixed systems<br/>+ ONE `variable run per frame"]
+    end
+
+    TICK --> MODE
+
+    RUN["run(kind, dt) = Pipeline.run_by_filter<br/>for phase in topo order:<br/>  for system in phase where kind matches: System.run sys world dt"]
+    MODE --> RUN
+
+    SYSRUN["System.run -> update callback<br/>called from tick (kind-tagged)"]
+    HANDLERS["on_signal / on_event / on_command<br/>dispatched during drain, NOT tick"]
+    RUN --> SYSRUN
+    DRAIN --> HANDLERS
+
+    NOTE["Mode only changes which run(kind, dt) calls happen inside Progress.tick — collect/drain bus timing is unaffected."]
+
+    class CLOCK,COLLECT,DRAIN,REPEAT step
+    class TICK tick
+    class MODE,VAR,FIXED,HYBRID mode
+    class RUN,SYSRUN,HANDLERS dispatch
+    class NOTE note

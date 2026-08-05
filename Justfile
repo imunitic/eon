@@ -103,6 +103,10 @@ snake_reactive:
 visualizations:
     bash scripts/gen_visualizations.sh
 
+# Render mermaid design diagrams (docs/design/diagrams/*.mmd -> images/*.png)
+diagrams:
+    bash docs/design/generate-diagrams.sh
+
 # Clean build artifacts
 clean:
     opam exec -- dune clean

@@ -1,0 +1,45 @@
+---
+title: Eon ECS — Capability Model (World.ro / World.rw)
+---
+%% phantom-typed World.t: rw is a superset of ro; downgrading is zero-cost and one-way
+flowchart TB
+    classDef create fill:#f1f3f5,stroke:#868e96,color:#1e1e1e
+    classDef rw fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef ro fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef ops fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef dispatch fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef note fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    CREATE["create : unit -> rw t"]
+    RW["rw World.t<br/>[ R | W ]<br/>read + write"]
+    RO["ro World.t<br/>[ R ]<br/>read only"]
+
+    CREATE --> RW
+    RW -->|"readonly / as_ro<br/>(zero cost)"| RO
+    RO -.->|"one-way —<br/>no rw t from an ro t"| RW
+
+    ROOPS["Works on any 'perm t (read ops)<br/>get_component · is_alive<br/>is_registered · count_entities<br/>get_data · get_service<br/>iter_entities · has_component"]
+    RWOPS["Requires rw t (write ops)<br/>create_entity · destroy_entity<br/>add_component · set_component<br/>remove_component · remove_all_components<br/>register · add_data"]
+
+    RO --> ROOPS
+    RW --> RWOPS
+
+    subgraph DISPATCH["System.update_kind dispatch"]
+        direction TB
+        PARALLEL["Parallel<br/>update : World.ro t -> float -> unit<br/>runs CONCURRENTLY via Executor"]
+        EXCLUSIVE["Exclusive<br/>update : World.rw t -> float -> unit<br/>runs SEQUENTIALLY after parallel systems<br/>(same model as Bevy's exclusive systems)"]
+        HANDLERS["on_signal / on_event / on_command<br/>World.rw t -> ... -> unit<br/>ALWAYS rw, ALWAYS sequential — even for a Parallel system"]
+    end
+
+    RO --> PARALLEL
+    RW --> EXCLUSIVE
+    RW --> HANDLERS
+
+    NOTE["Executor runs Parallel updates concurrently; Exclusive updates and all handlers are phase-ordered and sequential."]
+
+    class CREATE create
+    class RW rw
+    class RO ro
+    class ROOPS,RWOPS ops
+    class PARALLEL,EXCLUSIVE,HANDLERS dispatch
+    class NOTE note
