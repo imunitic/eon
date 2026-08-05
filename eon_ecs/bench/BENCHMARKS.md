@@ -16,9 +16,12 @@ libraries. See [Methodology](#methodology) for why, and how these numbers were a
 | Config | `Benchmark.cfg ~limit:50 ~quota:(Time.second 1.0) ()` |
 | Metrics collected | `monotonic_clock` (time/run, shown below), `minor_allocated`, `major_allocated` |
 
-`time/run` is nanoseconds per timed call, as reported by Bechamel's OLS analysis
-(`Benchmark_helpers.analyze_single_instance`/`pp_results`). Every workload below with a `cycles`,
-`~` batch, or explicit op count folded into the timing is called out per-row.
+`time/run` is the duration of one timed call, as reported by Bechamel's OLS analysis
+(`Benchmark_helpers.analyze_single_instance`/`pp_results`) and auto-scaled to the most readable unit
+(ns/µs/ms/s — `format_duration_ns` picks the unit so the number stays in a 1–999 range rather than
+requiring exponent notation). Every workload below with a `cycles`, `~` batch, or explicit op count
+folded into the timing is called out per-row. The derived `ns/entity`/`ns/op` columns stay in plain
+nanoseconds throughout, since those are already small, comparable numbers.
 
 ## Workload table
 
@@ -33,10 +36,10 @@ API) — bulk and single insert collapse into one shape; `component_count = 1` i
 
 | Workload | Entities | Components | time/run | ns/entity |
 |---|---:|---:|---:|---:|
-| bulk-insert | 10,000 | 1 | 4.638e+05 ns | 46.4 |
-| bulk-insert | 10,000 | 4 | 2.203e+06 ns | 220.3 |
-| bulk-insert | 100,000 | 4 | 2.097e+07 ns | 209.7 |
-| bulk-insert | 1,000,000 | 4 | 2.359e+08 ns | 235.9 |
+| bulk-insert | 10,000 | 1 | 463.8 µs | 46.4 |
+| bulk-insert | 10,000 | 4 | 2.20 ms | 220.3 |
+| bulk-insert | 100,000 | 4 | 20.97 ms | 209.7 |
+| bulk-insert | 1,000,000 | 4 | 235.9 ms | 235.9 |
 
 Scales linearly with entity count, as expected — no batch API means no amortization to lose.
 
@@ -48,34 +51,34 @@ World population happens once per test (outside the timed portion — see
 
 | Workload | Entities | Components | time/run |
 |---|---:|---:|---:|
-| iter1 | 10,000 | 1 | 2.313e+04 ns |
-| iter1 | 10,000 | 4 | 2.138e+04 ns |
-| iter1 | 50,000 | 4 | 1.061e+05 ns |
-| iter1 | 100,000 | 4 | 2.123e+05 ns |
-| iter1 | 1,000,000 | 4 | 2.116e+06 ns |
-| iter2 | 10,000 | 2 | 3.185e+04 ns |
-| iter2 | 10,000 | 4 | 3.264e+04 ns |
-| iter2 | 50,000 | 4 | 1.558e+05 ns |
-| iter2 | 100,000 | 4 | 3.013e+05 ns |
-| iter2 | 1,000,000 | 4 | 3.274e+06 ns |
-| iter3 | 10,000 | 3 | 2.879e+04 ns |
-| iter3 | 10,000 | 4 | 2.905e+04 ns |
-| iter3 | 50,000 | 4 | 1.430e+05 ns |
-| iter3 | 100,000 | 4 | 2.877e+05 ns |
-| iter3 | 1,000,000 | 4 | 3.200e+06 ns |
-| iter4 | 10,000 | 4 | 1.723e+04 ns |
-| iter4 | 10,000 | 6 | 1.724e+04 ns |
-| iter4 | 50,000 | 6 | 8.530e+04 ns |
-| iter4 | 100,000 | 6 | 1.733e+05 ns |
-| iter4 | 1,000,000 | 6 | 2.733e+06 ns |
-| iter_entities | 10,000 | 1 | 2.363e+04 ns |
-| iter_entities | 10,000 | 4 | 2.050e+04 ns |
-| iter_entities | 50,000 | 4 | 9.983e+04 ns |
-| iter_entities | 100,000 | 4 | 2.019e+05 ns |
-| iter_entities | 1,000,000 | 4 | 2.247e+06 ns |
+| iter1 | 10,000 | 1 | 23.13 µs |
+| iter1 | 10,000 | 4 | 21.38 µs |
+| iter1 | 50,000 | 4 | 106.10 µs |
+| iter1 | 100,000 | 4 | 212.30 µs |
+| iter1 | 1,000,000 | 4 | 2.12 ms |
+| iter2 | 10,000 | 2 | 31.85 µs |
+| iter2 | 10,000 | 4 | 32.64 µs |
+| iter2 | 50,000 | 4 | 155.80 µs |
+| iter2 | 100,000 | 4 | 301.30 µs |
+| iter2 | 1,000,000 | 4 | 3.27 ms |
+| iter3 | 10,000 | 3 | 28.79 µs |
+| iter3 | 10,000 | 4 | 29.05 µs |
+| iter3 | 50,000 | 4 | 143.00 µs |
+| iter3 | 100,000 | 4 | 287.70 µs |
+| iter3 | 1,000,000 | 4 | 3.20 ms |
+| iter4 | 10,000 | 4 | 17.23 µs |
+| iter4 | 10,000 | 6 | 17.24 µs |
+| iter4 | 50,000 | 6 | 85.30 µs |
+| iter4 | 100,000 | 6 | 173.30 µs |
+| iter4 | 1,000,000 | 6 | 2.73 ms |
+| iter_entities | 10,000 | 1 | 23.63 µs |
+| iter_entities | 10,000 | 4 | 20.50 µs |
+| iter_entities | 50,000 | 4 | 99.83 µs |
+| iter_entities | 100,000 | 4 | 201.90 µs |
+| iter_entities | 1,000,000 | 4 | 2.25 ms |
 
 Distribution shape matters more than arity at a fixed size: `iter2` at 10,000 entities/4 components
-ranges from 2.581e+04 ns (`every-5`, sparse) to 1.315e+05 ns (`all`, every entity matches) across the
+ranges from 25.81 µs (`every-5`, sparse) to 131.50 µs (`all`, every entity matches) across the
 suite's 7 distribution cases — a ~5x spread from density alone, before touching size or arity. The
 full per-distribution breakdown is in the raw `just bench query`/`query_large` output, not reproduced
 here in full.
@@ -88,14 +91,14 @@ component's sparse set is tiny. Less extreme than the dedicated adversarial wors
 
 | Workload | Entities | Distribution | time/run |
 |---|---:|---|---:|
-| iter2-fragmented | 100,000 | p=5% | 4.981e+04 ns |
-| iter2-fragmented | 100,000 | p=1% | 5.767e+03 ns |
-| iter2-fragmented | 1,000,000 | p=5% | 3.872e+05 ns |
-| iter2-fragmented | 1,000,000 | p=1% | 9.572e+04 ns |
-| iter3-fragmented | 100,000 | p=5% | 3.607e+04 ns |
-| iter3-fragmented | 100,000 | p=1% | 5.938e+03 ns |
-| iter3-fragmented | 1,000,000 | p=5% | 3.803e+05 ns |
-| iter3-fragmented | 1,000,000 | p=1% | 1.205e+05 ns |
+| iter2-fragmented | 100,000 | p=5% | 49.81 µs |
+| iter2-fragmented | 100,000 | p=1% | 5.77 µs |
+| iter2-fragmented | 1,000,000 | p=5% | 387.20 µs |
+| iter2-fragmented | 1,000,000 | p=1% | 95.72 µs |
+| iter3-fragmented | 100,000 | p=5% | 36.07 µs |
+| iter3-fragmented | 100,000 | p=1% | 5.94 µs |
+| iter3-fragmented | 1,000,000 | p=5% | 380.30 µs |
+| iter3-fragmented | 1,000,000 | p=1% | 120.50 µs |
 
 ### Sparse-set adversarial worst case
 
@@ -107,10 +110,10 @@ measured against.**
 
 | Workload | Entities | time/run |
 |---|---:|---:|
-| iter2-adversarial | 100,000 | 6.065e+02 ns |
-| iter2-adversarial | 1,000,000 | 9.836e+03 ns |
-| iter3-adversarial | 100,000 | 7.597e+02 ns |
-| iter3-adversarial | 1,000,000 | 7.186e+03 ns |
+| iter2-adversarial | 100,000 | 606.5 ns |
+| iter2-adversarial | 1,000,000 | 9.84 µs |
+| iter3-adversarial | 100,000 | 759.7 ns |
+| iter3-adversarial | 1,000,000 | 7.19 µs |
 
 Note these are *fast in absolute time* (the smallest set is only ~100–1,000 entities even at 1M
 scale) — the pathology is wasted work relative to yield (near-zero matches per scan), not raw
@@ -127,22 +130,22 @@ timed call — see the per-row cycle count.
 
 | Workload | Entities | Cycles | time/run | ns/op |
 |---|---:|---:|---:|---:|
-| hit | 1,000 | 10 | 1.817e+05 ns | 18.2 |
-| hit | 10,000 | 5 | 9.046e+05 ns | 18.1 |
-| hit | 100,000 | 2 | 3.634e+06 ns | 18.2 |
-| hit | 1,000,000 | 1 | 1.829e+07 ns | 18.3 |
-| mixed | 1,000 | 10 | 1.780e+05 ns | 17.8 |
-| mixed | 10,000 | 5 | 9.067e+05 ns | 18.1 |
-| mixed | 100,000 | 2 | 3.771e+06 ns | 18.9 |
-| mixed | 1,000,000 | 1 | 1.794e+07 ns | 17.9 |
-| random50 | 1,000 | 10 | 2.282e+05 ns | 22.8 |
-| random50 | 10,000 | 5 | 1.165e+06 ns | 23.3 |
-| random50 | 100,000 | 2 | 4.610e+06 ns | 23.1 |
-| random50 | 1,000,000 | 1 | 2.256e+07 ns | 22.6 |
-| clustered | 1,000 | 10 | 1.783e+05 ns | 17.8 |
-| clustered | 10,000 | 5 | 8.951e+05 ns | 17.9 |
-| clustered | 100,000 | 2 | 3.576e+06 ns | 17.9 |
-| clustered | 1,000,000 | 1 | 1.824e+07 ns | 18.2 |
+| hit | 1,000 | 10 | 181.70 µs | 18.2 |
+| hit | 10,000 | 5 | 904.60 µs | 18.1 |
+| hit | 100,000 | 2 | 3.63 ms | 18.2 |
+| hit | 1,000,000 | 1 | 18.29 ms | 18.3 |
+| mixed | 1,000 | 10 | 178.00 µs | 17.8 |
+| mixed | 10,000 | 5 | 906.70 µs | 18.1 |
+| mixed | 100,000 | 2 | 3.77 ms | 18.9 |
+| mixed | 1,000,000 | 1 | 17.94 ms | 17.9 |
+| random50 | 1,000 | 10 | 228.20 µs | 22.8 |
+| random50 | 10,000 | 5 | 1.17 ms | 23.3 |
+| random50 | 100,000 | 2 | 4.61 ms | 23.1 |
+| random50 | 1,000,000 | 1 | 22.56 ms | 22.6 |
+| clustered | 1,000 | 10 | 178.30 µs | 17.8 |
+| clustered | 10,000 | 5 | 895.10 µs | 17.9 |
+| clustered | 100,000 | 2 | 3.58 ms | 17.9 |
+| clustered | 1,000,000 | 1 | 18.24 ms | 18.2 |
 
 `random50`'s ~25% higher per-op cost than the other three is consistent across every size — the
 uniformly-random present/absent pattern defeats branch prediction/prefetching in a way the
@@ -155,9 +158,9 @@ timing); only the destroy pass itself is measured.
 
 | Workload | Entities | time/run | ns/entity |
 |---|---:|---:|---:|
-| despawn-only | 10,000 | 2.012e+05 ns | 20.1 |
-| despawn-only | 100,000 | 2.167e+06 ns | 21.7 |
-| despawn-only | 1,000,000 | 3.563e+07 ns | 35.6 |
+| despawn-only | 10,000 | 201.20 µs | 20.1 |
+| despawn-only | 100,000 | 2.17 ms | 21.7 |
+| despawn-only | 1,000,000 | 35.63 ms | 35.6 |
 
 ### Random add/remove component churn
 
@@ -166,9 +169,9 @@ full add-pass followed by one full remove-pass.
 
 | Workload | Entities | time/run | ns/op |
 |---|---:|---:|---:|
-| random-add-remove | 10,000 | 4.267e+05 ns | 21.3 |
-| random-add-remove | 100,000 | 4.870e+06 ns | 24.4 |
-| random-add-remove | 1,000,000 | 1.773e+08 ns | 88.7 |
+| random-add-remove | 10,000 | 426.70 µs | 21.3 |
+| random-add-remove | 100,000 | 4.87 ms | 24.4 |
+| random-add-remove | 1,000,000 | 177.30 ms | 88.7 |
 
 (`ns/op` divides by 2×entities, since each timed call is one add + one remove per entity.)
 
@@ -182,18 +185,18 @@ too, not just each phase's standalone cost.
 
 | Workload | Entities | Cycles | time/run |
 |---|---:|---:|---:|
-| full (all 5 phases) | 10,000 | 100 | 4.630e+07 ns |
-| full (all 5 phases) | 100,000 | 20 | 9.271e+07 ns |
-| movement-only | 10,000 | 100 | 3.968e+07 ns |
-| health-read-only | 10,000 | 100 | 4.299e+06 ns |
-| spawn-despawn-only | 10,000 | 100 | 2.198e+06 ns |
-| random-access-only | 10,000 | 100 | 2.121e+05 ns |
-| structural-churn-only | 10,000 | 100 | 3.838e+05 ns |
+| full (all 5 phases) | 10,000 | 100 | 46.30 ms |
+| full (all 5 phases) | 100,000 | 20 | 92.71 ms |
+| movement-only | 10,000 | 100 | 39.68 ms |
+| health-read-only | 10,000 | 100 | 4.30 ms |
+| spawn-despawn-only | 10,000 | 100 | 2.20 ms |
+| random-access-only | 10,000 | 100 | 212.10 µs |
+| structural-churn-only | 10,000 | 100 | 383.80 µs |
 
 At 10,000 entities, movement dominates the composite (86% of the full-frame cost) — each movement
 tick does a full `iter2` pass plus a `set_component` write per matched entity, while the churn/access
-phases only touch a 1%-of-population batch per tick. The five isolated phases sum to ~4.68e+07 ns,
-about 1% above the measured composite (4.63e+07 ns) — close at this scale, with the small gap being
+phases only touch a 1%-of-population batch per tick. The five isolated phases sum to ~46.80 ms,
+about 1% above the measured composite (46.30 ms) — close at this scale, with the small gap being
 the isolated-worlds caveat above (no guarantee the sign or size of that gap holds at other scales).
 
 ### Diagnostic: heavy compute

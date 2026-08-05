@@ -61,6 +61,18 @@ let analyze_single_instance instance raw =
   let table = Analyze.all ols instance raw in
   Analyze.merge ols [ instance ] [ table ]
 
+(* Auto-scaled ns -> ns/us/ms/s, so "which is faster" reads from the unit
+   alone instead of requiring the reader to compare exponents (e.g. "4.638e+05"
+   vs "2.203e+06"). Mirrors the convention hyperfine/criterion.rs use for the
+   same reason. *)
+let format_duration_ns ns =
+  let ns = abs_float ns in
+  if ns < 1_000. then Printf.sprintf "%.1f ns" ns
+  else if ns < 1_000_000. then Printf.sprintf "%.2f \xc2\xb5s" (ns /. 1_000.)
+  else if ns < 1_000_000_000. then
+    Printf.sprintf "%.2f ms" (ns /. 1_000_000.)
+  else Printf.sprintf "%.2f s" (ns /. 1_000_000_000.)
+
 let pp_results results =
   Hashtbl.iter
     (fun measure_label tests ->
@@ -74,12 +86,16 @@ let pp_results results =
             | Some (slope :: _) -> slope
             | _ -> nan
           in
-          let metric =
-            match String.lowercase_ascii measure_label with
-            | lbl when String.ends_with ~suffix:"allocated" lbl -> "alloc/run"
-            | _ -> "time/run"
+          let is_alloc =
+            String.ends_with ~suffix:"allocated"
+              (String.lowercase_ascii measure_label)
           in
-          Format.printf "  %s: %.3e (%s)@." test_name slope metric)
+          let metric = if is_alloc then "alloc/run" else "time/run" in
+          let value =
+            if is_alloc then Printf.sprintf "%.3e" slope
+            else format_duration_ns slope
+          in
+          Format.printf "  %s: %s (%s)@." test_name value metric)
         tests)
     results
 
