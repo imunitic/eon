@@ -9,6 +9,7 @@
  (depends
   ocaml
   dune
+  notty-community
   (alcotest :with-test)
   (bechamel :with-test)
   (mtime :with-test)
