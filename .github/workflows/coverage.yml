@@ -1,4 +1,4 @@
-name: Eon ECS Coverage
+name: Eon ECS/EDN Coverage
 
 on:
   schedule:

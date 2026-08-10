@@ -28,7 +28,7 @@ check:
 coverage:
     rm -rf _coverage
     mkdir -p _coverage
-    BISECT_FILE="$PWD/_coverage/bisect-%p.coverage" opam exec -- dune runtest eon_ecs --instrument-with bisect_ppx --force
+    BISECT_FILE="$PWD/_coverage/bisect-%p.coverage" opam exec -- dune runtest eon_ecs eon_edn --instrument-with bisect_ppx --force
     opam exec -- bisect-ppx-report html --source-path . --coverage-path _coverage -o _coverage/html
 
 # Print aggregate coverage summary from _coverage
@@ -110,6 +110,16 @@ diagrams:
 # Clean build artifacts
 clean:
     opam exec -- dune clean
+
+# Run a GitHub Actions job locally via `act` (needs `podman machine start`)
+# Default job builds & tests exactly as CI does; pass a job name to run another
+# (see `act -l`): build-test | benchmark | coverage
+act job="build-test":
+    DOCKER_HOST="unix://$(podman machine inspect --format '{{{{.ConnectionInfo.PodmanSocket.Path}}')" \
+      act push -j {{job}} \
+        -P ubuntu-latest=catthehacker/ubuntu:act-latest \
+        --container-architecture linux/arm64 \
+        --container-daemon-socket -
 
 # List all available tasks
 tasks:
