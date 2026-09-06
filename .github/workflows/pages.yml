@@ -1,0 +1,57 @@
+name: Docs
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 📚 Build odoc site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Just
+        uses: taiki-e/install-action@just
+
+      - name: Setup OCaml environment
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.5.0
+          dune-cache: true
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-doc -y
+
+      - name: Build docs
+        run: just docs
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _build/default/_doc/_html
+
+  deploy:
+    name: 🚀 Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
