@@ -13,6 +13,17 @@ This repo contains three packages, each with its own README:
 | [`eon_engine/`](eon_engine/README.md) (`eon-engine`) | The engine layer on top: capability-typed world (`ro`/`rw`), a query builder with typed views, a parallel pipeline, built-in components, input/audio/rendering backend seams, and prefab loading. |
 | [`eon_edn/`](eon_edn/README.md) (`eon-edn`) | A standalone EDN reader built on OCaml 5 algebraic effects. No dependency on the other two packages; `eon-engine`'s prefab loader is its first consumer. |
 
+## Installation
+
+Eon isn't in the official opam-repository — add the self-hosted one first, then install the packages you need:
+
+```sh
+opam repo add eon-opam https://github.com/imunitic/eon-opam.git
+opam install eon-ecs eon-edn eon-engine
+```
+
+opam is source-based: installing compiles the tagged release from source on your own machine with your existing OCaml/dune toolchain, so there's nothing per-architecture to fetch — just a compatible OCaml 5 compiler. `eon-engine` depends on `eon-ecs` and `eon-edn`; `eon-ecs` and `eon-edn` have no dependency on each other, so install only what you need.
+
 ## Principles
 
 - **Minimalism** — core primitives only; no god objects or central managers.
