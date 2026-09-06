@@ -19,6 +19,15 @@ docs:
 open-docs: docs
     open _build/default/_doc/_html/eon-ecs/index.html
 
+# Build the full docs site: odoc pages, a README-based landing page, and a
+# persistent sidebar across every page (needs pandoc)
+docs-site: docs
+    bash scripts/generate-docs-site.sh
+
+# Build the docs site and open the landing page in a browser
+open-docs-site: docs-site
+    open _build/default/_doc/_html/index.html
+
 # Run default pre-push checks
 check:
     just build

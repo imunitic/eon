@@ -1,0 +1,99 @@
+/* Persistent sidebar injected into every page of the odoc site (see
+   generate-docs-site.sh). Reuses odoc.css's own fonts and CSS custom
+   properties (--color, --link-color, --toc-background, etc.) so every page
+   -- the README landing page included -- reads as one site rather than two
+   different styles bolted together.
+
+   Fixed positioning is deliberate: fixed/absolute elements are excluded
+   from grid item placement, so #global-sidebar can be injected as a body
+   child on odoc's own generated pages (body.odoc, a CSS grid) without
+   disturbing its nav/TOC/search grid areas. */
+
+:root {
+  --global-sidebar-width: 220px;
+}
+
+#global-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--global-sidebar-width);
+  height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 1.5rem 1.25rem;
+  background: var(--toc-background);
+  border-right: 1px solid var(--pre-border-color);
+  font-family: "Fira Sans", sans-serif;
+  z-index: 10;
+}
+
+#global-sidebar .sidebar-title {
+  font-weight: 500;
+  font-size: 1.3em;
+  margin-bottom: 1rem;
+}
+
+#global-sidebar ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#global-sidebar li {
+  margin: 0.15rem 0;
+}
+
+#global-sidebar a {
+  display: block;
+  padding: 0.3em 0.6em;
+  border-radius: 4px;
+  color: var(--color);
+  box-shadow: none;
+}
+
+#global-sidebar a:hover {
+  background: var(--target-background);
+  box-shadow: none;
+}
+
+body,
+body.odoc {
+  padding-left: var(--global-sidebar-width);
+}
+
+body:not(.odoc) {
+  max-width: calc(860px + var(--global-sidebar-width));
+}
+
+body:not(.odoc) table {
+  width: 100%;
+}
+
+body:not(.odoc) th,
+body:not(.odoc) td {
+  border: 1px solid var(--pre-border-color);
+  padding: 0.5em 0.75em;
+}
+
+body:not(.odoc) th {
+  background: var(--code-background);
+}
+
+/* Odoc's own narrow-viewport rules reset body.odoc's padding; re-collapse
+   the sidebar to a static top bar at the same breakpoint instead of
+   leaving dead space or an overlap. */
+@media (max-width: 700px) {
+  #global-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--pre-border-color);
+  }
+
+  body,
+  body.odoc {
+    padding-left: 0;
+  }
+}
