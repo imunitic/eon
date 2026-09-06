@@ -1,0 +1,87 @@
+name: Publish to eon-opam
+
+on:
+  push:
+    tags:
+      - "ecs-v*"
+      - "edn-v*"
+      - "engine-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout eon at the tag
+        uses: actions/checkout@v4
+
+      - name: Resolve package name and version from tag
+        id: pkg
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREFIX="${TAG%%-v*}"
+          VERSION="${TAG#*-v}"
+          case "$PREFIX" in
+            ecs) PKG=eon-ecs ;;
+            edn) PKG=eon-edn ;;
+            engine) PKG=eon-engine ;;
+            *)
+              echo "Unrecognized tag prefix: $PREFIX" >&2
+              exit 1
+              ;;
+          esac
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Compute release tarball checksum
+        id: tarball
+        run: |
+          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.pkg.outputs.tag }}.tar.gz"
+          curl -sSL -o release.tar.gz "$URL"
+          SHA256=$(sha256sum release.tar.gz | cut -d' ' -f1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Build opam file with url stanza
+        run: |
+          PKG="${{ steps.pkg.outputs.pkg }}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          cp "${PKG}.opam" opam-entry
+          cat >> opam-entry <<EOF
+
+          version: "$VERSION"
+          url {
+            src: "${{ steps.tarball.outputs.url }}"
+            checksum: "sha256=${{ steps.tarball.outputs.sha256 }}"
+          }
+          EOF
+
+      - name: Checkout eon-opam
+        uses: actions/checkout@v4
+        with:
+          repository: imunitic/eon-opam
+          token: ${{ secrets.EON_OPAM_TOKEN }}
+          path: eon-opam
+
+      - name: Add package entry
+        run: |
+          PKG="${{ steps.pkg.outputs.pkg }}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          DEST="eon-opam/packages/$PKG/$PKG.$VERSION"
+          if [ -d "$DEST" ]; then
+            echo "::error::$DEST already exists in eon-opam - refusing to overwrite an existing release" >&2
+            exit 1
+          fi
+          mkdir -p "$DEST"
+          cp opam-entry "$DEST/opam"
+
+      - name: Commit and push
+        working-directory: eon-opam
+        run: |
+          PKG="${{ steps.pkg.outputs.pkg }}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          git config user.name "Ivica Munitić"
+          git config user.email "imunitic@gmail.com"
+          git add "packages/$PKG/$PKG.$VERSION"
+          git commit -m "Add $PKG.$VERSION"
+          git push
