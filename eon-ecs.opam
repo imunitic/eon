@@ -2,6 +2,11 @@
 opam-version: "2.0"
 synopsis: "Entity Component System core for Eon engine"
 description: "Eon ECS is a minimal, data-oriented ECS library for OCaml."
+maintainer: ["Ivica Munitić <imunitic@gmail.com>"]
+authors: ["Ivica Munitić <imunitic@gmail.com>"]
+license: "MIT"
+homepage: "https://github.com/imunitic/eon"
+bug-reports: "https://github.com/imunitic/eon/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.15"}
@@ -27,3 +32,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
+dev-repo: "git+https://github.com/imunitic/eon.git"

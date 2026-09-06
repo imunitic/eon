@@ -3,6 +3,11 @@ opam-version: "2.0"
 synopsis: "Game engine layer built on top of Eon ECS"
 description:
   "Eon Engine provides prefab loading, pipelines, systems, assets, and backends."
+maintainer: ["Ivica Munitić <imunitic@gmail.com>"]
+authors: ["Ivica Munitić <imunitic@gmail.com>"]
+license: "MIT"
+homepage: "https://github.com/imunitic/eon"
+bug-reports: "https://github.com/imunitic/eon/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.15"}
@@ -24,3 +29,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
+dev-repo: "git+https://github.com/imunitic/eon.git"
