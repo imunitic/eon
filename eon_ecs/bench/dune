@@ -10,6 +10,7 @@
 
 (executable
  (name bench_sparse_set)
+ (optional)
  (public_name eon-ecs-bench-sparse-set)
  (modules bench_sparse_set)
  (libraries bechamel unix eon_ecs benchmark_helpers)
@@ -18,6 +19,7 @@
 
 (executable
  (name bench_entity_manager)
+ (optional)
  (public_name eon-ecs-bench-entity-manager)
  (modules bench_entity_manager)
  (libraries bechamel unix eon_ecs benchmark_helpers)
@@ -26,6 +28,7 @@
 
 (executable
  (name bench_query)
+ (optional)
  (public_name eon-ecs-bench-query)
  (modules bench_query)
  (libraries bechamel unix eon_ecs benchmark_helpers query_bench_defs)
@@ -34,6 +37,7 @@
 
 (executable
  (name bench_query_large)
+ (optional)
  (public_name eon-ecs-bench-query-large)
  (modules bench_query_large)
  (libraries bechamel unix eon_ecs benchmark_helpers query_bench_defs)
@@ -42,6 +46,7 @@
 
 (executable
  (name bench_world)
+ (optional)
  (public_name eon-ecs-bench-world)
  (modules bench_world)
  (libraries bechamel unix eon_ecs benchmark_helpers)
@@ -50,6 +55,7 @@
 
 (executable
  (name bench_loop)
+ (optional)
  (public_name eon-ecs-bench-loop)
  (modules bench_loop)
  (libraries bechamel unix eon_ecs benchmark_helpers)
@@ -58,6 +64,7 @@
 
 (executable
  (name bench_cache_locality)
+ (optional)
  (public_name eon-ecs-bench-cache-locality)
  (modules bench_cache_locality)
  (libraries bechamel unix eon_ecs benchmark_helpers)

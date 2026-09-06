@@ -13,10 +13,9 @@
  (depends
   ocaml
   dune
-  notty-community
+  mtime
   (alcotest :with-test)
   (bechamel :with-test)
-  (mtime :with-test)
   (qcheck :with-test)
   (qcheck-alcotest :with-test)))
 

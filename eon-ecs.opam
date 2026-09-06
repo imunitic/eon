@@ -10,10 +10,9 @@ bug-reports: "https://github.com/imunitic/eon/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.15"}
-  "notty-community"
+  "mtime"
   "alcotest" {with-test}
   "bechamel" {with-test}
-  "mtime" {with-test}
   "qcheck" {with-test}
   "qcheck-alcotest" {with-test}
   "odoc" {with-doc}

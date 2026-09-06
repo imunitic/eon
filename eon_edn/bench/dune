@@ -1,5 +1,6 @@
 (executable
  (name bench_edn_parser)
+ (optional)
  (public_name eon-edn-bench-edn-parser)
  (modules bench_edn_parser)
  (libraries bechamel unix eon_edn benchmark_helpers)
