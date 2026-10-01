@@ -303,7 +303,7 @@ until it lifts or is cancelled, and not reused while still held. Games key per-f
 state (a virtual joystick's anchor, a drag in progress) by it.
 
 - `touches_down` — every contact currently on the screen.
-- `touches_pressed` — contacts that landed this frame; look them up in `touches_down`.
+- `touches_pressed` — contacts that landed this frame; always present in `touches_down` (see sub-frame taps below).
 - `touches_released` / `touches_cancelled` — maps rather than sets, because a lifted
   contact is no longer in `touches_down` and games need its final position (tap-to-select,
   drop point). A touch id is in at most one of the two per frame.
@@ -313,6 +313,12 @@ state (a virtual joystick's anchor, a drag in progress) by it.
 - A touch is any finger or pen/stylus contact with the screen. Hover without contact is
   not a touch. Game code cannot, and need not, tell finger from pen.
 - `touches_pressed` / `touches_released` are true edges only.
+- **Sub-frame taps.** A contact that lands and lifts (or is cancelled) within one frame is
+  reported in `touches_pressed` and `touches_down` for that frame, and in `touches_released`
+  (or `touches_cancelled`) on the next. This keeps `touches_pressed ⊆ touches_down` and
+  guarantees every touch is seen held for at least one frame, at the cost of one frame of
+  release latency for such taps. `events` may still carry the true `Touch_down` / `Touch_up`
+  order and times. The backend needs to latch the pending release between frames.
 - On app backgrounding or window focus loss, report every held touch in
   `touches_cancelled` and clear `touches_down`.
 - Do not synthesize mouse events from touch; a game that wants both reads both.

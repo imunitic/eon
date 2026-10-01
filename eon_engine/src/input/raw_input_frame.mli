@@ -20,6 +20,11 @@
     - [touches_pressed] / [touches_released]: true edges only. A touch id is
       in at most one of [touches_released] / [touches_cancelled] per frame,
       and never in [touches_down] once released or cancelled.
+    - Every id in [touches_pressed] is also in [touches_down] that frame. A
+      contact that lands and lifts (or is cancelled) within one frame is
+      reported pressed and down in that frame, and released or cancelled in
+      the next, so no tap is lost. [events] may still carry the true
+      [Touch_down] / [Touch_up] order and times.
     - On app backgrounding or window focus loss: report every held touch in
       [touches_cancelled] and clear [touches_down].
     - The backend does not synthesize mouse events from touch. *)
@@ -77,7 +82,7 @@ type t = {
   touches_down           : touch Touch_id.Map.t;
       (** every contact currently on the screen *)
   touches_pressed        : Touch_id.Set.t;
-      (** contacts that landed this frame; look them up in [touches_down] *)
+      (** contacts that landed this frame; always present in [touches_down] *)
   touches_released       : touch Touch_id.Map.t;
       (** contacts lifted this frame, with their final state *)
   touches_cancelled      : touch Touch_id.Map.t;
