@@ -43,4 +43,12 @@
   (authors "Ivica Munitić <imunitic@gmail.com>")
   (maintainers "Ivica Munitić <imunitic@gmail.com>")
   (source (github imunitic/eon))
-  (depends ocaml dune eon-ecs eon-edn))
+  (depends
+   ocaml
+   dune
+   eon-ecs
+   eon-edn
+   (alcotest :with-test)
+   (bechamel :with-test)
+   (qcheck :with-test)
+   (qcheck-alcotest :with-test)))

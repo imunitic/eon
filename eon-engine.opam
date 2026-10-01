@@ -13,6 +13,10 @@ depends: [
   "dune" {>= "3.15"}
   "eon-ecs"
   "eon-edn"
+  "alcotest" {with-test}
+  "bechamel" {with-test}
+  "qcheck" {with-test}
+  "qcheck-alcotest" {with-test}
   "odoc" {with-doc}
 ]
 build: [
