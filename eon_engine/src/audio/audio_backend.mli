@@ -1,7 +1,8 @@
 (** Audio backend seam — translates [Audio_command.t] lists to platform API calls.
 
-    [Loop.Make] calls [init] at startup with an asset lookup so the backend
-    can pre-load sound files into internal handles. [shutdown] is called on
+    [Loop.Make] calls [init] at startup so the backend can pre-load sound
+    files into internal handles. [init] takes no arguments: a backend captures
+    its [Asset_lookup] when the module is constructed. [shutdown] is called on
     exit. After drain each frame the loop calls [submit] with the accumulated
     command list, then clears [Audio_command_buffer].
 
