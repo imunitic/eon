@@ -71,6 +71,7 @@ module Audio_backend        = Audio_backend
 module Key             = Key
 module Mouse_button    = Mouse_button
 module Gamepad_button  = Gamepad_button
+module Touch_id        = Touch_id
 module Raw_input_frame = Raw_input_frame
 module Input_backend   = Input_backend
 

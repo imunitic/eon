@@ -11,7 +11,7 @@
 This document specifies the input system for `eon_engine`. It covers:
 
 - The `Input_backend.S` abstraction — the platform seam
-- `Raw_input_frame.t` — the backend-produced snapshot, including modifier key state
+- `Raw_input_frame.t` — the backend-produced snapshot, including modifier key state and multi-touch contacts
 - How `Raw_input_frame` is stored as a world resource each frame
 - Frame-order placement — where input fits in the existing collect → tick → drain → render loop
 - Mouse coordinate handling — screen space only; world-space transform is the game layer's responsibility
@@ -118,6 +118,10 @@ type input_event =
   | Mouse_up        of Mouse_button.t * float
   | Gamepad_down    of Gamepad_button.t * float
   | Gamepad_up      of Gamepad_button.t * float
+  | Touch_down      of Touch_id.t * (float * float) * float  (* id, position, time *)
+  | Touch_move      of Touch_id.t * (float * float) * float
+  | Touch_up        of Touch_id.t * (float * float) * float
+  | Touch_cancel    of Touch_id.t * (float * float) * float
 
 type raw_input_frame = {
   (* keyboard *)
@@ -136,6 +140,12 @@ type raw_input_frame = {
 
   (* gamepad — optional; None if no controller connected *)
   gamepad : Gamepad_state.t option;
+
+  (* touch — finger or pen contacts; see §4.4 *)
+  touches_down      : touch Touch_id.Map.t;
+  touches_pressed   : Touch_id.Set.t;
+  touches_released  : touch Touch_id.Map.t;
+  touches_cancelled : touch Touch_id.Map.t;
 
   (* text input — UTF-8 from OS/IME, independent of key codes; see §4.3 *)
   text_input : string option;
@@ -272,6 +282,47 @@ The normalised vector stored in `gamepad.left_stick` is always dead-zone-correct
 before it reaches the engine.
 
 ---
+
+### 4.4 Touch input
+
+```ocaml
+type touch = {
+  position : float * float;  (* same coordinate space as mouse_screen, sub-pixel *)
+  delta    : float * float;  (* movement since previous frame *)
+  pressure : float;          (* 0.0..1.0; 1.0 when the backend has none *)
+  radius   : float;          (* contact radius in position units; 0.0 if unavailable *)
+}
+```
+
+The engine only carries touch data; sourcing it is the backend's job. Gesture
+recognition (tap, long-press, swipe, pinch) is not an engine concern — it stays in
+game-defined input systems, like every other piece of derived input state.
+
+`Touch_id.t` is a platform-assigned contact id, stable from the moment a contact lands
+until it lifts or is cancelled, and not reused while still held. Games key per-finger
+state (a virtual joystick's anchor, a drag in progress) by it.
+
+- `touches_down` — every contact currently on the screen.
+- `touches_pressed` — contacts that landed this frame; look them up in `touches_down`.
+- `touches_released` / `touches_cancelled` — maps rather than sets, because a lifted
+  contact is no longer in `touches_down` and games need its final position (tap-to-select,
+  drop point). A touch id is in at most one of the two per frame.
+
+**Backend responsibility:**
+
+- A touch is any finger or pen/stylus contact with the screen. Hover without contact is
+  not a touch. Game code cannot, and need not, tell finger from pen.
+- `touches_pressed` / `touches_released` are true edges only.
+- On app backgrounding or window focus loss, report every held touch in
+  `touches_cancelled` and clear `touches_down`.
+- Do not synthesize mouse events from touch; a game that wants both reads both.
+- Event-driven backends also fill `events` with the `Touch_*` variants (§4.2);
+  poll-based backends leave `events = []`.
+
+A virtual joystick is built entirely in game code: remember the `Touch_id` and landing
+position when a touch lands inside the joystick zone, then each frame read that id from
+`touches_down`, clamp its offset from the anchor to the stick radius and divide by it. Reset
+on the id's appearance in `touches_released` or `touches_cancelled`.
 
 ## 5. Raw Input Frame as World Resource
 
@@ -478,7 +529,7 @@ stack, and the raygui trade-off.
 ```
 eon_engine/
   input_backend.ml/.mli     (* module type S = sig val collect : unit -> Raw_input_frame.t end *)
-  raw_input_frame.ml/.mli   (* backend-produced snapshot; Key_set, Mouse_button_set, Gamepad_state *)
+  raw_input_frame.ml/.mli   (* backend-produced snapshot; Key_set, Mouse_button_set, Gamepad_state, Touch *)
   input_backends/
     null.ml                 (* let collect () = Raw_input_frame.empty *)
     scripted.ml             (* replay a list of pre-built frames *)

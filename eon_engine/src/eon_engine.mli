@@ -321,6 +321,9 @@ module Mouse_button : module type of Mouse_button
 (** Engine-defined gamepad buttons — backend-agnostic. *)
 module Gamepad_button : module type of Gamepad_button
 
+(** Platform-assigned identifier of one touch contact (finger or pen). *)
+module Touch_id : module type of Touch_id
+
 (** Immutable raw input snapshot written into the world once per frame. *)
 module Raw_input_frame : module type of Raw_input_frame
 

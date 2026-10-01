@@ -23,6 +23,33 @@ let test_empty_gamepad () =
   Alcotest.(check bool) "no gamepad" true (Option.is_none f.gamepad);
   Alcotest.(check (list (Alcotest.testable (fun _ _ -> ()) (=)))) "events" [] f.events
 
+let test_empty_touch () =
+  let f = Raw_input_frame.empty in
+  Alcotest.(check bool) "touches_down empty"
+    true (Touch_id.Map.is_empty f.touches_down);
+  Alcotest.(check bool) "touches_pressed empty"
+    true (Touch_id.Set.is_empty f.touches_pressed);
+  Alcotest.(check bool) "touches_released empty"
+    true (Touch_id.Map.is_empty f.touches_released);
+  Alcotest.(check bool) "touches_cancelled empty"
+    true (Touch_id.Map.is_empty f.touches_cancelled)
+
+(* ------------------------------------------------------------------ *)
+(* Touch_id                                                            *)
+(* ------------------------------------------------------------------ *)
+
+let test_touch_id_roundtrip () =
+  Alcotest.(check int) "of_int/to_int" 7 (Touch_id.to_int (Touch_id.of_int 7))
+
+let test_touch_id_set_map () =
+  let a = Touch_id.of_int 1 and b = Touch_id.of_int 2 in
+  let s = Touch_id.Set.of_list [a; b; a] in
+  Alcotest.(check int) "set dedups" 2 (Touch_id.Set.cardinal s);
+  let m = Touch_id.Map.(empty |> add a "x" |> add b "y") in
+  Alcotest.(check (option string)) "map find" (Some "y") (Touch_id.Map.find_opt b m);
+  Alcotest.(check bool) "distinct ids compare unequal" true
+    (Touch_id.compare a b <> 0)
+
 (* ------------------------------------------------------------------ *)
 (* Input_backend.Scripted                                              *)
 (* ------------------------------------------------------------------ *)
@@ -129,6 +156,63 @@ let test_loop_updates_each_tick () =
     (Key.Set.mem Key.Right (Option.get after_tick2).keys_pressed)
 
 (* ------------------------------------------------------------------ *)
+(* Touch frames through Scripted and Loop.step                         *)
+(* ------------------------------------------------------------------ *)
+
+let touch ?(delta = (0.0, 0.0)) ?(pressure = 1.0) ?(radius = 0.0) position =
+  { Raw_input_frame.position; delta; pressure; radius }
+
+let id = Touch_id.of_int
+
+let two_finger_frame =
+  let t1 = touch (10.0, 20.0) and t2 = touch ~pressure:0.5 ~radius:4.0 (300.5, 40.25) in
+  { Raw_input_frame.empty with
+    touches_down    = Touch_id.Map.(empty |> add (id 1) t1 |> add (id 2) t2);
+    touches_pressed = Touch_id.Set.singleton (id 2);
+    events          = [ Raw_input_frame.Touch_down (id 2, (300.5, 40.25), 0.5) ] }
+
+let release_frame =
+  { Raw_input_frame.empty with
+    touches_down     = Touch_id.Map.singleton (id 1) (touch (12.0, 22.0));
+    touches_released = Touch_id.Map.singleton (id 2) (touch (301.0, 41.0));
+    events           = [ Raw_input_frame.Touch_up (id 2, (301.0, 41.0), 0.25) ] }
+
+let test_scripted_touch_frames () =
+  Input_backend.Scripted.set_frames [ two_finger_frame; release_frame ];
+  let r1 = Input_backend.Scripted.collect () in
+  let r2 = Input_backend.Scripted.collect () in
+  Alcotest.(check int) "two fingers down" 2 (Touch_id.Map.cardinal r1.touches_down);
+  Alcotest.(check bool) "finger 2 pressed" true
+    (Touch_id.Set.mem (id 2) r1.touches_pressed);
+  Alcotest.(check bool) "finger 1 not pressed" false
+    (Touch_id.Set.mem (id 1) r1.touches_pressed);
+  let t2 = Touch_id.Map.find (id 2) r1.touches_down in
+  Alcotest.(check (float 1e-9)) "pressure kept" 0.5 t2.pressure;
+  Alcotest.(check (float 1e-9)) "radius kept" 4.0 t2.radius;
+  Alcotest.(check bool) "finger 2 released, with final position" true
+    (match Touch_id.Map.find_opt (id 2) r2.touches_released with
+     | Some t -> t.position = (301.0, 41.0)
+     | None -> false);
+  Alcotest.(check bool) "finger 2 no longer down" false
+    (Touch_id.Map.mem (id 2) r2.touches_down)
+
+let test_loop_writes_touch_to_world () =
+  Input_backend.Scripted.set_frames [ two_finger_frame ];
+  let world    = World.create () in
+  let pipeline = Pipeline.Default.create () in
+  let progress = My_progress.create ~mode:My_progress.Variable pipeline in
+  let world, _, _ =
+    My_loop.step ~progress ~world ~last_time:0.0 ~now:0.016
+      ~should_continue:(fun _ -> false)
+  in
+  let f = Raw_input_frame.fetch world in
+  Alcotest.(check int) "two touches reach the world" 2
+    (Touch_id.Map.cardinal f.touches_down);
+  Alcotest.(check bool) "distinct ids keep distinct positions" true
+    ((Touch_id.Map.find (id 1) f.touches_down).position
+     <> (Touch_id.Map.find (id 2) f.touches_down).position)
+
+(* ------------------------------------------------------------------ *)
 (* Suite                                                               *)
 (* ------------------------------------------------------------------ *)
 
@@ -136,6 +220,11 @@ let tests = [
   "Raw_input_frame.empty — keys",    `Quick, test_empty_keys;
   "Raw_input_frame.empty — mouse",   `Quick, test_empty_mouse;
   "Raw_input_frame.empty — gamepad", `Quick, test_empty_gamepad;
+  "Raw_input_frame.empty — touch",   `Quick, test_empty_touch;
+  "Touch_id — of_int/to_int",        `Quick, test_touch_id_roundtrip;
+  "Touch_id — Set and Map",          `Quick, test_touch_id_set_map;
+  "Scripted — touch frames",         `Quick, test_scripted_touch_frames;
+  "Loop.step — writes touch frame to world", `Quick, test_loop_writes_touch_to_world;
   "Scripted — frame sequence",       `Quick, test_scripted_sequence;
   "Scripted — exhausted returns empty", `Quick, test_scripted_exhausted;
   "Scripted — set_frames replaces rather than appends", `Quick,

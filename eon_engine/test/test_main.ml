@@ -19,6 +19,7 @@ let () =
     ("Executor", Test_executor.tests);
     ("Executor (QCheck)", Test_prop_executor.tests);
     ("Input", Test_input.tests);
+    ("Input properties", Test_prop_input.tests);
     ("Audio", Test_audio.tests);
     ("Math", Test_math.tests);
     ("Math properties", Test_prop_math.tests);

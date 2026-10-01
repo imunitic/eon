@@ -12,6 +12,17 @@ type input_event =
   | Mouse_up     of Mouse_button.t   * float
   | Gamepad_down of Gamepad_button.t * float
   | Gamepad_up   of Gamepad_button.t * float
+  | Touch_down   of Touch_id.t * (float * float) * float
+  | Touch_move   of Touch_id.t * (float * float) * float
+  | Touch_up     of Touch_id.t * (float * float) * float
+  | Touch_cancel of Touch_id.t * (float * float) * float
+
+type touch = {
+  position : float * float;
+  delta    : float * float;
+  pressure : float;
+  radius   : float;
+}
 
 type gamepad_state = {
   left_stick       : float * float;
@@ -35,6 +46,10 @@ type t = {
   scroll_delta           : float;
   text_input             : string option;
   gamepad                : gamepad_state option;
+  touches_down           : touch Touch_id.Map.t;
+  touches_pressed        : Touch_id.Set.t;
+  touches_released       : touch Touch_id.Map.t;
+  touches_cancelled      : touch Touch_id.Map.t;
   events                 : input_event list;
 }
 
@@ -51,6 +66,10 @@ let empty = {
   scroll_delta           = 0.0;
   text_input             = None;
   gamepad                = None;
+  touches_down           = Touch_id.Map.empty;
+  touches_pressed        = Touch_id.Set.empty;
+  touches_released       = Touch_id.Map.empty;
+  touches_cancelled      = Touch_id.Map.empty;
   events                 = [];
 }
 

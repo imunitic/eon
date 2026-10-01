@@ -41,15 +41,17 @@ event dispatch — is a game-layer concern.
   {tr {td {!Eon_engine.Key}}           {td Keyboard keys}}
   {tr {td {!Eon_engine.Mouse_button}}  {td Mouse buttons}}
   {tr {td {!Eon_engine.Gamepad_button}} {td Gamepad buttons}}
+  {tr {td {!Eon_engine.Touch_id}}      {td Touch contact ids (finger or pen), with [Set] and [Map]}}
 }
 
 Each has a [Set] submodule ([Key.Set], [Mouse_button.Set], [Gamepad_button.Set])
-for efficient membership tests.
+for efficient membership tests. [Touch_id] has both [Set] and [Map] submodules.
 
 {b Raw_input_frame} is an immutable snapshot written before [Buses.collect]
 runs. Fields include pressed/released/down sets, mouse position and delta,
-gamepad state, scroll delta, text input from the OS IME, and a timestamped
-event list — see {!Eon_engine.Raw_input_frame.t} for the full record.
+gamepad state, multi-touch contacts ([touches_down], [touches_pressed],
+[touches_released], [touches_cancelled], keyed by {!Eon_engine.Touch_id}), scroll
+delta, text input from the OS IME, and a timestamped event list — see {!Eon_engine.Raw_input_frame.t} for the full record.
 
 {b Input_backend.S} is the seam for platform-specific input polling. Two
 built-in implementations ship with the engine:
