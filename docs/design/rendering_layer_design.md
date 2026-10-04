@@ -66,6 +66,8 @@ type texture = {
   rotation   : float option;
   origin     : (float * float) option;  (* rotation pivot, dest-local coords *)
   tint       : Color.t option;
+  flip_x     : bool;  (* mirror within dest; applies to source region, before rotation *)
+  flip_y     : bool;
   layer      : int;
 }
 
@@ -180,6 +182,8 @@ let collect_sprites (world : World.ro World.t) graph =
          source     = sprite.source_rect;
          dest       = Math.Rect.create transform.position.x transform.position.y sprite.w sprite.h;
          rotation   = None; origin = None; tint = None;
+         flip_x     = sprite.flip_x;
+         flip_y     = sprite.flip_y;
          layer      = sprite.layer;
        }))
 ```

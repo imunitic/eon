@@ -36,6 +36,11 @@ type texture = {
   tint       : Color.t option;
   (** Colour multiply — use for hit flash, transparency, team tints.
       [None] = white (no tint). *)
+  flip_x     : bool;
+  (** Mirror horizontally within [dest]. Applies to the [source] region,
+      before [rotation]; [origin] keeps its [dest]-local meaning. *)
+  flip_y     : bool;
+  (** Mirror vertically within [dest]. Same rules as [flip_x]. *)
   layer      : int;
 }
 

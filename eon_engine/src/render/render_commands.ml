@@ -13,6 +13,8 @@ type texture = {
   rotation   : float option;
   origin     : (float * float) option;
   tint       : Color.t option;
+  flip_x     : bool;
+  flip_y     : bool;
   layer      : int;
 }
 

@@ -38,6 +38,8 @@ let render_commands_example () =
       rotation   = None;
       origin     = None;
       tint       = None;
+      flip_x     = false;
+      flip_y     = false;
       layer      = 0;
     }
   in
@@ -92,7 +94,8 @@ let render_stream_example () =
     (`Draw_texture Render_commands.{
        texture_id = "sprites/player.png"; source = None;
        dest = Math.Rect.create 100.0 200.0 32.0 32.0;
-       rotation = None; origin = None; tint = None; layer = 0 });
+       rotation = None; origin = None; tint = None;
+       flip_x = false; flip_y = false; layer = 0 });
 
   Render_stream.add_screen stream
     (`Draw_text Render_commands.{
@@ -139,6 +142,8 @@ let collect_sprites (world : World.ro World.t) stream =
             source     = None;
             dest       = Math.Rect.create lt.position.x lt.position.y sprite_size sprite_size;
             rotation   = None; origin = None; tint = None;
+            flip_x     = sprite.flip_x;
+            flip_y     = sprite.flip_y;
             layer      = sprite.layer }))
 
 let collect_hud (_world : World.ro World.t) stream =

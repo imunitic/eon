@@ -63,6 +63,8 @@ a complete 2D game. Backends consume these; game code produces them.
       rotation   = None;
       origin     = None;
       tint       = None;
+      flip_x     = false;
+      flip_y     = false;
       layer      = 0;
     }
 
@@ -124,7 +126,8 @@ The engine never sees the extended type.
     (`Draw_texture Render_commands.{
        texture_id = "sprites/player.png"; source = None;
        dest = Math.Rect.create 100.0 200.0 32.0 32.0;
-       rotation = None; origin = None; tint = None; layer = 0 });
+       rotation = None; origin = None; tint = None;
+       flip_x = false; flip_y = false; layer = 0 });
 
   (* Screen-space: HUD drawn on top, camera-independent *)
   Render_stream.add_screen stream
@@ -186,6 +189,8 @@ private streams and merge them in a sequential pass.
               source     = None;
               dest       = Math.Rect.create lt.position.x lt.position.y sprite_size sprite_size;
               rotation   = None; origin = None; tint = None;
+              flip_x     = sprite.flip_x;
+              flip_y     = sprite.flip_y;
               layer      = sprite.layer }))
 
   let render_collector =
