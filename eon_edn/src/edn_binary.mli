@@ -3,7 +3,7 @@
     Handwritten and specialised to the closed value ADT. The format keeps
     AST semantics, not source text: list vs vector and string vs keyword stay
     distinct, map entry order is preserved, floats are preserved
-    bit-for-bit. See {!Edn_wire} for the byte layout. *)
+    bit-for-bit. The byte layout is described in the codec guide. *)
 
 type format
 (** Identity of this wire format; shared by every encoder and decoder of it,

@@ -164,6 +164,39 @@ above, `strict_tags` is asked before `log_tags`. Writing a custom handler
 follows the same shape: match on `Eon_edn.Edn_effects.Tag`, return `Some`
 to terminate the effect or `None` to forward it.
 
+### Binary encoding
+
+A parsed value can also be written to and read back from a compact binary
+form. `Eon_edn.Binary` is the default codec; `Eon_edn.ENCODE` and
+`Eon_edn.DECODE` are the signatures behind it, so you can supply your own.
+
+```ocaml
+module Binary = Eon_edn.Binary
+
+let bytes = Binary.Encode.encode v           (* v -> Eon_edn.Edn_bytes.t *)
+let v' = Binary.Decode.decode bytes          (* v' = v, floats bit-for-bit *)
+```
+
+`Edn_bytes.t` is a `private string`: it reads as a string through
+`(bytes :> string)` but can only be built with `Edn_bytes.of_string`, so
+encoded binary and EDN text cannot be swapped by accident.
+
+`Encode` never runs middleware. `Decode` performs `Tag`/`Meta` effects for
+tagged and meta nodes (bottom-up, like the text parser), so run it inside
+`Edn_middleware.with_middleware` and the same handlers — registered tag
+handlers, `strict_tags` — apply to binary and text alike.
+`Edn_middleware.reify` leaves tags unresolved, which is how to precompile
+text to binary without baking in the current handlers.
+
+Binary input may be hostile. `Decode` raises only `Failure` — bad magic or
+version, truncation, trailing bytes, lengths larger than the remaining
+input, or a limit violation — with `max_size` (default 16 MiB) and
+`max_depth` (default 256) from `Binary.Make (Limits)`. Limits are
+decode-side only; an encoder and decoder pair by `format` alone.
+
+See the *Binary encoding* guide in the odoc book for the full walkthrough
+and the wire format.
+
 ## Worked example: loading a config file into a typed record
 
 Everything above stops at `Eon_edn.Edn_effects.value` — a generic tree.

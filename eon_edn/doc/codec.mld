@@ -1,0 +1,134 @@
+{0 Binary encoding}
+
+{!Eon_edn} reads text, but a parsed {!Eon_edn.Edn_effects.value} can also
+be written to and read back from a compact binary form. The default codec
+is {!Eon_edn.Binary}; its pieces are deliberately small and separate so you
+can swap the representation without touching the data model or its
+consumers. The companion example is
+{{:https://github.com/imunitic/eon/blob/main/eon_edn/examples/book/codec_example.ml}[codec_example.ml]}.
+
+{1 Encoding and decoding}
+
+{!Eon_edn.Binary.Encode.encode} turns a value into an
+{!Eon_edn.Edn_bytes.t}; {!Eon_edn.Binary.Decode.decode} turns it back.
+
+{[
+  let v =
+    VMap [ (VKeyword "name", VString "Crab"); (VKeyword "pos", VVector [ VNumber 1.; VNumber 2. ]) ]
+  in
+  let bytes = Binary.Encode.encode v in
+  assert (Binary.Decode.decode bytes = v)
+]}
+
+{!Eon_edn.Edn_bytes.t} is [private string]: it costs nothing at runtime and
+reads as a string through a coercion [(bytes :> string)], but it can only
+be built with {!Eon_edn.Edn_bytes.of_string}. That keeps encoded binary and
+EDN text, both strings, from being handed to the wrong function — never
+pass an [Edn_bytes.t] to {!Eon_edn.Edn_parser}.
+
+The format keeps the AST, not the source text: list vs vector and string vs
+keyword stay distinct, map entry order is preserved, and floats survive
+bit-for-bit (NaN payloads and [-0.0] included). Comments, whitespace and
+numeric spelling are gone, as they are after parsing.
+
+{1 Tags and middleware}
+
+[Encode] writes [VTagged] and [VMeta] nodes as plain data and never runs
+middleware. [Decode] behaves like the text parser: for each tagged or meta
+node it performs {!Eon_edn.Edn_effects.Tag} or
+{!Eon_edn.Edn_effects.Meta}, bottom-up, and never consults the tag
+registry itself. So run it inside
+{!Eon_edn.Edn_middleware.with_middleware}, the same handler stack
+{!Eon_edn.Edn_middleware.run_with_middleware} uses for text:
+
+{[
+  let bytes = Binary.Encode.encode (VTagged ("shout", VString "hi")) in
+  let v = M.with_middleware (fun () -> Binary.Decode.decode bytes) in
+  assert (v = VString "HI")
+]}
+
+Because the middleware is the same, text and binary resolve tags
+identically. {!Eon_edn.Edn_middleware.reify} makes that useful for
+precompiling: it leaves every tag unresolved, so the compiled tree depends
+only on the text, and tag handlers run when the binary is loaded.
+
+{[
+  let tree = M.with_middleware ~handlers:[ M.reify ] parse in
+  assert (tree = VTagged ("shout", VString "x"));
+  let bytes = Binary.Encode.encode tree in
+  let from_binary = M.with_middleware (fun () -> Binary.Decode.decode bytes) in
+  let from_text = M.run_with_middleware (fun () -> Eon_edn.Edn_parser.value ()) text in
+  assert (from_binary = from_text)
+]}
+
+Allowlists apply to binary input too:
+
+{[
+  match
+    M.with_middleware ~handlers:[ M.strict_tags [ "shout" ] ] (fun () ->
+        Binary.Decode.decode bytes)
+  with
+  | exception Failure _ -> ()
+  | _ -> assert false
+]}
+
+{1 Untrusted input}
+
+Binary input may be hostile (mod files, network data). [Decode] raises
+only [Failure] — never any other exception — on bad magic or version, an
+unknown tag byte, truncated input, trailing bytes, a length or count larger
+than the remaining input, or a limit violation. The limits come from
+{!Eon_edn.Binary.LIMITS}: [max_size] (checked once, up front) and
+[max_depth] (the top-level value is depth 0; each container, tagged or meta
+value nests one deeper). {!Eon_edn.Binary.Default_limits} is 16 MiB and 256.
+For other bounds, apply {!Eon_edn.Binary.Make}:
+
+{[
+  module Small = Eon_edn.Binary.Make (struct
+    let max_size = 1024
+    let max_depth = 8
+  end)
+]}
+
+Limits are decode-side only: the encoder ignores them, and an encoder and
+decoder pair by {i format} alone, so a limits mismatch between them is your
+responsibility.
+
+{1 Writing your own codec}
+
+A codec is two module types, {!Eon_edn.ENCODE} and {!Eon_edn.DECODE}, so a
+sender can depend on only one half. Each declares an abstract [format]; a
+consumer needing both requires [DECODE with type format = ENCODE.format],
+which makes the compiler reject a mismatched pair.
+
+{[
+  module Round_trip (E : Eon_edn.ENCODE) (D : Eon_edn.DECODE with type format = E.format) =
+  struct
+    let go v = D.decode (E.encode v)
+  end
+
+  module Binary_round_trip = Round_trip (Binary.Encode) (Binary.Decode)
+]}
+
+The [format] type has no runtime representation. It proves that both
+modules claim the same format, not that their implementations agree — test
+that with a round-trip property. Selection is at compile time, with no
+registry or runtime dispatch. A custom [DECODE] should follow the same
+contract: perform [Tag]/[Meta] for tagged and meta nodes and raise
+[Failure] on bad input.
+
+{1 Wire format}
+
+A document is the magic bytes ["EDNB"], one version byte (currently [1]),
+and a single value. Every value starts with one tag byte; lengths and
+counts are unsigned LEB128 varints; numbers are IEEE-754 float64,
+little-endian.
+
+{v
+0x00 nil              0x05 list    count, elements      0x0A tagged  name, value
+0x01 false            0x06 vector  count, elements      0x0B meta    meta, value
+0x02 true             0x07 map     pair count, k v ...
+0x03 number float64   0x08 symbol  length, bytes
+0x04 string           0x09 keyword length, bytes
+     length, UTF-8 bytes
+v}
