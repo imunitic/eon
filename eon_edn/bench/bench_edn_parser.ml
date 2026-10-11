@@ -118,6 +118,55 @@ let codec_suite =
   Test.make_grouped ~name:"edn_codec"
     (List.concat_map mk_codec_benchmarks text_docs)
 
+(* Allocation per call, measured directly with the GC counters over many
+   iterations. Bechamel's regression reads 0 for small allocations, so it
+   cannot be trusted for these documents. Words are 8 bytes. A word is
+   counted once: minor-heap allocations, plus allocations that went straight
+   to the major heap (large blocks). *)
+
+let alloc_runs = 10_000
+
+let words_per_run f =
+  ignore (Sys.opaque_identity (f ()));
+  Gc.full_major ();
+  let minor0, promoted0, major0 = Gc.counters () in
+  for _ = 1 to alloc_runs do
+    ignore (Sys.opaque_identity (f ()))
+  done;
+  let minor1, promoted1, major1 = Gc.counters () in
+  let direct_major = (major1 -. promoted1) -. (major0 -. promoted0) in
+  ((minor1 -. minor0) +. direct_major) /. float_of_int alloc_runs
+
+let allocation_report () =
+  Format.printf "@.== allocation per run (words; 1 word = 8 bytes) ==@.";
+  List.iter
+    (fun (label, text) ->
+       let tree = Edn_parser.run Edn_parser.value text in
+       let bytes = Binary.Encode.encode tree in
+       let parse () = Edn_parser.run Edn_parser.value text in
+       let parse_mw () =
+         Edn_middleware.run_with_middleware (fun () -> Edn_parser.value ()) text
+       in
+       let decode () = Binary.Decode.decode bytes in
+       let decode_mw () =
+         Eon_edn.Edn_middleware.with_middleware (fun () -> Binary.Decode.decode bytes)
+       in
+       let encode () = Binary.Encode.encode tree in
+       Format.printf "  %s: text %d B, binary %d B@." label (String.length text)
+         (String.length (bytes :> string));
+       List.iter
+         (fun (name, f) ->
+            let words = words_per_run f in
+            Format.printf "    %-18s %12.0f words (%.1f KiB)@." name words
+              (words *. 8. /. 1024.))
+         [ "parse", (fun () -> ignore (parse ()))
+         ; "parse+middleware", (fun () -> ignore (parse_mw ()))
+         ; "decode", (fun () -> ignore (decode ()))
+         ; "decode+middleware", (fun () -> ignore (decode_mw ()))
+         ; "encode", (fun () -> ignore (encode ()))
+         ])
+    text_docs
+
 let instances =
   [ Toolkit.Instance.monotonic_clock
   ; Toolkit.Instance.minor_allocated
@@ -137,4 +186,5 @@ let () =
             Benchmark_helpers.pp_results analyzed)
          instances)
     [ parser_suite; middleware_suite; codec_suite ];
+  allocation_report ();
   Format.printf "@.Hint: parse-* measures reader throughput/allocation; middleware-overhead-* measures per-layer Effect.Deep.match_with cost; edn_codec-* compares text parse (+middleware) with binary decode (+middleware) and encode on the same documents.@."
