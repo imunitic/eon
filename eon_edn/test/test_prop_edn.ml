@@ -175,10 +175,127 @@ let prop_refusal_order_is_last_element_first =
       in
       resolved = VString (string_of_int (n - 1)))
 
+(* --- Binary codec properties ---------------------------------------
+
+   Unlike the text round trip above, the binary generator is unrestricted:
+   every float bit pattern (NaN payloads, signed zero, infinities), arbitrary
+   bytes in strings, VTagged/VMeta, empty collections. *)
+
+module Binary = Eon_edn.Binary
+
+let gen_bits_float : float QCheck.Gen.t = QCheck.Gen.map Int64.float_of_bits QCheck.Gen.int64
+
+let gen_raw_string : string QCheck.Gen.t =
+  QCheck.Gen.string_size ~gen:QCheck.Gen.char (QCheck.Gen.int_bound 12)
+
+let rec gen_full depth : value QCheck.Gen.t =
+  let open QCheck.Gen in
+  let scalar =
+    oneof_weighted
+      [
+        1, pure VNil;
+        1, map (fun b -> VBool b) bool;
+        3, map (fun f -> VNumber f) gen_bits_float;
+        2, map (fun s -> VString s) gen_raw_string;
+        1, map (fun s -> VSymbol s) gen_raw_string;
+        1, map (fun s -> VKeyword s) gen_raw_string;
+      ]
+  in
+  if depth <= 0 then scalar
+  else
+    let sub = gen_full (depth - 1) in
+    oneof_weighted
+      [
+        4, scalar;
+        1, map (fun vs -> VList vs) (list_size (int_bound 4) sub);
+        1, map (fun vs -> VVector vs) (list_size (int_bound 4) sub);
+        1, map (fun kvs -> VMap kvs) (list_size (int_bound 4) (pair sub sub));
+        1, map2 (fun t v -> VTagged (t, v)) gen_raw_string sub;
+        1, map2 (fun m v -> VMeta (m, v)) sub sub;
+      ]
+
+let rec show = function
+  | VNil -> "VNil"
+  | VBool b -> Printf.sprintf "VBool %b" b
+  | VNumber f -> Printf.sprintf "VNumber(0x%Lx)" (Int64.bits_of_float f)
+  | VString s -> Printf.sprintf "VString %S" s
+  | VSymbol s -> Printf.sprintf "VSymbol %S" s
+  | VKeyword s -> Printf.sprintf "VKeyword %S" s
+  | VList vs -> "VList [" ^ String.concat "; " (List.map show vs) ^ "]"
+  | VVector vs -> "VVector [" ^ String.concat "; " (List.map show vs) ^ "]"
+  | VMap kvs ->
+      "VMap [" ^ String.concat "; " (List.map (fun (k, v) -> "(" ^ show k ^ ", " ^ show v ^ ")") kvs) ^ "]"
+  | VTagged (t, v) -> Printf.sprintf "VTagged (%S, %s)" t (show v)
+  | VMeta (m, v) -> Printf.sprintf "VMeta (%s, %s)" (show m) (show v)
+
+let arb_full = QCheck.make ~print:show (gen_full 4)
+
+let prop_binary_round_trip =
+  QCheck.Test.make ~name:"decode (encode v) = v, bit-exact" ~count:1000 arb_full (fun v ->
+      Test_edn_binary.same v (Test_edn_binary.roundtrip v))
+
+(* Hostile or damaged input: the decoder returns a value or raises Failure,
+   never any other exception (no Invalid_argument, Out_of_memory,
+   Stack_overflow, Not_found, ...). *)
+let only_failure_escapes decode s =
+  match decode (Eon_edn.Edn_bytes.of_string s) with
+  | _ -> true
+  | exception Failure _ -> true
+  | exception _ -> false
+
+let gen_mutated : string QCheck.Gen.t =
+  let open QCheck.Gen in
+  gen_full 3 >>= fun v ->
+  let s = (Binary.Encode.encode v :> string) in
+  let n = String.length s in
+  int_bound (n - 1) >>= fun i ->
+  oneof
+    [
+      map (fun c -> String.mapi (fun j x -> if j = i then c else x) s) char;
+      pure (String.sub s 0 i);
+      map (fun c -> String.sub s 0 i ^ String.make 1 c ^ String.sub s i (n - i)) char;
+      map (fun suffix -> s ^ suffix) (string_size ~gen:char (int_range 1 4));
+    ]
+
+let arb_mutated = QCheck.make ~print:(Printf.sprintf "%S") gen_mutated
+
+let arb_headed_noise =
+  QCheck.make ~print:(Printf.sprintf "%S")
+    (QCheck.Gen.map (fun s -> "EDNB\x01" ^ s)
+       (QCheck.Gen.string_size ~gen:QCheck.Gen.char (QCheck.Gen.int_bound 64)))
+
+module Tight = Binary.Make (struct
+  let max_size = 48
+  let max_depth = 3
+end)
+
+let prop_mutated_input =
+  QCheck.Test.make ~name:"mutated documents raise only Failure" ~count:2000 arb_mutated
+    (fun s -> only_failure_escapes Test_edn_binary.decode s)
+
+let prop_mutated_input_tight_limits =
+  QCheck.Test.make ~name:"mutated documents raise only Failure under tight limits"
+    ~count:1000 arb_mutated
+    (fun s -> only_failure_escapes (Test_edn_binary.decode_with (module Tight)) s)
+
+let prop_noise_after_header =
+  QCheck.Test.make ~name:"noise behind a valid header raises only Failure" ~count:2000
+    arb_headed_noise
+    (fun s -> only_failure_escapes Test_edn_binary.decode s)
+
+let prop_arbitrary_bytes =
+  QCheck.Test.make ~name:"arbitrary bytes raise only Failure" ~count:1000 QCheck.string
+    (fun s -> only_failure_escapes Test_edn_binary.decode s)
+
 let tests =
   [
     QCheck_alcotest.to_alcotest prop_round_trip;
     QCheck_alcotest.to_alcotest prop_middleware_forwarding;
     QCheck_alcotest.to_alcotest prop_strict_tags;
     QCheck_alcotest.to_alcotest prop_refusal_order_is_last_element_first;
+    QCheck_alcotest.to_alcotest prop_binary_round_trip;
+    QCheck_alcotest.to_alcotest prop_mutated_input;
+    QCheck_alcotest.to_alcotest prop_mutated_input_tight_limits;
+    QCheck_alcotest.to_alcotest prop_noise_after_header;
+    QCheck_alcotest.to_alcotest prop_arbitrary_bytes;
   ]
