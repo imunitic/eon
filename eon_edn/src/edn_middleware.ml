@@ -53,7 +53,9 @@ let strict_tags (allowed : string list) : handler = fun next ->
   in
   match_with next () { retc = (fun v -> v); exnc = (fun e -> raise e); effc }
 
-let reify : handler = fun next ->
+(* Answers every [Tag]/[Meta] itself, without consulting the registry. Used as
+   the outermost handler when [resolve] is false. *)
+let unresolved : handler = fun next ->
   let open Effect.Deep in
   let effc : type a. a Effect.t -> ((a, _) continuation -> _) option =
     fun eff ->
@@ -66,9 +68,10 @@ let reify : handler = fun next ->
 
 let identity : handler = fun next -> next ()
 
-let with_middleware ?(handlers = []) thunk =
+let with_middleware ?(resolve = true) ?(handlers = []) thunk =
   let middleware_chain = List.fold_right compose handlers identity in
-  default_handler (fun () -> middleware_chain thunk)
+  let outermost = if resolve then default_handler else unresolved in
+  outermost (fun () -> middleware_chain thunk)
 
-let run_with_middleware ?handlers parser input =
-  with_middleware ?handlers (fun () -> Edn_parser.run parser input)
+let run_with_middleware ?resolve ?handlers parser input =
+  with_middleware ?resolve ?handlers (fun () -> Edn_parser.run parser input)

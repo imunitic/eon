@@ -185,8 +185,9 @@ encoded binary and EDN text cannot be swapped by accident.
 tagged and meta nodes (bottom-up, like the text parser), so run it inside
 `Edn_middleware.with_middleware` and the same handlers — registered tag
 handlers, `strict_tags` — apply to binary and text alike.
-`Edn_middleware.reify` leaves tags unresolved, which is how to precompile
-text to binary without baking in the current handlers.
+`~resolve:false` (on `with_middleware` / `run_with_middleware`) skips the
+tag registry and leaves tags as `VTagged`, which is how to precompile text
+to binary without baking in the current handlers.
 
 Binary input may be hostile. `Decode` raises only `Failure` — bad magic or
 version, truncation, trailing bytes, lengths larger than the remaining

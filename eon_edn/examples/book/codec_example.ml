@@ -30,9 +30,9 @@ let compile_text () =
   register_shout ();
   let text = {|#shout "x"|} in
   let parse () = Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value text in
-  (* [reify] leaves tags unresolved, so the compiled tree depends only on
+  (* [~resolve:false] leaves tags unresolved, so the compiled tree depends only on
      the text, not on whatever handlers happen to be registered. *)
-  let tree = M.with_middleware ~handlers:[ M.reify ] parse in
+  let tree = M.with_middleware ~resolve:false parse in
   assert (tree = VTagged ("shout", VString "x"));
   let bytes = Binary.Encode.encode tree in
   let from_binary = M.with_middleware (fun () -> Binary.Decode.decode bytes) in

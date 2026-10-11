@@ -85,22 +85,41 @@ let test_log_tags_does_not_swallow () =
 
 let parse_text input () = Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value input
 
-let test_reify_ignores_registry () =
+let test_unresolved_ignores_registry () =
   register_uuid ();
-  let v = with_middleware ~handlers:[ reify ] (parse_text {|#uuid "abc"|}) in
+  let v = with_middleware ~resolve:false (parse_text {|#uuid "abc"|}) in
   check bool "tag left unresolved despite a registered handler" true
     (v = VTagged ("uuid", VString "abc"))
 
-let test_reify_nested_and_meta () =
-  let nested = with_middleware ~handlers:[ reify ] (parse_text {|#a #b 1|}) in
+let test_unresolved_nested_and_meta () =
+  let nested = with_middleware ~resolve:false (parse_text {|#a #b 1|}) in
   check bool "nested tags reified bottom-up" true
     (nested = VTagged ("a", VTagged ("b", VNumber 1.)));
   let meta_text = {|^:m [1]|} in
-  let reified = with_middleware ~handlers:[ reify ] (parse_text meta_text) in
+  let reified = with_middleware ~resolve:false (parse_text meta_text) in
   let default =
     run_with_middleware (fun () -> Eon_edn.Edn_parser.value ()) meta_text
   in
   check bool "meta reified like default_meta" true (reified = default)
+
+let test_unresolved_still_runs_handlers () =
+  register_uuid ();
+  let rejected =
+    try
+      ignore
+        (run_with_middleware ~resolve:false ~handlers:[ strict_tags [ "inst" ] ]
+           (fun () -> Eon_edn.Edn_parser.value ())
+           {|#uuid "abc"|});
+      false
+    with Failure msg -> msg = "Unknown tag: #uuid"
+  in
+  check bool "strict_tags still rejects with resolve:false" true rejected;
+  let v =
+    run_with_middleware ~resolve:false ~handlers:[ strict_tags [ "uuid" ] ]
+      (fun () -> Eon_edn.Edn_parser.value ())
+      {|#uuid "abc"|}
+  in
+  check bool "allowed tag stays unresolved" true (v = VTagged ("uuid", VString "abc"))
 
 let test_with_middleware_matches_run () =
   register_uuid ();
@@ -115,8 +134,9 @@ let test_with_middleware_matches_run () =
   check bool "with_middleware = run_with_middleware" true (via_run = via_with)
 
 let tests = [
-  test_case "reify ignores the tag registry" `Quick test_reify_ignores_registry;
-  test_case "reify handles nested tags and meta" `Quick test_reify_nested_and_meta;
+  test_case "resolve:false ignores the tag registry" `Quick test_unresolved_ignores_registry;
+  test_case "resolve:false handles nested tags and meta" `Quick test_unresolved_nested_and_meta;
+  test_case "resolve:false still runs handlers" `Quick test_unresolved_still_runs_handlers;
   test_case "with_middleware matches run_with_middleware" `Quick test_with_middleware_matches_run;
   test_case "default_handler resolves via registry" `Quick test_default_handler_resolves_via_registry;
   test_case "middleware chain forwards and observes" `Quick test_middleware_forwards_and_observes;

@@ -48,12 +48,13 @@ registry itself. So run it inside
 ]}
 
 Because the middleware is the same, text and binary resolve tags
-identically. {!Eon_edn.Edn_middleware.reify} makes that useful for
-precompiling: it leaves every tag unresolved, so the compiled tree depends
-only on the text, and tag handlers run when the binary is loaded.
+identically. [~resolve:false] makes that useful for precompiling: the
+registry is not consulted, so every tag comes back as [VTagged] and the
+compiled tree depends only on the text. Tag handlers then run when the
+binary is loaded, not when it is built.
 
 {[
-  let tree = M.with_middleware ~handlers:[ M.reify ] parse in
+  let tree = M.with_middleware ~resolve:false parse in
   assert (tree = VTagged ("shout", VString "x"));
   let bytes = Binary.Encode.encode tree in
   let from_binary = M.with_middleware (fun () -> Binary.Decode.decode bytes) in

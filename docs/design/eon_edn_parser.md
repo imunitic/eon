@@ -487,8 +487,9 @@ model and from any consumer so the representation can be swapped.
 - **Middleware:** `Decode` is a second producer of the parser's effects, so
   `Edn_middleware.with_middleware` (the handler stack without the reader,
   now the core of `run_with_middleware`) and its handlers apply to binary
-  and text alike. `Edn_middleware.reify` (registry-free: `Tag` →
-  `VTagged`, `Meta` → `VMeta`) compiles text to a tree independent of the
+  and text alike. `~resolve:false` on `with_middleware` /
+  `run_with_middleware` skips the tag registry (`Tag` → `VTagged`, `Meta` →
+  `VMeta`, handlers still run), so text compiles to a tree independent of the
   registered handlers.
 - **Shared failure handling:** `Edn_effects.handle_fail` turns `Fail` into
   `Failure`; `Edn_parser.run` and the decoder both use it.

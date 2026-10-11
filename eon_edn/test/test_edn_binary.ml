@@ -85,9 +85,10 @@ let rec same a b =
 let value_testable = testable (fun fmt _ -> Format.pp_print_string fmt "<value>") same
 let check_value = check value_testable
 
-(* [reify] keeps tags unresolved, whatever other tests registered globally. *)
+(* [~resolve:false] keeps tags unresolved, whatever other tests registered
+   globally. *)
 let decode_with (module C : Eon_edn.Binary.S) b =
-  M.with_middleware ~handlers:[ M.reify ] (fun () -> C.Decode.decode b)
+  M.with_middleware ~resolve:false (fun () -> C.Decode.decode b)
 
 let decode b = decode_with (module B) b
 let roundtrip v = decode (B.Encode.encode v)
@@ -179,8 +180,8 @@ let test_decode_matches_text_through_middleware () =
       match v with VString s -> VString (String.uppercase_ascii s) | v -> v);
   let text = {|{:a #bin_shout "x" :b ^:m [1 #unregistered 2 #bin_shout #bin_shout "y"]}|} in
   let via_text = M.run_with_middleware (fun () -> Eon_edn.Edn_parser.value ()) text in
-  (* Compile: reify keeps the tree independent of the registry. *)
-  let tree = M.with_middleware ~handlers:[ M.reify ] (parse_text text) in
+  (* Compile: resolve:false keeps the tree independent of the registry. *)
+  let tree = M.with_middleware ~resolve:false (parse_text text) in
   check bool "reified tree keeps the tags" true (tree <> via_text);
   let bytes = B.Encode.encode tree in
   let via_binary = M.with_middleware (fun () -> B.Decode.decode bytes) in
