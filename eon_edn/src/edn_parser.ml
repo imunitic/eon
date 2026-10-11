@@ -139,7 +139,7 @@ let run parser input =
               else failwith "EOF"
             in
             continue k c)
-      | Fail msg -> Some (fun k -> discontinue k (Failure msg))
       | _ -> None
   in
-  match_with parser () { retc = (fun v -> v); exnc = (fun e -> raise e); effc }
+  handle_fail (fun () ->
+    match_with parser () { retc = (fun v -> v); exnc = (fun e -> raise e); effc })

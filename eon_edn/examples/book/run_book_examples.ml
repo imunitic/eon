@@ -8,4 +8,5 @@
 let () =
   ignore Eon_edn_book_examples.Reading_example.quick_start;
   ignore Eon_edn_book_examples.Middleware_example.config_worked_example;
+  ignore Eon_edn_book_examples.Codec_example.paired_codecs;
   print_endline "All book examples compiled and ran their assertions successfully."

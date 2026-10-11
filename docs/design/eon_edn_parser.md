@@ -458,3 +458,45 @@ rejected: Unknown tag: #uuid
 value still resolves through the registry (`UUID=ABC`, uppercased — proof
 `default_handler` ran too), and the second call is rejected by
 `strict_tags` as expected.
+
+---
+
+## 📦 Binary codec
+
+`Edn_effects.value` also has a pluggable binary form. The codec is a pair of
+small signatures plus a handwritten default, kept separate from the data
+model and from any consumer so the representation can be swapped.
+
+- **`Edn_bytes.t`** is `private string`: an encoded document. Zero cost,
+  readable as a string through a coercion, constructible only via
+  `of_string`, so encoded binary and EDN text cannot be swapped.
+- **`Edn_codec.ENCODE` / `DECODE`** (also `Eon_edn.ENCODE`/`DECODE`) are
+  separate signatures, each with an abstract `format`. A consumer that needs
+  both requires `DECODE with type format = ENCODE.format`. `encode` is total
+  and performs no effects; `decode` raises `Failure` and performs
+  `Tag`/`Meta` effects.
+- **`Binary`** is the handwritten default: `EDNB` magic, a version byte
+  (`1`), one tag byte per constructor, unsigned LEB128 varint lengths,
+  little-endian float64 (bit-exact). `Binary.Make (Limits)` builds a codec
+  whose decoder enforces `max_size` and `max_depth`; `Binary` is `Make` over
+  `Default_limits` (16 MiB, 256). `format` is defined once, so every `Make`
+  application pairs with every other; limits are decode-side only.
+- **Hardened decode:** only `Failure` escapes. A length or count above the
+  remaining input is rejected before allocating; truncation and trailing
+  bytes are rejected.
+- **Middleware:** `Decode` is a second producer of the parser's effects, so
+  `Edn_middleware.with_middleware` (the handler stack without the reader,
+  now the core of `run_with_middleware`) and its handlers apply to binary
+  and text alike. `~resolve:false` on `with_middleware` /
+  `run_with_middleware` skips the tag registry (`Tag` → `VTagged`, `Meta` →
+  `VMeta`, handlers still run), so text compiles to a tree independent of the
+  registered handlers.
+- **Shared failure handling:** `Edn_effects.handle_fail` turns `Fail` into
+  `Failure`; `Edn_parser.run` and the decoder both use it.
+- **Measured** (`just edn-bench edn_parser`): decoding is ~20–40× faster
+  than parsing the same document through the middleware stack (prefab-shaped
+  document: ~40 µs vs ~1 µs).
+
+Out of scope here and recorded as separate `eon_engine/prefab` work: a
+compiled-source `Prefab.Source` (digest header, `.ebin` files beside the
+source, shipped precompiled assets plus runtime compilation of mods).

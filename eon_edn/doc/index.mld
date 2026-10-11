@@ -41,6 +41,9 @@ one more step — see {{!page-middleware}Middleware}.
 - {{!page-middleware}Middleware} — {!Eon_edn.Edn_middleware}: resolving
   tags, registering handlers, composing [log_tags]/[strict_tags], and a
   worked example converting a parsed value into a typed OCaml record.
+- {{!page-codec}Binary encoding} — {!Eon_edn.Binary}, {!Eon_edn.Edn_bytes}:
+  a compact binary form of a value, how tags and middleware apply to it,
+  decoding untrusted input within limits, and writing your own codec.
 
 {1 API reference}
 
