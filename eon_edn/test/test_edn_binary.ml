@@ -125,6 +125,20 @@ let test_malformed () =
   fails "overlong varint"
     (fun () -> decode (raw (header ^ "\x04" ^ String.make 10 '\xff' ^ "\x01")))
 
+(* Only bytes 0x00-0x0B start a value; every other byte is rejected as an
+   unknown tag, whatever follows. *)
+let test_tag_bytes () =
+  for b = 0 to 255 do
+    let doc = raw (header ^ String.make 1 (Char.chr b)) in
+    let unknown =
+      match decode doc with
+      | exception Failure msg ->
+          String.length msg >= 15 && String.sub msg 0 15 = "unknown tag byt"
+      | _ -> false
+    in
+    check bool (Printf.sprintf "byte 0x%02x" b) (b > 0x0b) unknown
+  done
+
 let test_truncation_always_fails () =
   List.iter
     (fun v ->
@@ -223,6 +237,7 @@ let tests = [
   test_case "tagged and meta" `Quick test_tagged_and_meta;
   test_case "decode: round trip" `Quick test_roundtrip;
   test_case "decode: malformed input raises Failure" `Quick test_malformed;
+  test_case "decode: only 0x00-0x0b are tag bytes" `Quick test_tag_bytes;
   test_case "decode: every truncation raises Failure" `Quick test_truncation_always_fails;
   test_case "decode: hostile lengths and counts" `Quick test_hostile_lengths;
   test_case "decode: default depth limit" `Quick test_default_depth_limit;
