@@ -48,6 +48,20 @@ val identity : handler
     {!run_with_middleware}); using {!default_handler} as the seed instead
     would make it the innermost handler and shadow all middleware. *)
 
+val reify : handler
+(** Registry-free resolution: {!Edn_effects.Tag} becomes [VTagged] and
+    {!Edn_effects.Meta} becomes [VMeta], whatever handlers are registered
+    with {!register_tag_handler}. The resulting tree depends only on the
+    input text. *)
+
+val with_middleware :
+  ?handlers:handler list -> (unit -> Edn_effects.value) -> Edn_effects.value
+(** [with_middleware ?handlers producer] runs [producer] — anything that
+    yields a value and performs {!Edn_effects.Tag}/{!Edn_effects.Meta}
+    effects, such as a parser or a binary decoder — with [handlers]
+    installed between it and {!default_handler}. Same refusal order as
+    {!run_with_middleware}. *)
+
 val run_with_middleware :
   ?handlers:handler list -> (unit -> Edn_effects.value) -> string -> Edn_effects.value
 (** [run_with_middleware ?handlers parser input] parses [input] via

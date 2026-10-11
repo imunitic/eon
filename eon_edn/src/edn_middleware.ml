@@ -53,9 +53,22 @@ let strict_tags (allowed : string list) : handler = fun next ->
   in
   match_with next () { retc = (fun v -> v); exnc = (fun e -> raise e); effc }
 
+let reify : handler = fun next ->
+  let open Effect.Deep in
+  let effc : type a. a Effect.t -> ((a, _) continuation -> _) option =
+    fun eff ->
+      match eff with
+      | Tag (t, v) -> Some (fun k -> continue k (VTagged (t, v)))
+      | Meta (m, v) -> Some (fun k -> continue k (VMeta (m, v)))
+      | _ -> None
+  in
+  match_with next () { retc = (fun v -> v); exnc = (fun e -> raise e); effc }
+
 let identity : handler = fun next -> next ()
 
-let run_with_middleware ?(handlers = []) parser input =
-  let base () = Edn_parser.run parser input in
+let with_middleware ?(handlers = []) thunk =
   let middleware_chain = List.fold_right compose handlers identity in
-  default_handler (fun () -> middleware_chain base)
+  default_handler (fun () -> middleware_chain thunk)
+
+let run_with_middleware ?handlers parser input =
+  with_middleware ?handlers (fun () -> Edn_parser.run parser input)

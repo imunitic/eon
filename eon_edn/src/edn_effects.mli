@@ -29,3 +29,7 @@ type _ Effect.t +=
 
 val failf : ('a, unit, string, 'b) format4 -> 'a
 (** [failf fmt ...] performs {!Fail} with the formatted message. *)
+
+val handle_fail : (unit -> 'a) -> 'a
+(** [handle_fail f] runs [f ()], turning a {!Fail} effect into
+    [Failure msg]. Every other effect is forwarded to the enclosing handler. *)

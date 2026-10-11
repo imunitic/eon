@@ -83,7 +83,41 @@ let test_log_tags_does_not_swallow () =
   in
   check bool "log_tags forwards, does not swallow" true (v = VTagged ("uuid", VString "ABC"))
 
+let parse_text input () = Eon_edn.Edn_parser.run Eon_edn.Edn_parser.value input
+
+let test_reify_ignores_registry () =
+  register_uuid ();
+  let v = with_middleware ~handlers:[ reify ] (parse_text {|#uuid "abc"|}) in
+  check bool "tag left unresolved despite a registered handler" true
+    (v = VTagged ("uuid", VString "abc"))
+
+let test_reify_nested_and_meta () =
+  let nested = with_middleware ~handlers:[ reify ] (parse_text {|#a #b 1|}) in
+  check bool "nested tags reified bottom-up" true
+    (nested = VTagged ("a", VTagged ("b", VNumber 1.)));
+  let meta_text = {|^:m [1]|} in
+  let reified = with_middleware ~handlers:[ reify ] (parse_text meta_text) in
+  let default =
+    run_with_middleware (fun () -> Eon_edn.Edn_parser.value ()) meta_text
+  in
+  check bool "meta reified like default_meta" true (reified = default)
+
+let test_with_middleware_matches_run () =
+  register_uuid ();
+  let text = {|[#uuid "abc" #other 1]|} in
+  let via_run =
+    run_with_middleware ~handlers:[ strict_tags [ "uuid"; "other" ] ]
+      (fun () -> Eon_edn.Edn_parser.value ()) text
+  in
+  let via_with =
+    with_middleware ~handlers:[ strict_tags [ "uuid"; "other" ] ] (parse_text text)
+  in
+  check bool "with_middleware = run_with_middleware" true (via_run = via_with)
+
 let tests = [
+  test_case "reify ignores the tag registry" `Quick test_reify_ignores_registry;
+  test_case "reify handles nested tags and meta" `Quick test_reify_nested_and_meta;
+  test_case "with_middleware matches run_with_middleware" `Quick test_with_middleware_matches_run;
   test_case "default_handler resolves via registry" `Quick test_default_handler_resolves_via_registry;
   test_case "middleware chain forwards and observes" `Quick test_middleware_forwards_and_observes;
   test_case "strict_tags rejects disallowed tag" `Quick test_strict_tags_rejects;

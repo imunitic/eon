@@ -19,3 +19,13 @@ type _ Effect.t +=
   | Meta : (value * value) -> value Effect.t
 
 let failf fmt = Printf.ksprintf (fun msg -> Effect.perform (Fail msg)) fmt
+
+let handle_fail f =
+  let open Effect.Deep in
+  let effc : type a. a Effect.t -> ((a, _) continuation -> _) option =
+    fun eff ->
+      match eff with
+      | Fail msg -> Some (fun k -> discontinue k (Failure msg))
+      | _ -> None
+  in
+  match_with f () { retc = (fun v -> v); exnc = (fun e -> raise e); effc }
